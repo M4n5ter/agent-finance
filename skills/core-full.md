@@ -1,0 +1,74 @@
+# agent-finance full core skill
+
+Read this when you need the full command map for `agent-finance`.
+
+## Command Map
+
+```bash
+agent-finance skills list
+agent-finance skills get core
+agent-finance skills get price
+agent-finance skills get research-data
+agent-finance skills get providers
+agent-finance skills get history-indicators
+agent-finance skills get futures
+```
+
+## Price and Sessions
+
+```bash
+agent-finance price CRDO
+agent-finance price CRDO MRVL --json
+agent-finance sessions CRDO
+agent-finance sessions LITE --proxy-symbol LITEUSDT
+```
+
+`price` answers the default current-price question. `sessions` compares regular/pre/post/overnight/provider/proxy sources.
+
+## History and Indicators
+
+```bash
+agent-finance history CRDO --range 1mo --interval 1d
+agent-finance history CRDO --range 5d --interval 1m --session extended --adjustment raw --no-actions
+agent-finance history CRDO --range 1y --interval 1d --adjustment auto --repair
+agent-finance indicators CRDO MRVL --limit 120
+```
+
+Use history before making order, fill, stop-loss, take-profit, or intraday trend judgments. Indicators are summaries; they do not replace the bar path.
+
+## Research Data
+
+```bash
+agent-finance fundamentals CRDO
+agent-finance fundamentals CRDO --provider sec-edgar
+agent-finance fundamentals CRDO --provider robinhood
+agent-finance fundamentals CRDO --provider cnbc
+agent-finance analysis CRDO
+agent-finance options CRDO
+agent-finance options CRDO --provider robinhood --count 80
+agent-finance ownership CRDO
+agent-finance events CRDO --provider sec-edgar
+agent-finance news CRDO
+agent-finance read-url "https://www.sec.gov/Archives/edgar/data/0001807794/000162828026014017/crdo-20260131.htm"
+agent-finance search "optical interconnect"
+agent-finance screen day_gainers
+```
+
+Research reports include sources, modules, coverage gaps, highlights, and raw payloads in JSON mode.
+
+## Providers and Proxy Data
+
+```bash
+agent-finance providers
+agent-finance providers --json
+agent-finance futures SPCXUSDT
+agent-finance futures LITEUSDT --json
+```
+
+Use `providers` as the source-of-truth coverage matrix. Binance futures / TradFi perps are derivative/proxy prices, not legal equity or broker-fill prices.
+
+## Network and Browser Boundaries
+
+The CLI respects `--proxy`, `AGENT_FINANCE_PROXY`, and standard proxy environment variables. It does not hardcode a local proxy.
+
+`read-url` is a text extraction fallback. For dynamic, login-gated, screenshot-sensitive, or noisy pages, open the original page with an available real browser tool such as agent-browser or opencli.
