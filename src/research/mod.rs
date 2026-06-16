@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
-use reqwest::Client;
 use serde_json::Value;
+use wreq::Client;
 
 mod fetchers;
 mod highlights;

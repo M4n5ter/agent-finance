@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use reqwest::Client;
+use wreq::Client;
 
 use crate::cli::SessionMode;
 use crate::http::{change_pct, utc_now};

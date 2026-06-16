@@ -1,6 +1,6 @@
 use anyhow::Result;
-use reqwest::Client;
 use serde_json::Value;
+use wreq::Client;
 
 use super::QuoteSummaryKind;
 use crate::cache;

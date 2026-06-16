@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{Datelike, NaiveDate};
-use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
+use wreq::Client;
 use zip::ZipArchive;
 
 use crate::cli::{StooqAsset, StooqFrequency, StooqMarket};
@@ -562,7 +562,7 @@ fn sum_optional(left: Option<f64>, right: Option<f64>) -> Option<f64> {
 }
 
 async fn download_zip_to_file(client: &Client, url: &str, target: &Path) -> Result<u64> {
-    let mut response = client
+    let response = client
         .get(url)
         .send()
         .await
@@ -571,17 +571,13 @@ async fn download_zip_to_file(client: &Client, url: &str, target: &Path) -> Resu
         .context("Stooq bulk download returned HTTP error")?;
     let mut file = fs::File::create(target)
         .with_context(|| format!("failed to create temp ZIP {}", target.display()))?;
-    let mut bytes = 0_u64;
-    while let Some(chunk) = response
-        .chunk()
+    let bytes = response
+        .bytes()
         .await
-        .context("Stooq bulk download chunk failed")?
-    {
-        file.write_all(&chunk)
-            .with_context(|| format!("failed to write temp ZIP {}", target.display()))?;
-        bytes += chunk.len() as u64;
-    }
-    Ok(bytes)
+        .context("Stooq bulk download body read failed")?;
+    file.write_all(&bytes)
+        .with_context(|| format!("failed to write temp ZIP {}", target.display()))?;
+    Ok(bytes.len() as u64)
 }
 
 fn stooq_symbol(symbol: &str) -> String {

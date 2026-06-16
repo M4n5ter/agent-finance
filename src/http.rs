@@ -2,11 +2,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::{SecondsFormat, TimeZone, Utc};
-use reqwest::{Client, Proxy};
+use wreq::{Client, Proxy};
+use wreq_util::Emulation;
 
 pub fn http_client(timeout_seconds: u64, proxy: Option<&str>, no_proxy: bool) -> Result<Client> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut builder = Client::builder()
+        .emulation(Emulation::Chrome137)
         .timeout(Duration::from_secs(timeout_seconds))
         .cookie_store(true);
 

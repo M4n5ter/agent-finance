@@ -7,6 +7,9 @@ on:
 jobs:
   cargo-test:
     runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v6.0.3
       - uses: dtolnay/rust-toolchain@stable
@@ -16,5 +19,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets
       - run: cargo test --locked
+      - run: cargo build --release --locked
+      - run: node npm/check-binary-links.js target/release/agent-finance
       - run: npm run check:npm
       - run: npm pack --dry-run

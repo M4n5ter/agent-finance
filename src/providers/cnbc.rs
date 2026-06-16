@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, anyhow};
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 use url::Url;
+use wreq::Client;
 
 use crate::http::{change_pct, utc_now};
 use crate::model::{Quote, ResearchHighlight, research_value_string};

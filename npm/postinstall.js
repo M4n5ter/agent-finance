@@ -19,9 +19,19 @@ if (!packageName) {
   console.error(`Prebuilt package ${packageName} was not installed.`);
 }
 console.error("Falling back to local Rust build.");
+console.error(
+  "Local builds require Rust/Cargo plus a native toolchain for wreq/BoringSSL, including CMake, Clang/Clang++, libclang, and binutils.",
+);
+
+const env = {
+  ...process.env,
+  CC: process.env.CC || "clang",
+  CXX: process.env.CXX || "clang++",
+};
 
 const result = spawnSync("cargo", ["build", "--release", "--locked"], {
   cwd: root,
+  env,
   stdio: "inherit",
 });
 
@@ -29,6 +39,7 @@ if (result.error) {
   if (result.error.code === "ENOENT") {
     console.error("agent-finance-cli requires Rust/Cargo to build during npm install.");
     console.error("Install Rust from https://rustup.rs/ and then reinstall this package.");
+    console.error("Also install CMake, Clang/Clang++, libclang, and binutils for local fallback builds.");
     process.exit(127);
   }
   console.error(result.error.message);

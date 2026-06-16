@@ -36,6 +36,9 @@ jobs:
             runner: windows-latest
             binary: target/release/agent-finance.exe
     runs-on: ${{ matrix.runner }}
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v6.0.3
       - uses: dtolnay/rust-toolchain@stable
@@ -44,6 +47,7 @@ jobs:
           node-version: 24
       - run: cargo build --release --locked
       - run: cargo test --locked
+      - run: node npm/check-binary-links.js ${{ matrix.binary }}
       - run: >
           node npm/create-platform-package.js
           --package ${{ matrix.package }}
@@ -61,6 +65,9 @@ jobs:
     name: publish npm packages
     needs: build-platform
     runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v6.0.3
       - uses: dtolnay/rust-toolchain@stable

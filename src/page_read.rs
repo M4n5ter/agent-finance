@@ -1,11 +1,11 @@
 use anyhow::{Context, Result, anyhow};
-use reqwest::{
-    Client,
-    header::{ACCEPT, CONTENT_TYPE},
-};
 use scraper::{Html, Selector};
 use serde::Serialize;
 use url::Url;
+use wreq::{
+    Client,
+    header::{ACCEPT, CONTENT_TYPE},
+};
 
 use crate::cli::ReadUrlProvider;
 use crate::http::utc_now;

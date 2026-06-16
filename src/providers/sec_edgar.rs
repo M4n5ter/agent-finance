@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, anyhow};
-use reqwest::{
+use serde_json::{Value, json};
+use wreq::{
     Client,
     header::{ACCEPT, USER_AGENT},
 };
-use serde_json::{Value, json};
 
 use crate::model::{ResearchHighlight, research_value_string};
 
