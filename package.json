@@ -1,0 +1,46 @@
+{
+  "name": "agent-finance-cli",
+  "version": "0.1.0",
+  "description": "AI Agent-first CLI for no-key financial market data and research context.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/M4n5ter/agent-finance-cli.git"
+  },
+  "homepage": "https://github.com/M4n5ter/agent-finance-cli#readme",
+  "bugs": {
+    "url": "https://github.com/M4n5ter/agent-finance-cli/issues"
+  },
+  "bin": {
+    "agent-finance": "bin/agent-finance.js"
+  },
+  "files": [
+    "bin/",
+    "npm/",
+    "skills/",
+    "src/",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "scripts": {
+    "postinstall": "node npm/postinstall.js",
+    "prepack": "cargo fmt --check && cargo clippy --all-targets && cargo test --locked"
+  },
+  "keywords": [
+    "finance",
+    "market-data",
+    "cli",
+    "ai-agent",
+    "yahoo-finance",
+    "sec-edgar"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

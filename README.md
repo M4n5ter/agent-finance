@@ -13,7 +13,15 @@ agent-finance skills list
 
 ## Install
 
-GitHub-first install:
+From npm:
+
+```bash
+npm install -g agent-finance-cli
+```
+
+The npm package builds the Rust binary from source during install, so a working Rust toolchain is required.
+
+From GitHub:
 
 ```bash
 cargo install --git https://github.com/M4n5ter/agent-finance-cli
@@ -26,7 +34,7 @@ cargo run --bin agent-finance -- skills get core
 cargo run --bin agent-finance -- price CRDO
 ```
 
-Future distribution targets include crates.io, npm, and Homebrew.
+Future distribution targets include crates.io and Homebrew.
 
 ## Common Commands
 
@@ -105,18 +113,5 @@ Proxy precedence:
 No proxy is hardcoded by default.
 
 SEC EDGAR requests use `AGENT_FINANCE_SEC_USER_AGENT` when set, otherwise a project-level user agent.
-
-## 中文说明
-
-`agent-finance-cli` 是面向“人类操作的 AI Agent”的金融数据 CLI。它不是个人组合管理器，也不是投资建议工具。它负责把多源行情、历史 K 线、研究数据、网页正文和 provider 能力暴露成稳定、可脚本化、可被 Agent 学习的命令。
-
-推荐 Agent 先运行：
-
-```bash
-agent-finance skills get core
-agent-finance providers
-```
-
-然后根据任务选择 `price`、`sessions`、`history`、`fundamentals`、`events`、`read-url` 等命令。遇到动态网页、登录态页面、X/Reddit/券商页面或页面级证据时，应配合真实浏览器工具深读原页。
 
 Disclaimer: this tool is not investment advice; data may be delayed, incomplete, or wrong, and users must verify important facts and follow source terms.
