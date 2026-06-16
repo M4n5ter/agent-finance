@@ -19,7 +19,9 @@ From npm:
 npm install -g agent-finance-cli
 ```
 
-The npm package builds the Rust binary from source during install, so a working Rust toolchain is required.
+The npm package installs a prebuilt binary for supported platforms. Rust is not required for the normal npm install path.
+
+If no prebuilt package is available for the current platform, npm falls back to a local source build. That fallback requires Rust/Cargo plus the native toolchain needed by `wreq`/BoringSSL: CMake, Clang/Clang++, libclang, and binutils.
 
 From GitHub:
 
