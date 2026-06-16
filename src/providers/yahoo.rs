@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, anyhow};
+use reqwest::{Client, header::ACCEPT};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use url::Url;
-use wreq::{Client, header::ACCEPT};
 
 use crate::history::apply_history_adjustment_and_repair;
 use crate::http::{change_pct, timestamp_sec_to_utc, utc_now};
@@ -727,7 +727,7 @@ async fn request_json_text(
     client: &Client,
     url: &str,
     label: &str,
-) -> Result<(wreq::StatusCode, String)> {
+) -> Result<(reqwest::StatusCode, String)> {
     let response = client
         .get(url)
         .header(ACCEPT, "application/json")

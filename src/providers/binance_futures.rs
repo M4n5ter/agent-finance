@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
-use wreq::Client;
 
 use crate::http::{parse_optional_f64, timestamp_ms_to_utc, utc_now};
 use crate::model::{

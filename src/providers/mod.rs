@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use wreq::Client;
+use reqwest::Client;
 
 use crate::cli::{HistoryAdjustment, Provider, StooqAsset, StooqMarket};
 use crate::model::{HistoryBatch, Quote};

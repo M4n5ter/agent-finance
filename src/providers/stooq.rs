@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{Datelike, NaiveDate};
+use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
-use wreq::Client;
 use zip::ZipArchive;
 
 use crate::cli::{StooqAsset, StooqFrequency, StooqMarket};

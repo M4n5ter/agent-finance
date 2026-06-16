@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, anyhow};
+use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use url::Url;
-use wreq::Client;
 
 use crate::http::{change_pct, parse_optional_f64, utc_now};
 use crate::model::{
