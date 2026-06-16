@@ -23,7 +23,7 @@ jobs:
           - package: agent-finance-cli-darwin-x64
             os: darwin
             cpu: x64
-            runner: macos-13
+            runner: macos-15-intel
             binary: target/release/agent-finance
           - package: agent-finance-cli-darwin-arm64
             os: darwin
