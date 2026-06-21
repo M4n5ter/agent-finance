@@ -7,6 +7,7 @@ use crate::model::{
     ResearchReport, SearchReport, StreamQuote,
 };
 use crate::page_read::PageReadReport;
+use crate::time::utc_to_local;
 
 pub fn print_price_summary(summary: &PriceSummary, show_all: bool) {
     println!(
@@ -72,7 +73,7 @@ pub fn print_price_summary(summary: &PriceSummary, show_all: bool) {
     }
 }
 
-pub fn print_history_table(history: &HistoryBatch) {
+pub fn print_history_table(history: &HistoryBatch, timezone: &str) {
     println!(
         "{} history via {} interval={} adjustment={} actions={} repair_requested={} repair_applied={}",
         history.symbol,
@@ -101,7 +102,7 @@ pub fn print_history_table(history: &HistoryBatch) {
         .iter()
         .map(|bar| {
             vec![
-                bar.open_time.clone(),
+                local_or_original(&bar.open_time, timezone),
                 money_value(bar.open),
                 money_value(bar.high),
                 money_value(bar.low),
@@ -157,10 +158,12 @@ pub fn print_indicator_table(indicators: &[DerivedIndicator], errors: &BTreeMap<
     print_table(&headers, &rows);
 }
 
-pub fn print_futures_stats(stats: &FuturesStats) {
+pub fn print_futures_stats(stats: &FuturesStats, timezone: &str) {
     println!(
         "{} futures stats via {} fetched_at={}",
-        stats.symbol, stats.provider, stats.fetched_at_utc
+        stats.symbol,
+        stats.provider,
+        local_or_original(&stats.fetched_at_utc, timezone)
     );
     if let Some(ticker) = stats.ticker_24h.as_ref() {
         println!(
@@ -182,14 +185,14 @@ pub fn print_futures_stats(stats: &FuturesStats) {
             money_value(mark.mark_price),
             money_value(mark.index_price),
             pct_value(mark.last_funding_rate.map(|value| value * 100.0)),
-            mark.next_funding_time.as_deref().unwrap_or("-")
+            local_or_original_optional(mark.next_funding_time.as_deref(), timezone)
         );
     }
     if let Some(open_interest) = stats.open_interest.as_ref() {
         println!(
             "open_interest: {} time={}",
             number_value(open_interest.open_interest),
-            open_interest.time.as_deref().unwrap_or("-")
+            local_or_original_optional(open_interest.time.as_deref(), timezone)
         );
     }
     if !stats.funding_rates.is_empty() {
@@ -200,7 +203,7 @@ pub fn print_futures_stats(stats: &FuturesStats) {
             .iter()
             .map(|row| {
                 vec![
-                    row.funding_time.clone().unwrap_or_else(|| "-".to_string()),
+                    local_or_original_optional(row.funding_time.as_deref(), timezone),
                     pct_value(row.funding_rate.map(|value| value * 100.0)),
                     money_value(row.mark_price),
                 ]
@@ -510,6 +513,16 @@ where
         .map(|(value, width)| format!("{:<width$}", value.as_ref()))
         .collect::<Vec<_>>()
         .join("  ")
+}
+
+fn local_or_original_optional(value: Option<&str>, timezone: &str) -> String {
+    value
+        .map(|value| local_or_original(value, timezone))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn local_or_original(value: &str, timezone: &str) -> String {
+    utc_to_local(Some(value), timezone).unwrap_or_else(|| value.to_string())
 }
 
 fn money_value(value: Option<f64>) -> String {

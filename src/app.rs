@@ -21,21 +21,27 @@ use crate::providers::{self, binance_futures, stooq};
 use crate::research;
 use crate::skills;
 use crate::stream;
+use crate::time::resolve_timezone;
 
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     let proxy = cli.proxy.as_deref();
     let no_proxy = cli.no_proxy;
-    let timezone = cli.timezone.as_str();
+    let timezone = resolve_timezone(cli.timezone.as_deref())?;
+    let timezone = timezone.as_str();
     let timeout_seconds = cli.timeout_seconds;
     match cli.command {
         Command::Price(args) => run_price(args, proxy, no_proxy, timeout_seconds, timezone).await,
         Command::Sessions(args) => {
             run_sessions(args, proxy, no_proxy, timeout_seconds, timezone).await
         }
-        Command::History(args) => run_history(args, proxy, no_proxy, timeout_seconds).await,
+        Command::History(args) => {
+            run_history(args, proxy, no_proxy, timeout_seconds, timezone).await
+        }
         Command::Indicators(args) => run_indicators(args, proxy, no_proxy, timeout_seconds).await,
-        Command::Futures(args) => run_futures(args, proxy, no_proxy, timeout_seconds).await,
+        Command::Futures(args) => {
+            run_futures(args, proxy, no_proxy, timeout_seconds, timezone).await
+        }
         Command::Fundamentals(args) => {
             run_provider_quote_summary(
                 args,
@@ -193,6 +199,7 @@ async fn run_history(
     proxy: Option<&str>,
     no_proxy: bool,
     timeout_seconds: u64,
+    timezone: &str,
 ) -> Result<()> {
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let provider = effective_history_provider(args.provider, args.session);
@@ -213,7 +220,7 @@ async fn run_history(
     if args.json {
         println!("{}", serde_json::to_string_pretty(&history)?);
     } else {
-        output::print_history_table(&history);
+        output::print_history_table(&history, timezone);
     }
     Ok(())
 }
@@ -291,6 +298,7 @@ async fn run_futures(
     proxy: Option<&str>,
     no_proxy: bool,
     timeout_seconds: u64,
+    timezone: &str,
 ) -> Result<()> {
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let stats =
@@ -299,7 +307,7 @@ async fn run_futures(
     if args.json {
         println!("{}", serde_json::to_string_pretty(&stats)?);
     } else {
-        output::print_futures_stats(&stats);
+        output::print_futures_stats(&stats, timezone);
     }
 
     if stats.errors.is_empty() {

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::time::DEFAULT_TIMEZONE;
 pub const HISTORY_INTERVAL_HELP: &str = "Bar interval. Provider-specific values: Yahoo 1m/2m/5m/15m/30m/60m/90m/1h/1d/5d/1wk/1mo/3mo; Robinhood 5m/10m/1h/1d/1w; Stooq live 1d/1w/1mo; Stooq bulk 5m/1h after sync; Binance klines 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M.";
 
 #[derive(Parser, Debug)]
@@ -21,9 +20,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub no_proxy: bool,
 
-    /// Human-output timezone. UTC is still preserved in JSON fields.
-    #[arg(long, global = true, default_value = DEFAULT_TIMEZONE)]
-    pub timezone: String,
+    /// Human-output timezone. Defaults to the machine's local IANA timezone.
+    /// UTC is still preserved in JSON fields.
+    #[arg(long, global = true)]
+    pub timezone: Option<String>,
 
     /// HTTP timeout in seconds.
     #[arg(long, global = true, default_value_t = 10)]
