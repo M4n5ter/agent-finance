@@ -1,6 +1,6 @@
 {
   "name": "agent-finance-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI Agent-first CLI for no-key financial market data and research context.",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -31,11 +31,11 @@
     "check:npm": "node npm/check-package.js"
   },
   "optionalDependencies": {
-    "agent-finance-cli-darwin-arm64": "0.1.0",
-    "agent-finance-cli-darwin-x64": "0.1.0",
-    "agent-finance-cli-linux-arm64": "0.1.0",
-    "agent-finance-cli-linux-x64": "0.1.0",
-    "agent-finance-cli-win32-x64": "0.1.0"
+    "agent-finance-cli-darwin-arm64": "0.1.1",
+    "agent-finance-cli-darwin-x64": "0.1.1",
+    "agent-finance-cli-linux-arm64": "0.1.1",
+    "agent-finance-cli-linux-x64": "0.1.1",
+    "agent-finance-cli-win32-x64": "0.1.1"
   },
   "keywords": [
     "finance",

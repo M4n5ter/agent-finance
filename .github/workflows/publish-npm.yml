@@ -78,6 +78,8 @@ jobs:
       - uses: actions/download-artifact@v8.0.1
         with:
           path: npm-dist
+      - name: restore executable permissions
+        run: find npm-dist -path '*/bin/*' -type f -exec chmod 755 {} +
       - run: npm run check:npm
       - name: publish platform packages
         env:
