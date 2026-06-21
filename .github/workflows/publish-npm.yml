@@ -88,7 +88,7 @@ jobs:
             | sort -z \
             | while IFS= read -r -d '' package_json; do
             package_dir="$(dirname "$package_json")"
-            npm publish "$package_dir" --access public
+            npm publish "$PWD/$package_dir" --access public
           done
       - name: publish main package
         env:
