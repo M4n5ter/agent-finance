@@ -7,6 +7,7 @@ use crate::model::{HistoryBatch, Quote};
 pub mod binance_futures;
 pub mod capabilities;
 pub mod cnbc;
+pub mod polymarket;
 pub mod robinhood;
 pub mod sec_edgar;
 pub mod stooq;

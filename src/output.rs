@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 
 use crate::model::{
-    DerivedIndicator, FuturesStats, HistoryBatch, PricePoint, PriceSummary, ProviderProfile,
+    DerivedIndicator, FuturesStats, HistoryBatch, PredictionMarketReport, PredictionMarketSummary,
+    PredictionOutcome, PredictionSearchReport, PricePoint, PriceSummary, ProviderProfile,
     ResearchReport, SearchReport, StreamQuote,
 };
 use crate::page_read::PageReadReport;
@@ -331,6 +332,153 @@ pub fn print_search_report(report: &SearchReport, raw: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn print_prediction_search_report(report: &PredictionSearchReport) {
+    println!(
+        "{} search '{}' fetched={} cache={}",
+        report.provider, report.query, report.fetched_at_local, report.cache_status
+    );
+    println!("{}", report.interpretation_note);
+    print_source_urls(&report.source_urls);
+    print_prediction_markets(&report.markets);
+}
+
+pub fn print_prediction_market_report(report: &PredictionMarketReport) {
+    println!(
+        "{} market '{}' fetched={} cache={} enrichment={} enrichment_fetched={}",
+        report.provider,
+        report.identifier,
+        report.fetched_at_local,
+        report.cache_status,
+        report.enrichment_status,
+        report.enrichment_fetched_at_local
+    );
+    println!("{}", report.interpretation_note);
+    print_source_urls(&report.source_urls);
+    print_prediction_markets(std::slice::from_ref(&report.market));
+    println!();
+    println!("Outcomes");
+    print_prediction_outcomes(&report.outcomes);
+    if !report.price_history.is_empty() {
+        println!();
+        println!("Price history");
+        let headers = ["time", "price"];
+        let rows = report
+            .price_history
+            .iter()
+            .rev()
+            .take(12)
+            .map(|point| {
+                vec![
+                    point
+                        .time_local
+                        .as_deref()
+                        .or(point.time_utc.as_deref())
+                        .unwrap_or("-")
+                        .to_string(),
+                    money_value(Some(point.price)),
+                ]
+            })
+            .collect::<Vec<_>>();
+        print_table(&headers, &rows);
+    }
+    if report.open_interest.is_some() || report.holder_preview_count.is_some() {
+        println!();
+        println!(
+            "Data API: open_interest={} holder_preview_rows={}",
+            number_value(report.open_interest),
+            report
+                .holder_preview_count
+                .map_or_else(|| "-".to_string(), |value| value.to_string())
+        );
+    }
+    if !report.data_errors.is_empty() {
+        println!();
+        println!("Partial data errors");
+        for (source, error) in &report.data_errors {
+            println!("{source}: {error}");
+        }
+    }
+}
+
+fn print_source_urls(urls: &[String]) {
+    if urls.is_empty() {
+        return;
+    }
+    println!("Sources:");
+    for url in urls {
+        println!("- {url}");
+    }
+}
+
+fn print_prediction_markets(markets: &[PredictionMarketSummary]) {
+    if markets.is_empty() {
+        println!("No markets matched after local filtering.");
+        return;
+    }
+    let headers = [
+        "market", "active", "closed", "prob", "bid", "ask", "spread", "vol24h", "liq", "end",
+    ];
+    let rows = markets
+        .iter()
+        .map(|market| {
+            vec![
+                market.title.clone(),
+                bool_text(market.active),
+                bool_text(market.closed),
+                market
+                    .outcomes
+                    .first()
+                    .and_then(|outcome| outcome.implied_probability)
+                    .map(pct_from_unit)
+                    .unwrap_or_else(|| "-".to_string()),
+                money_value(market.best_bid),
+                money_value(market.best_ask),
+                money_value(market.spread),
+                number_value(market.volume_24hr),
+                number_value(market.liquidity),
+                market
+                    .end_time_local
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    print_table(&headers, &rows);
+}
+
+fn print_prediction_outcomes(outcomes: &[PredictionOutcome]) {
+    if outcomes.is_empty() {
+        println!("No outcomes found.");
+        return;
+    }
+    let headers = [
+        "outcome", "prob", "bid", "ask", "spread", "last", "bids", "asks", "token",
+    ];
+    let rows = outcomes
+        .iter()
+        .map(|outcome| {
+            vec![
+                outcome.label.clone(),
+                outcome
+                    .implied_probability
+                    .map(pct_from_unit)
+                    .unwrap_or_else(|| "-".to_string()),
+                money_value(outcome.best_bid),
+                money_value(outcome.best_ask),
+                money_value(outcome.spread),
+                money_value(outcome.last_trade_price),
+                outcome.bid_count.to_string(),
+                outcome.ask_count.to_string(),
+                outcome
+                    .clob_token_id
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    print_table(&headers, &rows);
+}
+
 pub fn print_provider_profiles(profiles: &[ProviderProfile]) {
     let headers = [
         "provider",
@@ -547,6 +695,18 @@ fn number_value(value: Option<f64>) -> String {
         }
         None => "-".to_string(),
     }
+}
+
+fn bool_text(value: Option<bool>) -> String {
+    match value {
+        Some(true) => "yes".to_string(),
+        Some(false) => "no".to_string(),
+        None => "-".to_string(),
+    }
+}
+
+fn pct_from_unit(value: f64) -> String {
+    format!("{:.2}%", value * 100.0)
 }
 
 fn pct_value(value: Option<f64>) -> String {

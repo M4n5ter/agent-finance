@@ -48,6 +48,14 @@ agent-finance search "optical interconnect"
 agent-finance screen day_gainers
 ```
 
+5. Prediction-market sentiment:
+
+```bash
+agent-finance polymarket search "spacex ipo" --limit 5
+agent-finance polymarket market MARKET_ID_OR_SLUG
+agent-finance skills get prediction-markets
+```
+
 ## Rules
 
 - Use `price` for the default "what is the current price?" answer.
@@ -55,5 +63,6 @@ agent-finance screen day_gainers
 - Use both daily and minute history before judging fills, limit-order quality, stop placement, or intraday action.
 - Use `providers --json` when an Agent needs a machine-readable capability matrix.
 - Treat Binance futures / TradFi perps as proxy/derivative price discovery only.
+- Treat Polymarket as quantifiable prediction-market sentiment and event-probability evidence only; it is not an equity quote or primary-source fact.
 - `read-url` is a text extraction fallback, not a real browser. For dynamic, login-gated, screenshot-sensitive, or noisy pages, use an available browser tool such as agent-browser or opencli.
 - JSON output preserves structured fields for downstream computation. Human output is for quick inspection.

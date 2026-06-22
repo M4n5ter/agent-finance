@@ -10,6 +10,7 @@ agent-finance skills get core
 agent-finance skills get price
 agent-finance skills get research-data
 agent-finance skills get providers
+agent-finance skills get prediction-markets
 agent-finance skills get history-indicators
 agent-finance skills get futures
 ```
@@ -67,8 +68,21 @@ agent-finance futures LITEUSDT --json
 
 Use `providers` as the source-of-truth coverage matrix. Binance futures / TradFi perps are derivative/proxy prices, not legal equity or broker-fill prices.
 
+## Prediction Markets
+
+```bash
+agent-finance polymarket search "spacex ipo" --limit 5
+agent-finance polymarket search "spcex" --limit 5
+agent-finance polymarket market MARKET_ID_OR_SLUG --json
+agent-finance skills get prediction-markets
+```
+
+Use Polymarket for quantifiable sentiment and event-probability signals. It does not replace SEC/IR/company releases, verified news, or equity quotes.
+
 ## Network and Browser Boundaries
 
 The CLI respects `--proxy`, `AGENT_FINANCE_PROXY`, and standard proxy environment variables. It does not hardcode a local proxy.
+
+Polymarket uses the official SDK by default. When `--proxy` or `--no-proxy` is explicit, it uses public REST fallback through the CLI HTTP stack so those network controls are honored.
 
 `read-url` is a text extraction fallback. For dynamic, login-gated, screenshot-sensitive, or noisy pages, open the original page with an available real browser tool such as agent-browser or opencli.

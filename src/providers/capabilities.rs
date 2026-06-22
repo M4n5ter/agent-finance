@@ -212,6 +212,55 @@ pub fn profiles() -> Vec<ProviderProfile> {
             &["Use for extended-hours price checks."],
         ),
         profile(
+            "polymarket",
+            false,
+            "official-sdk",
+            "official-public-api",
+            "Prediction-market sentiment, implied probability, orderbook, liquidity, open interest, holder previews, and probability history.",
+            &[
+                cap(
+                    "prediction search",
+                    "yes",
+                    "Gamma public relevance search for events and markets",
+                ),
+                cap(
+                    "market detail",
+                    "yes",
+                    "Gamma market metadata and outcome probabilities",
+                ),
+                cap(
+                    "orderbook",
+                    "yes",
+                    "CLOB public best bid/ask and depth by outcome token",
+                ),
+                cap(
+                    "probability history",
+                    "yes",
+                    "CLOB prices-history by outcome token",
+                ),
+                cap(
+                    "open interest",
+                    "yes",
+                    "Data API open interest by condition id",
+                ),
+                cap(
+                    "holders",
+                    "preview",
+                    "Data API top holder preview rows by condition id; not total holder count",
+                ),
+                cap("quote", "no", "Prediction prices are not equity quotes"),
+                cap(
+                    "fundamentals",
+                    "no",
+                    "Does not replace SEC, IR, or company filings",
+                ),
+            ],
+            &[
+                "Use as quantifiable sentiment and event-probability evidence only.",
+                "Default transport uses the official SDK; explicit --proxy/--no-proxy uses public REST fallback through the CLI HTTP stack.",
+            ],
+        ),
+        profile(
             Provider::BinanceFutures.label(),
             false,
             "official-api",

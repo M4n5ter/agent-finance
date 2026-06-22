@@ -18,7 +18,11 @@ const SKILLS: &[BuiltinSkill] = &[
     },
     BuiltinSkill {
         name: "providers",
-        description: "Understand Yahoo, SEC EDGAR, CNBC, Robinhood, Stooq, Binance futures, and proxy quote capabilities.",
+        description: "Understand Yahoo, SEC EDGAR, CNBC, Robinhood, Stooq, Binance futures, Polymarket, and proxy quote capabilities.",
+    },
+    BuiltinSkill {
+        name: "prediction-markets",
+        description: "Use Polymarket as quantifiable sentiment and event-probability evidence via official read-only APIs.",
     },
     BuiltinSkill {
         name: "history-indicators",
@@ -43,6 +47,7 @@ pub fn get(name: &str, full: bool) -> Option<&'static str> {
         ("price", _) => Some(PRICE),
         ("research-data", _) => Some(RESEARCH_DATA),
         ("providers", _) => Some(PROVIDERS),
+        ("prediction-markets", _) => Some(PREDICTION_MARKETS),
         ("history-indicators", _) => Some(HISTORY_INDICATORS),
         ("futures", _) => Some(FUTURES),
         _ => None,
@@ -54,5 +59,6 @@ const CORE_FULL: &str = include_str!("../skills/core-full.md");
 const PRICE: &str = include_str!("../skills/price.md");
 const RESEARCH_DATA: &str = include_str!("../skills/research-data.md");
 const PROVIDERS: &str = include_str!("../skills/providers.md");
+const PREDICTION_MARKETS: &str = include_str!("../skills/prediction-markets.md");
 const HISTORY_INDICATORS: &str = include_str!("../skills/history-indicators.md");
 const FUTURES: &str = include_str!("../skills/futures.md");

@@ -61,6 +61,8 @@ pub enum Command {
     ReadUrl(ReadUrlArgs),
     /// Search Yahoo Finance for tickers and news.
     Search(SearchArgs),
+    /// Inspect Polymarket prediction-market sentiment and event-probability signals.
+    Polymarket(PolymarketArgs),
     /// Run Yahoo predefined screeners.
     Screen(ScreenArgs),
     /// Inspect or import Stooq bulk historical data packages.
@@ -335,6 +337,67 @@ pub struct SearchArgs {
     pub refresh: bool,
 
     #[arg(long, default_value_t = 1800)]
+    pub cache_ttl_seconds: u64,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct PolymarketArgs {
+    #[command(subcommand)]
+    pub command: PolymarketCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PolymarketCommand {
+    /// Search public Polymarket events and markets by relevance.
+    Search(PolymarketSearchArgs),
+    /// Inspect one Polymarket market by numeric id or slug.
+    Market(PolymarketMarketArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct PolymarketSearchArgs {
+    pub query: String,
+
+    #[arg(long, default_value_t = 8)]
+    pub limit: usize,
+
+    #[arg(long)]
+    pub include_closed: bool,
+
+    #[arg(long)]
+    pub min_volume: Option<f64>,
+
+    #[arg(long)]
+    pub refresh: bool,
+
+    #[arg(long, default_value_t = 900)]
+    pub cache_ttl_seconds: u64,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct PolymarketMarketArgs {
+    pub identifier: String,
+
+    /// Maximum rows for holder/trade/orderbook detail previews.
+    #[arg(long, default_value_t = 10)]
+    pub limit: usize,
+
+    #[arg(long)]
+    pub include_closed: bool,
+
+    #[arg(long)]
+    pub min_volume: Option<f64>,
+
+    #[arg(long)]
+    pub refresh: bool,
+
+    #[arg(long, default_value_t = 900)]
     pub cache_ttl_seconds: u64,
 
     #[arg(long)]

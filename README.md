@@ -2,7 +2,7 @@
 
 AI Agent-first CLI for no-key financial market data and research context.
 
-`agent-finance` is designed for human-operated AI agents: the CLI can print its own task-specific skills, then provide current quotes, regular/pre/post/overnight session splits, OHLCV history, local indicators, proxy futures data, no-key research payloads, URL text extraction, provider capability notes, polling, and Yahoo WebSocket streams.
+`agent-finance` is designed for human-operated AI agents: the CLI can print its own task-specific skills, then provide current quotes, regular/pre/post/overnight session splits, OHLCV history, local indicators, proxy futures data, prediction-market sentiment, no-key research payloads, URL text extraction, provider capability notes, polling, and Yahoo WebSocket streams.
 
 If you are an AI Agent, start here:
 
@@ -69,6 +69,10 @@ agent-finance read-url "https://www.sec.gov/Archives/edgar/data/0001807794/00016
 agent-finance search "optical interconnect"
 agent-finance screen day_gainers
 agent-finance providers
+
+# Prediction-market sentiment and event probabilities.
+agent-finance polymarket search "spacex ipo" --limit 5
+agent-finance polymarket market MARKET_ID_OR_SLUG --json
 ```
 
 ## Agent Skills
@@ -81,6 +85,7 @@ agent-finance skills get core --full
 agent-finance skills get price
 agent-finance skills get research-data
 agent-finance skills get providers
+agent-finance skills get prediction-markets
 agent-finance skills get history-indicators
 agent-finance skills get futures
 ```
@@ -92,6 +97,7 @@ agent-finance skills get futures
 - `history` defaults to adjusted prices and includes corporate actions unless disabled.
 - `providers` is the source-of-truth capability matrix. Do not infer coverage from provider names.
 - Binance futures / TradFi perps are derivative/proxy prices. They are useful for 24h price discovery, but they are not the legal equity, broker fill, or pre-IPO ownership price.
+- Polymarket is a prediction-market sentiment source. Use it for implied probabilities, orderbook, spread, volume, liquidity, open interest, holder preview rows, and probability history. It is not an equity quote, primary-source fact, or confirmation of insider information.
 - `read-url` is an extraction fallback using direct/Jina/Defuddle readers. It is not a login-capable browser.
 - Dynamic, login-gated, screenshot-sensitive, or noisy pages should be verified with a real browser tool. `agent-browser` and `opencli` are examples, not dependencies.
 

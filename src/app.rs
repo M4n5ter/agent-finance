@@ -8,8 +8,9 @@ use serde::Serialize;
 
 use crate::cli::{
     Cli, Command, FuturesArgs, HistoryArgs, HistorySession, IndicatorsArgs, NewsArgs, OptionsArgs,
-    OptionsProvider, Provider, ProviderResearchArgs, ProvidersArgs, ReadUrlArgs, ResearchArgs,
-    ScreenArgs, SearchArgs, SessionsArgs, StooqArgs, StooqCommand, WatchArgs,
+    OptionsProvider, PolymarketArgs, PolymarketCommand, Provider, ProviderResearchArgs,
+    ProvidersArgs, ReadUrlArgs, ResearchArgs, ScreenArgs, SearchArgs, SessionsArgs, StooqArgs,
+    StooqCommand, WatchArgs,
 };
 use crate::http::http_client;
 use crate::indicators::compute_indicator;
@@ -94,12 +95,66 @@ pub async fn run() -> Result<()> {
         Command::News(args) => run_news(args, proxy, no_proxy, timeout_seconds, timezone).await,
         Command::ReadUrl(args) => run_read_url(args, proxy, no_proxy, timeout_seconds).await,
         Command::Search(args) => run_search(args, proxy, no_proxy, timeout_seconds, timezone).await,
+        Command::Polymarket(args) => {
+            run_polymarket(args, proxy, no_proxy, timeout_seconds, timezone).await
+        }
         Command::Screen(args) => run_screen(args, proxy, no_proxy, timeout_seconds, timezone).await,
         Command::Stooq(args) => run_stooq(args, proxy, no_proxy, timeout_seconds).await,
         Command::Providers(args) => run_providers(args),
         Command::Watch(args) => run_watch(args, proxy, no_proxy, timeout_seconds, timezone).await,
         Command::Stream(args) => run_stream(args, proxy, no_proxy, timeout_seconds, timezone).await,
         Command::Skills(args) => run_skills(args),
+    }
+}
+
+async fn run_polymarket(
+    args: PolymarketArgs,
+    proxy: Option<&str>,
+    no_proxy: bool,
+    timeout_seconds: u64,
+    timezone: &str,
+) -> Result<()> {
+    let client = http_client(timeout_seconds, proxy, no_proxy)?;
+    let use_http_transport = proxy.is_some() || no_proxy;
+    match args.command {
+        PolymarketCommand::Search(args) => {
+            let options = providers::polymarket::SearchRequestOptions {
+                query: args.query,
+                limit: args.limit,
+                include_closed: args.include_closed,
+                min_volume: args.min_volume,
+                refresh: args.refresh,
+                cache_ttl_seconds: args.cache_ttl_seconds,
+                timeout_seconds,
+                use_http_transport,
+            };
+            let report = providers::polymarket::search_report(&client, &options, timezone).await?;
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                output::print_prediction_search_report(&report);
+            }
+            Ok(())
+        }
+        PolymarketCommand::Market(args) => {
+            let options = providers::polymarket::MarketRequestOptions {
+                identifier: args.identifier,
+                limit: args.limit,
+                include_closed: args.include_closed,
+                min_volume: args.min_volume,
+                refresh: args.refresh,
+                cache_ttl_seconds: args.cache_ttl_seconds,
+                timeout_seconds,
+                use_http_transport,
+            };
+            let report = providers::polymarket::market_report(&client, &options, timezone).await?;
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                output::print_prediction_market_report(&report);
+            }
+            Ok(())
+        }
     }
 }
 

@@ -19,7 +19,8 @@ agent-finance providers --json
 - Robinhood and CNBC are partial no-key sources; use them as cross-checks, not replacements for official filings or primary disclosures.
 - Stooq live can provide no-key daily/weekly/monthly history; intraday bulk data requires explicit imported ZIP cache.
 - Binance futures / TradFi perps are proxy/derivative instruments.
+- Polymarket is a prediction-market sentiment source. Use `polymarket search` and `polymarket market` for implied probability, orderbook, liquidity, OI, holder preview rows, and probability history; do not use it as an equity quote or primary-source fact.
 
 ## Browser Boundary
 
-The CLI uses HTTP requests with browser-like TLS behavior where possible, but it is not a full browser. Dynamic, login-gated, screenshot-sensitive, or noisy pages require a real browser tool.
+The CLI uses HTTP requests with browser-like TLS behavior where possible, but it is not a full browser. Dynamic, login-gated, screenshot-sensitive, or noisy pages require a real browser tool. Polymarket uses the official SDK by default; explicit `--proxy` or `--no-proxy` uses public REST fallback through the CLI HTTP stack.

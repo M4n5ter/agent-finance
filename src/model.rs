@@ -326,6 +326,89 @@ pub struct SearchReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PredictionSearchReport {
+    pub provider: String,
+    pub query: String,
+    pub fetched_at_utc: String,
+    pub fetched_at_local: String,
+    pub cache_status: String,
+    pub source_urls: Vec<String>,
+    pub interpretation_note: String,
+    pub markets: Vec<PredictionMarketSummary>,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PredictionMarketReport {
+    pub provider: String,
+    pub identifier: String,
+    pub fetched_at_utc: String,
+    pub fetched_at_local: String,
+    pub cache_status: String,
+    pub enrichment_status: String,
+    pub enrichment_fetched_at_utc: String,
+    pub enrichment_fetched_at_local: String,
+    pub source_urls: Vec<String>,
+    pub interpretation_note: String,
+    pub market: PredictionMarketSummary,
+    pub outcomes: Vec<PredictionOutcome>,
+    pub price_history: Vec<PredictionPricePoint>,
+    pub open_interest: Option<f64>,
+    pub holder_preview_count: Option<usize>,
+    pub data_errors: BTreeMap<String, String>,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PredictionMarketSummary {
+    pub id: Option<String>,
+    pub condition_id: Option<String>,
+    pub slug: Option<String>,
+    pub event_id: Option<String>,
+    pub event_slug: Option<String>,
+    pub title: String,
+    pub question: Option<String>,
+    pub active: Option<bool>,
+    pub closed: Option<bool>,
+    pub accepting_orders: Option<bool>,
+    pub end_time_utc: Option<String>,
+    pub end_time_local: Option<String>,
+    pub volume: Option<f64>,
+    pub volume_24hr: Option<f64>,
+    pub liquidity: Option<f64>,
+    pub open_interest: Option<f64>,
+    pub best_bid: Option<f64>,
+    pub best_ask: Option<f64>,
+    pub spread: Option<f64>,
+    pub last_trade_price: Option<f64>,
+    pub one_hour_price_change: Option<f64>,
+    pub one_day_price_change: Option<f64>,
+    pub one_week_price_change: Option<f64>,
+    pub market_url: Option<String>,
+    pub outcomes: Vec<PredictionOutcome>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PredictionOutcome {
+    pub label: String,
+    pub implied_probability: Option<f64>,
+    pub clob_token_id: Option<String>,
+    pub best_bid: Option<f64>,
+    pub best_ask: Option<f64>,
+    pub spread: Option<f64>,
+    pub last_trade_price: Option<f64>,
+    pub bid_count: usize,
+    pub ask_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PredictionPricePoint {
+    pub time_utc: Option<String>,
+    pub time_local: Option<String>,
+    pub price: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct StreamQuote {
     pub symbol: String,
     pub price: f64,
