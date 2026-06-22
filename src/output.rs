@@ -8,9 +8,7 @@ use crate::model::{
     ResearchReport, SearchReport, StreamQuote,
 };
 use crate::page_read::PageReadReport;
-use crate::providers::binance::{
-    CryptoEndpointReport, CryptoSentimentReport, CryptoSnapshotReport, CryptoStreamReport,
-};
+use crate::providers::binance::{CryptoSentimentReport, CryptoSnapshotReport, CryptoStreamReport};
 use crate::time::utc_to_local;
 
 pub fn print_price_summary(summary: &PriceSummary, show_all: bool) {
@@ -160,44 +158,6 @@ pub fn print_indicator_table(indicators: &[DerivedIndicator], errors: &BTreeMap<
         ]);
     }
     print_table(&headers, &rows);
-}
-
-pub fn print_crypto_endpoint(
-    report: &CryptoEndpointReport,
-    timezone: &str,
-    raw: bool,
-) -> Result<()> {
-    println!(
-        "{} {} {} symbol={} fetched={} status={}",
-        report.provider,
-        report.market,
-        report.endpoint,
-        report.symbol.as_deref().unwrap_or("-"),
-        local_or_original(&report.fetched_at_utc, timezone),
-        report.status
-    );
-    print_crypto_value_preview(&report.payload);
-    if !report.rate_limits.is_empty() {
-        println!("rate_limits:");
-        for limit in &report.rate_limits {
-            println!(
-                "{} {:?}/{} count={} retry_after={}",
-                limit.rate_limit_type,
-                limit.interval,
-                limit.interval_num,
-                limit.count,
-                limit
-                    .retry_after
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "-".to_string())
-            );
-        }
-    }
-    if raw {
-        println!();
-        println!("{}", serde_json::to_string_pretty(&report.payload)?);
-    }
-    Ok(())
 }
 
 pub fn print_crypto_snapshot(

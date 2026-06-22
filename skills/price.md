@@ -26,8 +26,8 @@ Use the crypto market domain for actual crypto symbols:
 
 ```bash
 agent-finance price BTC/USDT --asset crypto
-agent-finance price BTCUSDT --asset crypto --crypto-market spot
-agent-finance price BTCUSDT --asset crypto --crypto-market usds-futures
+agent-finance price BTCUSDT --asset crypto --instrument spot
+agent-finance price BTCUSDT --asset crypto --instrument swap
 ```
 
 If an equity or pre-IPO name has a relevant 24/7 derivative or proxy contract, add it only as side context:

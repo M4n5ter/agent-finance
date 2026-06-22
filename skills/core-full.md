@@ -65,9 +65,12 @@ agent-finance providers --json
 agent-finance crypto snapshot BTC/USDT
 agent-finance crypto sentiment BTCUSDT
 agent-finance price BTC/USDT --asset crypto
+agent-finance crypto quote BTC/USDT
+agent-finance crypto candles BTC/USDT --provider coingecko --interval 1d --limit 30
+agent-finance crypto discover --provider okx --kind instruments --instrument swap
 ```
 
-Use `providers` as the source-of-truth coverage matrix. Binance crypto is tier-1 market data; USD-M futures / TradFi perps are derivative/proxy prices, not legal equity or broker-fill prices.
+Use `providers` as the source-of-truth coverage matrix. Crypto commands are capability-first across Binance/Coinbase/OKX/CoinGecko; USD-M futures / TradFi perps are derivative/proxy prices, not legal equity or broker-fill prices.
 
 ## Prediction Markets
 

@@ -18,11 +18,11 @@ const SKILLS: &[BuiltinSkill] = &[
     },
     BuiltinSkill {
         name: "providers",
-        description: "Understand Yahoo, SEC EDGAR, CNBC, Robinhood, Stooq, Binance crypto, Polymarket, and provider capabilities.",
+        description: "Understand Yahoo, SEC EDGAR, CNBC, Robinhood, Stooq, Binance/Coinbase/OKX/CoinGecko crypto, Polymarket, and provider capabilities.",
     },
     BuiltinSkill {
         name: "crypto",
-        description: "Use Binance as a tier-1 crypto market-data provider for spot, USD-M futures, snapshot, sentiment, history, and watch.",
+        description: "Use capability-first crypto data across Binance, Coinbase, OKX, and CoinGecko.",
     },
     BuiltinSkill {
         name: "prediction-markets",

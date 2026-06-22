@@ -7,8 +7,11 @@ agent-finance history LITE --provider auto --interval 1d --range 1mo --limit 30
 agent-finance history LITE --interval 1m --range 5d --session extended --adjustment raw --no-actions --limit 200
 agent-finance history LITE --interval 1d --range 1y --adjustment auto --repair --limit 252
 agent-finance history AAPL --provider robinhood --interval 5m --range 1d --session extended --limit 80
-agent-finance history BTC/USDT --asset crypto --provider binance-spot --interval 1h --limit 48
-agent-finance history BTCUSDT --asset crypto --provider binance-usds-futures --interval 1d --limit 30
+agent-finance history BTC/USDT --asset crypto --crypto-provider auto --interval 1h --limit 48
+agent-finance history BTC/USDT --asset crypto --crypto-provider coinbase --interval 1h --limit 48
+agent-finance history BTC/USDT --asset crypto --crypto-provider okx --interval 1h --limit 48
+agent-finance history BTC/USDT --asset crypto --crypto-provider coingecko --interval 1d --limit 30
+agent-finance history BTCUSDT --asset crypto --crypto-provider binance --instrument swap --interval 1d --limit 30
 ```
 
 ## Intervals
@@ -18,6 +21,9 @@ agent-finance history BTCUSDT --asset crypto --provider binance-usds-futures --i
 - Stooq live: `1d`, `1w`, `1mo`.
 - Stooq bulk cache: `5m`, `1h` after explicit import.
 - Binance spot / USD-M futures: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`.
+- Coinbase: `1m`, `5m`, `15m`, `1h`, `6h`, `1d`.
+- OKX: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `12h`, `1d`, `2d`, `3d`.
+- CoinGecko: common intraday and daily requests are mapped to supported OHLC day windows.
 
 When unsure:
 

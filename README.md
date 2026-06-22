@@ -2,7 +2,7 @@
 
 AI Agent-first CLI for no-key financial market data and research context.
 
-`agent-finance` is designed for human-operated AI agents: the CLI can print its own task-specific skills, then provide current quotes, regular/pre/post/overnight session splits, crypto spot and futures market data, OHLCV history, local indicators, prediction-market sentiment, no-key research payloads, URL text extraction, provider capability notes, polling, and Yahoo WebSocket streams.
+`agent-finance` is designed for human-operated AI agents: the CLI can print its own task-specific skills, then provide current quotes, regular/pre/post/overnight session splits, capability-first crypto market data, OHLCV history, local indicators, prediction-market sentiment, no-key research payloads, URL text extraction, provider capability notes, polling, and WebSocket streams.
 
 If you are an AI Agent, start here:
 
@@ -56,14 +56,20 @@ agent-finance indicators CRDO MRVL --limit 120
 agent-finance stream CRDO --messages 5
 agent-finance watch CRDO --interval-seconds 15 --iterations 4
 
-# Binance crypto spot and USD-M futures market data.
+# Cross-provider crypto market data.
 agent-finance crypto snapshot BTC/USDT
 agent-finance crypto sentiment BTCUSDT
-agent-finance crypto spot book BTCUSDT --limit 20
-agent-finance crypto futures funding BTCUSDT --limit 8
-agent-finance crypto stream BTCUSDT --market usds-futures --kind mark-price --messages 1
+agent-finance crypto quote BTC/USDT
+agent-finance crypto book BTC/USDT --limit 20
+agent-finance crypto candles BTC/USDT --interval 1h --limit 48
+agent-finance crypto funding BTCUSDT --provider okx --limit 8
+agent-finance crypto discover --provider coingecko --kind trending
+
+agent-finance crypto funding BTCUSDT --instrument swap --provider auto --limit 8
+agent-finance crypto open-interest BTCUSDT --instrument swap --provider okx
+agent-finance crypto stream BTCUSDT --instrument swap --kind mark-price --messages 1
 agent-finance price BTC/USDT --asset crypto
-agent-finance history BTC/USDT --asset crypto --interval 1h --limit 48
+agent-finance history BTC/USDT --asset crypto --crypto-provider okx --instrument spot --interval 1h --limit 48
 
 # No-key research and discovery.
 agent-finance fundamentals CRDO
@@ -104,7 +110,9 @@ agent-finance skills get history-indicators
 - `sessions SYMBOL` is for explicit regular/pre/post/overnight/provider comparisons.
 - `history` defaults to adjusted prices and includes corporate actions unless disabled.
 - `providers` is the source-of-truth capability matrix. Do not infer coverage from provider names.
-- Binance crypto is a tier-1 24/7 market-data source. Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments, not legal equity, broker fill, or pre-IPO ownership price.
+- Crypto commands are capability-first: use `crypto quote/book/trades/candles/funding/open-interest/discover`, then force `--provider binance|coinbase|okx|coingecko` only when cross-checking or auditing.
+- Binance, Coinbase, OKX, and CoinGecko are tier-1 crypto no-key providers for different jobs. Binance/OKX are best for exchange and derivatives microstructure; Coinbase is a spot exchange cross-check; CoinGecko is an aggregate breadth/trending/metadata source.
+- Binance Spot and crypto spot prices are crypto spot. USD-M futures / TradFi perps are derivatives and proxy instruments, not legal equity, broker fill, or pre-IPO ownership price.
 - Binance Spot WebSocket uses the public market-data-only endpoint. USD-M Futures WebSocket streams are routed through Binance's current public/market paths.
 - Polymarket is a prediction-market sentiment source. Use it for implied probabilities, orderbook, spread, volume, liquidity, open interest, holder preview rows, and probability history. It is not an equity quote, primary-source fact, or confirmation of insider information.
 - `read-url` is an extraction fallback using direct/Jina/Defuddle readers. It is not a login-capable browser.

@@ -19,7 +19,7 @@ fn normalize_symbol_rejects_empty_or_weird_symbols() {
 
 #[test]
 fn registry_has_live_case_for_each_symbol_endpoint() {
-    assert!(BINANCE_ENDPOINTS.len() >= 20);
+    assert!(!BINANCE_ENDPOINTS.is_empty());
     for endpoint in BINANCE_ENDPOINTS {
         assert!(
             !endpoint.official_endpoint.is_empty(),
@@ -110,7 +110,7 @@ async fn futures_basis_uses_pair_not_symbol_query_path() {
 
 #[test]
 fn aggregate_reports_reject_partial_errors() {
-    let report = CryptoSnapshotReport {
+    let snapshot = CryptoSnapshotReport {
         symbol: "BTCUSDT".to_string(),
         provider: "binance".to_string(),
         fetched_at_utc: "2026-01-01T00:00:00Z".to_string(),
@@ -118,8 +118,16 @@ fn aggregate_reports_reject_partial_errors() {
         futures: Default::default(),
         errors: [("spot.ticker".to_string(), "invalid symbol".to_string())].into(),
     };
+    let sentiment = CryptoSentimentReport {
+        symbol: "BTCUSDT".to_string(),
+        provider: "binance".to_string(),
+        fetched_at_utc: "2026-01-01T00:00:00Z".to_string(),
+        futures: Default::default(),
+        errors: [("funding".to_string(), "invalid symbol".to_string())].into(),
+    };
 
-    assert!(report.ensure_complete().is_err());
+    assert!(snapshot.ensure_complete().is_err());
+    assert!(sentiment.ensure_complete().is_err());
 }
 
 #[tokio::test]

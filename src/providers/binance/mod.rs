@@ -74,19 +74,6 @@ pub async fn spot_24h(config: &BinanceConfig, symbol: &str) -> Result<CryptoEndp
     .await
 }
 
-pub async fn spot_avg_price(config: &BinanceConfig, symbol: &str) -> Result<CryptoEndpointReport> {
-    let route = "crypto spot avg-price";
-    symbol_endpoint(
-        config,
-        RestMarket::Spot,
-        types::report_endpoint(route)?,
-        types::official_path(route)?,
-        symbol,
-        Vec::new(),
-    )
-    .await
-}
-
 pub async fn spot_book(
     config: &BinanceConfig,
     symbol: &str,
@@ -160,19 +147,6 @@ pub async fn spot_klines(
             ("interval", interval.to_string()),
             ("limit", clamp_usize(limit, 1, 1000).to_string()),
         ],
-    )
-    .await
-}
-
-pub async fn futures_exchange_info(config: &BinanceConfig) -> Result<CryptoEndpointReport> {
-    let route = "crypto futures exchange-info";
-    rest::endpoint_report(
-        config,
-        RestMarket::Futures,
-        types::report_endpoint(route)?,
-        types::official_path(route)?,
-        None,
-        Vec::new(),
     )
     .await
 }

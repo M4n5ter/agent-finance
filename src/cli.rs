@@ -4,13 +4,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 pub use crate::crypto_cli::*;
 
-pub const HISTORY_INTERVAL_HELP: &str = "Bar interval. Provider-specific values: Yahoo 1m/2m/5m/15m/30m/60m/90m/1h/1d/5d/1wk/1mo/3mo; Robinhood 5m/10m/1h/1d/1w; Stooq live 1d/1w/1mo; Stooq bulk 5m/1h after sync; Binance klines 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M.";
+pub const HISTORY_INTERVAL_HELP: &str = "Bar interval. Provider-specific values: Yahoo 1m/2m/5m/15m/30m/60m/90m/1h/1d/5d/1wk/1mo/3mo; Robinhood 5m/10m/1h/1d/1w; Stooq live 1d/1w/1mo; Stooq bulk 5m/1h after sync; Binance 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M; Coinbase 1m/5m/15m/1h/6h/1d; OKX 1m/3m/5m/15m/30m/1h/2h/4h/6h/12h/1d/2d/3d; CoinGecko maps common intraday/daily requests to supported day windows.";
 
 #[derive(Parser, Debug)]
-#[command(name = "agent-finance")]
+#[command(name = "agent-finance", version)]
 #[command(
     about = "Fetch financial market data and research context for humans and AI agents.",
-    after_help = "AI agents: start with `agent-finance skills get core` before choosing provider-specific commands."
+    after_help = "AI agents: start with `agent-finance skills get core`; prefer capability-first commands, then force providers only for cross-checks."
 )]
 pub struct Cli {
     /// Explicit proxy URL, for example http://127.0.0.1:7890 or socks5h://127.0.0.1:7890.
@@ -61,7 +61,7 @@ pub enum Command {
     ReadUrl(ReadUrlArgs),
     /// Search Yahoo Finance for tickers and news.
     Search(SearchArgs),
-    /// Inspect Binance crypto spot and USD-M futures market data.
+    /// Inspect crypto market data and cross-provider capability evidence.
     Crypto(CryptoArgs),
     /// Inspect Polymarket prediction-market sentiment and event-probability signals.
     Polymarket(PolymarketArgs),
@@ -87,8 +87,11 @@ pub struct PriceArgs {
     #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
     pub asset: AssetClass,
 
-    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
-    pub crypto_market: CryptoMarket,
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub crypto_provider: CryptoProvider,
 
     #[arg(long, value_enum, default_value_t = SessionMode::Smart)]
     pub session: SessionMode,
@@ -120,8 +123,11 @@ pub struct HistoryArgs {
     #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
     pub asset: AssetClass,
 
-    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
-    pub crypto_market: CryptoMarket,
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub crypto_provider: CryptoProvider,
 
     #[arg(long, value_enum, default_value_t = Provider::Auto)]
     pub provider: Provider,
@@ -167,8 +173,11 @@ pub struct IndicatorsArgs {
     #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
     pub asset: AssetClass,
 
-    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
-    pub crypto_market: CryptoMarket,
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub crypto_provider: CryptoProvider,
 
     #[arg(long, value_enum, default_value_t = Provider::Auto)]
     pub provider: Provider,
@@ -495,8 +504,11 @@ pub struct WatchArgs {
     #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
     pub asset: AssetClass,
 
-    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
-    pub crypto_market: CryptoMarket,
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub crypto_provider: CryptoProvider,
 
     #[arg(long, default_value_t = 15)]
     pub interval_seconds: u64,

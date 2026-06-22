@@ -1,11 +1,12 @@
 use crate::cli::{Provider, ResearchProvider};
+use crate::crypto_capabilities;
 use crate::model::{ProviderCapability, ProviderProfile};
 use crate::providers::binance::BINANCE_ENDPOINTS;
 
 pub fn profiles() -> Vec<ProviderProfile> {
     let binance_spot_endpoints = binance_endpoint_note("spot");
     let binance_futures_endpoints = binance_endpoint_note("usds-futures");
-    vec![
+    let mut profiles = vec![
         profile(
             ResearchProvider::Auto.label(),
             false,
@@ -310,7 +311,9 @@ pub fn profiles() -> Vec<ProviderProfile> {
                 "TradFi perpetuals are proxy instruments, not legal equity or broker-fill prices.",
             ],
         ),
-    ]
+    ];
+    profiles.extend(crypto_capabilities::crypto_provider_profiles());
+    profiles
 }
 
 fn binance_endpoint_note(market: &str) -> String {

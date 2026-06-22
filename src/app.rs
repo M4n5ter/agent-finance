@@ -13,6 +13,7 @@ use crate::cli::{
     StooqCommand, WatchArgs,
 };
 use crate::crypto_app;
+use crate::crypto_market_data;
 use crate::http::http_client;
 use crate::indicators::compute_indicator;
 use crate::model::DerivedIndicator;
@@ -186,7 +187,8 @@ async fn run_price(
     timezone: &str,
 ) -> Result<()> {
     if args.asset == AssetClass::Crypto {
-        return crypto_app::run_price(args, proxy, no_proxy, timeout_seconds, timezone).await;
+        return crypto_market_data::run_price(args, proxy, no_proxy, timeout_seconds, timezone)
+            .await;
     }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let binance_config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
@@ -277,7 +279,8 @@ async fn run_history(
             Provider::BinanceSpot | Provider::BinanceUsdsFutures
         )
     {
-        return crypto_app::run_history(args, proxy, no_proxy, timeout_seconds, timezone).await;
+        return crypto_market_data::run_history(args, proxy, no_proxy, timeout_seconds, timezone)
+            .await;
     }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let provider = effective_history_provider(args.provider, args.session);
@@ -315,7 +318,7 @@ async fn run_indicators(
             Provider::BinanceSpot | Provider::BinanceUsdsFutures
         )
     {
-        return crypto_app::run_indicators(args, proxy, no_proxy, timeout_seconds).await;
+        return crypto_market_data::run_indicators(args, proxy, no_proxy, timeout_seconds).await;
     }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let mut indicators = Vec::new();
@@ -612,7 +615,8 @@ async fn run_watch(
     timezone: &str,
 ) -> Result<()> {
     if args.asset == AssetClass::Crypto {
-        return crypto_app::run_watch(args, proxy, no_proxy, timeout_seconds, timezone).await;
+        return crypto_market_data::run_watch(args, proxy, no_proxy, timeout_seconds, timezone)
+            .await;
     }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let mut iteration = 0usize;

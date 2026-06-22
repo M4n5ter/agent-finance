@@ -59,68 +59,126 @@ fn binance_live_cli_surface_is_usable() {
     assert_aggregate(command(&["crypto", "sentiment", SYMBOL, "--json"]), "mark");
 
     for args in [
-        &["crypto", "spot", "exchange-info", SYMBOL, "--json"][..],
-        &["crypto", "spot", "ticker", SYMBOL, "--json"],
-        &["crypto", "spot", "ticker24h", SYMBOL, "--json"],
-        &["crypto", "spot", "avg-price", SYMBOL, "--json"],
-        &["crypto", "spot", "book", SYMBOL, "--limit", "5", "--json"],
         &[
             "crypto",
+            "quote",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
             "spot",
+            "--json",
+        ][..],
+        &[
+            "crypto",
+            "book",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "spot",
+            "--limit",
+            "5",
+            "--json",
+        ],
+        &[
+            "crypto",
             "trades",
             SYMBOL,
-            "--aggregate",
-            "--limit",
-            "2",
-            "--json",
-        ],
-        &[
-            "crypto",
+            "--provider",
+            "binance",
+            "--instrument",
             "spot",
-            "klines",
-            SYMBOL,
-            "--interval",
-            "1m",
             "--limit",
             "2",
             "--json",
-        ],
-        &["crypto", "futures", "exchange-info", "--json"],
-        &["crypto", "futures", "ticker", SYMBOL, "--json"],
-        &["crypto", "futures", "ticker24h", SYMBOL, "--json"],
-        &[
-            "crypto", "futures", "book", SYMBOL, "--limit", "5", "--json",
-        ],
-        &[
-            "crypto", "futures", "trades", SYMBOL, "--limit", "2", "--json",
         ],
         &[
             "crypto",
-            "futures",
-            "klines",
+            "candles",
             SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "spot",
             "--interval",
             "1m",
             "--limit",
             "2",
             "--json",
         ],
-        &["crypto", "futures", "mark", SYMBOL, "--json"],
         &[
-            "crypto", "futures", "funding", SYMBOL, "--limit", "2", "--json",
+            "crypto",
+            "quote",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "swap",
+            "--json",
         ],
-        &["crypto", "futures", "open-interest", SYMBOL, "--json"],
         &[
-            "crypto", "futures", "ratios", SYMBOL, "--limit", "2", "--json",
+            "crypto",
+            "book",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "swap",
+            "--limit",
+            "5",
+            "--json",
         ],
         &[
-            "crypto", "futures", "flow", SYMBOL, "--limit", "2", "--json",
+            "crypto",
+            "trades",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "swap",
+            "--limit",
+            "2",
+            "--json",
         ],
         &[
-            "crypto", "futures", "basis", SYMBOL, "--limit", "2", "--json",
+            "crypto",
+            "candles",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "swap",
+            "--interval",
+            "1m",
+            "--limit",
+            "2",
+            "--json",
+        ],
+        &[
+            "crypto",
+            "funding",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "swap",
+            "--limit",
+            "2",
+            "--json",
+        ],
+        &[
+            "crypto",
+            "open-interest",
+            SYMBOL,
+            "--provider",
+            "binance",
+            "--instrument",
+            "swap",
+            "--json",
         ],
     ] {
-        assert_endpoint(command(args));
+        assert_evidence(command(args), "binance");
     }
 
     assert_stream(command(&[
@@ -137,8 +195,8 @@ fn binance_live_cli_surface_is_usable() {
         "crypto",
         "stream",
         SYMBOL,
-        "--market",
-        "usds-futures",
+        "--instrument",
+        "swap",
         "--kind",
         "mark-price",
         "--messages",
@@ -157,6 +215,121 @@ fn binance_live_cli_surface_is_usable() {
         "2",
         "--json",
     ]));
+}
+
+#[test]
+#[ignore = "requires AGENT_FINANCE_LIVE_CRYPTO_PROVIDERS=1 and live Coinbase/OKX/CoinGecko network access"]
+fn crypto_provider_live_cli_surface_is_usable() {
+    if std::env::var("AGENT_FINANCE_LIVE_CRYPTO_PROVIDERS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        eprintln!(
+            "skipping live multi-provider crypto test; set AGENT_FINANCE_LIVE_CRYPTO_PROVIDERS=1"
+        );
+        return;
+    }
+
+    assert_evidence(
+        command(&[
+            "crypto",
+            "quote",
+            "BTC-USD",
+            "--provider",
+            "coinbase",
+            "--instrument",
+            "spot",
+            "--json",
+        ]),
+        "coinbase",
+    );
+    assert_evidence(
+        command(&[
+            "crypto",
+            "quote",
+            "BTC/USDT",
+            "--provider",
+            "okx",
+            "--instrument",
+            "swap",
+            "--json",
+        ]),
+        "okx",
+    );
+    assert_evidence(
+        command(&[
+            "crypto",
+            "quote",
+            "bitcoin",
+            "--provider",
+            "coingecko",
+            "--instrument",
+            "spot",
+            "--json",
+        ]),
+        "coingecko",
+    );
+
+    assert_payload_len_at_most(
+        command(&[
+            "crypto",
+            "candles",
+            "BTC-USD",
+            "--provider",
+            "coinbase",
+            "--instrument",
+            "spot",
+            "--interval",
+            "1m",
+            "--limit",
+            "2",
+            "--json",
+        ]),
+        "candles",
+        2,
+    );
+    assert_payload_len_at_most(
+        command(&[
+            "crypto",
+            "candles",
+            "bitcoin",
+            "--provider",
+            "coingecko",
+            "--instrument",
+            "spot",
+            "--interval",
+            "1d",
+            "--limit",
+            "2",
+            "--json",
+        ]),
+        "ohlc",
+        2,
+    );
+
+    let human = command_text(&["crypto", "quote", "BTC-USD", "--provider", "coinbase"]);
+    assert!(
+        human.lines().count() < 40,
+        "human output should summarize payloads instead of dumping JSON: {human}"
+    );
+    assert!(
+        human.contains("payload: object fields="),
+        "human output should describe payload shape: {human}"
+    );
+
+    let raw = command_text(&[
+        "crypto",
+        "quote",
+        "BTC-USD",
+        "--provider",
+        "coinbase",
+        "--raw",
+    ]);
+    assert!(
+        raw.lines().count() > human.lines().count(),
+        "raw output should include provider payloads"
+    );
 }
 
 fn command(args: &[&str]) -> serde_json::Value {
@@ -181,12 +354,26 @@ fn assert_aggregate(json: serde_json::Value, required_key: &str) {
     );
 }
 
-fn assert_endpoint(json: serde_json::Value) {
-    assert_eq!(json["status"], 200);
-    assert!(json["provider"].as_str().unwrap().starts_with("binance-"));
+fn assert_evidence(json: serde_json::Value, provider: &str) {
+    let results = json["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["provider"], provider);
     assert!(
-        !json["payload"].is_null(),
-        "endpoint should preserve provider payload"
+        results[0]["ok"].as_bool().unwrap(),
+        "provider evidence should be successful: {json}"
+    );
+}
+
+fn assert_payload_len_at_most(json: serde_json::Value, endpoint: &str, limit: usize) {
+    let endpoints = json["results"][0]["endpoints"].as_array().unwrap();
+    let payload = endpoints
+        .iter()
+        .find(|value| value["endpoint"] == endpoint)
+        .and_then(|value| value["payload"].as_array())
+        .unwrap_or_else(|| panic!("missing array payload for endpoint {endpoint}: {json}"));
+    assert!(
+        payload.len() <= limit,
+        "payload should honor limit={limit}: {json}"
     );
 }
 
@@ -210,6 +397,20 @@ fn assert_history(json: serde_json::Value) {
     assert_eq!(json["symbol"], SYMBOL);
     assert_eq!(json["provider"], "binance-spot");
     assert_eq!(json["bars"].as_array().unwrap().len(), 2);
+}
+
+fn command_text(args: &[&str]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-finance"))
+        .args(args)
+        .output()
+        .expect("agent-finance command should start");
+    assert!(
+        output.status.success(),
+        "command failed: args={args:?} stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("command should print UTF-8")
 }
 
 fn one_shot_error_server() -> String {

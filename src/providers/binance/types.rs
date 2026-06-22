@@ -141,14 +141,6 @@ pub const BINANCE_ENDPOINTS: &[BinanceEndpoint] = &[
         Some("BTCUSDT"),
     ),
     endpoint(
-        "crypto spot avg-price",
-        "spot",
-        "GET /api/v3/avgPrice",
-        "binance::spot_avg_price",
-        "CryptoEndpointReport",
-        Some("BTCUSDT"),
-    ),
-    endpoint(
         "crypto spot book",
         "spot",
         "GET /api/v3/depth",
@@ -171,14 +163,6 @@ pub const BINANCE_ENDPOINTS: &[BinanceEndpoint] = &[
         "binance::spot_klines",
         "CryptoEndpointReport",
         Some("BTCUSDT"),
-    ),
-    endpoint(
-        "crypto futures exchange-info",
-        "usds-futures",
-        "GET /fapi/v1/exchangeInfo",
-        "binance::futures_exchange_info",
-        "CryptoEndpointReport",
-        None,
     ),
     endpoint(
         "crypto futures ticker",

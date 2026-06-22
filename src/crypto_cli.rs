@@ -1,7 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
-const CRYPTO_INTERVAL_HELP: &str =
-    "Binance kline interval. Values: 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M.";
+const CRYPTO_INTERVAL_HELP: &str = "Crypto candle interval. Binance: 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M; Coinbase: 1m/5m/15m/1h/6h/1d; OKX: 1m/3m/5m/15m/30m/1h/2h/4h/6h/12h/1d/2d/3d.";
 
 #[derive(Parser, Debug)]
 pub struct CryptoArgs {
@@ -15,12 +14,22 @@ pub enum CryptoCommand {
     Snapshot(CryptoSymbolArgs),
     /// Aggregate Binance USD-M funding, open interest, long/short, taker flow, and basis signals.
     Sentiment(CryptoSymbolArgs),
-    /// Inspect Binance Spot public market data.
-    Spot(CryptoSpotArgs),
-    /// Inspect Binance USD-M Futures public market data.
-    Futures(CryptoFuturesArgs),
     /// Stream selected Binance WebSocket market events.
     Stream(CryptoStreamArgs),
+    /// Fetch quote evidence across Binance, Coinbase, OKX, and CoinGecko.
+    Quote(CryptoEvidenceSymbolArgs),
+    /// Fetch order-book depth across providers where available.
+    Book(CryptoEvidenceBookArgs),
+    /// Fetch recent trade evidence across providers where available.
+    Trades(CryptoEvidenceTradesArgs),
+    /// Fetch OHLCV or OHLC candle evidence across providers where available.
+    Candles(CryptoEvidenceKlinesArgs),
+    /// Fetch derivatives funding-rate evidence across providers where available.
+    Funding(CryptoEvidenceFundingArgs),
+    /// Fetch derivatives open-interest evidence across providers where available.
+    OpenInterest(CryptoEvidenceOpenInterestArgs),
+    /// Discover provider markets, metadata, trending, global, or exchange data.
+    Discover(CryptoDiscoverArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -35,86 +44,51 @@ pub struct CryptoSymbolArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct CryptoSpotArgs {
-    #[command(subcommand)]
-    pub command: CryptoSpotCommand,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum CryptoSpotCommand {
-    /// Binance Spot exchange information and symbol filters.
-    ExchangeInfo(CryptoExchangeInfoArgs),
-    /// Latest Binance Spot price ticker.
-    Ticker(CryptoSymbolArgs),
-    /// Binance Spot 24h ticker statistics.
-    Ticker24h(CryptoSymbolArgs),
-    /// Binance Spot current average price.
-    AvgPrice(CryptoSymbolArgs),
-    /// Binance Spot order book snapshot.
-    Book(CryptoBookArgs),
-    /// Binance Spot recent or aggregate trades.
-    Trades(CryptoTradesArgs),
-    /// Binance Spot OHLCV klines.
-    Klines(CryptoKlinesArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct CryptoFuturesArgs {
-    #[command(subcommand)]
-    pub command: CryptoFuturesCommand,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum CryptoFuturesCommand {
-    /// Binance USD-M Futures exchange information and symbol filters.
-    ExchangeInfo(CryptoRawArgs),
-    /// Latest Binance USD-M Futures price ticker.
-    Ticker(CryptoSymbolArgs),
-    /// Binance USD-M Futures 24h ticker statistics.
-    Ticker24h(CryptoSymbolArgs),
-    /// Binance USD-M Futures order book snapshot.
-    Book(CryptoBookArgs),
-    /// Binance USD-M Futures aggregate trades.
-    Trades(CryptoTradesArgs),
-    /// Binance USD-M Futures OHLCV klines.
-    Klines(CryptoKlinesArgs),
-    /// Binance USD-M mark price, index price, and funding reference.
-    Mark(CryptoSymbolArgs),
-    /// Binance USD-M funding rate history.
-    Funding(CryptoLimitArgs),
-    /// Binance USD-M open interest.
-    OpenInterest(CryptoSymbolArgs),
-    /// Binance USD-M global and top-trader long/short ratios.
-    Ratios(CryptoPeriodArgs),
-    /// Binance USD-M taker buy/sell volume.
-    Flow(CryptoPeriodArgs),
-    /// Binance USD-M futures basis.
-    Basis(CryptoPeriodArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct CryptoExchangeInfoArgs {
-    pub symbol: Option<String>,
-
-    #[arg(long)]
-    pub raw: bool,
-
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct CryptoRawArgs {
-    #[arg(long)]
-    pub raw: bool,
-
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct CryptoBookArgs {
+pub struct CryptoStreamArgs {
     pub symbol: String,
+
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
+
+    #[arg(long, value_enum, default_value_t = CryptoStreamKind::Trade)]
+    pub kind: CryptoStreamKind,
+
+    #[arg(long, default_value = "1m", help = CRYPTO_INTERVAL_HELP)]
+    pub interval: String,
+
+    #[arg(long, default_value_t = 5)]
+    pub messages: usize,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct CryptoEvidenceSymbolArgs {
+    pub symbol: String,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub provider: CryptoProvider,
+
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
+
+    #[arg(long)]
+    pub raw: bool,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct CryptoEvidenceBookArgs {
+    pub symbol: String,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub provider: CryptoProvider,
+
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
 
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
@@ -127,8 +101,14 @@ pub struct CryptoBookArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct CryptoTradesArgs {
+pub struct CryptoEvidenceTradesArgs {
     pub symbol: String,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub provider: CryptoProvider,
+
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
 
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
@@ -144,8 +124,14 @@ pub struct CryptoTradesArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct CryptoKlinesArgs {
+pub struct CryptoEvidenceKlinesArgs {
     pub symbol: String,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub provider: CryptoProvider,
+
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
 
     #[arg(long, default_value = "1m", help = CRYPTO_INTERVAL_HELP)]
     pub interval: String,
@@ -161,8 +147,14 @@ pub struct CryptoKlinesArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct CryptoLimitArgs {
+pub struct CryptoEvidenceFundingArgs {
     pub symbol: String,
+
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub provider: CryptoProvider,
+
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
 
     #[arg(long, default_value_t = 8)]
     pub limit: usize,
@@ -175,14 +167,14 @@ pub struct CryptoLimitArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct CryptoPeriodArgs {
+pub struct CryptoEvidenceOpenInterestArgs {
     pub symbol: String,
 
-    #[arg(long, value_enum, default_value_t = FuturesPeriod::FiveMin)]
-    pub period: FuturesPeriod,
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub provider: CryptoProvider,
 
-    #[arg(long, default_value_t = 30)]
-    pub limit: usize,
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
 
     #[arg(long)]
     pub raw: bool,
@@ -192,23 +184,62 @@ pub struct CryptoPeriodArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct CryptoStreamArgs {
-    pub symbol: String,
+pub struct CryptoDiscoverArgs {
+    #[arg(long, value_enum, default_value_t = CryptoProvider::Auto)]
+    pub provider: CryptoProvider,
 
-    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
-    pub market: CryptoMarket,
+    #[arg(long, value_enum, default_value_t = CryptoDiscoverKind::Markets)]
+    pub kind: CryptoDiscoverKind,
 
-    #[arg(long, value_enum, default_value_t = CryptoStreamKind::Trade)]
-    pub kind: CryptoStreamKind,
+    #[arg(long, value_enum, default_value_t = CryptoInstrument::Auto)]
+    pub instrument: CryptoInstrument,
 
-    #[arg(long, default_value = "1m", help = CRYPTO_INTERVAL_HELP)]
-    pub interval: String,
+    #[arg(long, default_value = "usd")]
+    pub vs_currency: String,
 
-    #[arg(long, default_value_t = 5)]
-    pub messages: usize,
+    #[arg(long, default_value_t = 100)]
+    pub limit: usize,
+
+    #[arg(long)]
+    pub raw: bool,
 
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum CryptoDiscoverKind {
+    Markets,
+    Instruments,
+    Tickers,
+    Trending,
+    Global,
+    Exchanges,
+    Derivatives,
+    DerivativesExchanges,
+    VolumeSummary,
+    CoinsList,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum CryptoProvider {
+    Auto,
+    Binance,
+    Coinbase,
+    Okx,
+    Coingecko,
+}
+
+impl CryptoProvider {
+    pub const fn label(self) -> &'static str {
+        match self {
+            CryptoProvider::Auto => "auto",
+            CryptoProvider::Binance => "binance",
+            CryptoProvider::Coinbase => "coinbase",
+            CryptoProvider::Okx => "okx",
+            CryptoProvider::Coingecko => "coingecko",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -216,6 +247,27 @@ pub enum CryptoMarket {
     Auto,
     Spot,
     UsdsFutures,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum CryptoInstrument {
+    Auto,
+    Spot,
+    Swap,
+    Futures,
+    Option,
+}
+
+impl CryptoInstrument {
+    pub const fn label(self) -> &'static str {
+        match self {
+            CryptoInstrument::Auto => "auto",
+            CryptoInstrument::Spot => "spot",
+            CryptoInstrument::Swap => "swap",
+            CryptoInstrument::Futures => "futures",
+            CryptoInstrument::Option => "option",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]

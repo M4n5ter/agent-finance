@@ -64,6 +64,9 @@ agent-finance crypto snapshot BTC/USDT
 agent-finance crypto sentiment BTCUSDT
 agent-finance price BTC/USDT --asset crypto
 agent-finance history BTC/USDT --asset crypto --interval 1h --limit 48
+agent-finance crypto quote BTC/USDT
+agent-finance crypto book BTC/USDT --provider okx --limit 20
+agent-finance crypto discover --provider coingecko --kind trending
 ```
 
 ## Rules
@@ -72,7 +75,8 @@ agent-finance history BTC/USDT --asset crypto --interval 1h --limit 48
 - Use `sessions` when premarket, postmarket, overnight, BOATS, provider differences, or proxy prices matter.
 - Use both daily and minute history before judging fills, limit-order quality, stop placement, or intraday action.
 - Use `providers --json` when an Agent needs a machine-readable capability matrix.
-- Treat Binance crypto as a tier-1 24/7 market-data source. Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments.
+- Treat crypto as 24/7 market data. Use Binance/Coinbase/OKX/CoinGecko through capability-first crypto commands, then force providers only for cross-checking.
+- Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments.
 - Treat Polymarket as quantifiable prediction-market sentiment and event-probability evidence only; it is not an equity quote or primary-source fact.
 - `read-url` is a text extraction fallback, not a real browser. For dynamic, login-gated, screenshot-sensitive, or noisy pages, use an available browser tool such as agent-browser or opencli.
 - JSON output preserves structured fields for downstream computation. Human output is for quick inspection.
