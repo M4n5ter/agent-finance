@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{SecondsFormat, TimeZone, Utc};
-use wreq::{Client, Proxy};
+use wreq::{Client, Proxy, RequestBuilder, StatusCode};
 use wreq_util::Emulation;
 
 pub fn http_client(timeout_seconds: u64, proxy: Option<&str>, no_proxy: bool) -> Result<Client> {
@@ -31,6 +31,47 @@ pub fn selected_proxy(proxy: Option<&str>, no_proxy: bool) -> Option<String> {
         .or_else(|| std::env::var("ALL_PROXY").ok())
         .or_else(|| std::env::var("HTTPS_PROXY").ok())
         .or_else(|| std::env::var("HTTP_PROXY").ok())
+}
+
+pub async fn send_text_with_retries<F>(
+    provider: &str,
+    url: &str,
+    build_request: F,
+) -> Result<(StatusCode, String)>
+where
+    F: Fn() -> RequestBuilder,
+{
+    const ATTEMPTS: usize = 3;
+    let mut last_error = None;
+
+    for attempt in 1..=ATTEMPTS {
+        match build_request().send().await {
+            Ok(response) => {
+                let status = response.status();
+                match response.text().await {
+                    Ok(body) => return Ok((status, body)),
+                    Err(error) => {
+                        last_error = Some(format!(
+                            "{provider} response body read failed: {url}: {error:#}"
+                        ));
+                    }
+                }
+            }
+            Err(error) => {
+                last_error = Some(format!("{provider} request failed: {url}: {error:#}"));
+            }
+        }
+
+        if attempt < ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(250 * attempt as u64)).await;
+        }
+    }
+
+    Err(anyhow!(
+        "{} after {} attempts",
+        last_error.unwrap_or_else(|| format!("{provider} request failed: {url}")),
+        ATTEMPTS
+    ))
 }
 
 pub fn utc_now() -> String {

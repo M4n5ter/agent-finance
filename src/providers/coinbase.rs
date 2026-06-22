@@ -3,7 +3,7 @@ use serde_json::Value;
 use url::Url;
 use wreq::Client;
 
-use crate::http::{parse_optional_f64, timestamp_sec_to_utc};
+use crate::http::{parse_optional_f64, send_text_with_retries, timestamp_sec_to_utc};
 use crate::model::{HistoryBatch, OhlcBar, Quote};
 
 const PROVIDER: &str = "coinbase";
@@ -156,16 +156,8 @@ async fn get_json(
             query.append_pair(key, &value);
         }
     }
-    let response = client
-        .get(url.as_str())
-        .send()
-        .await
-        .with_context(|| format!("Coinbase request failed: {url}"))?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .with_context(|| format!("Coinbase response body read failed: {url}"))?;
+    let (status, body) =
+        send_text_with_retries("Coinbase", url.as_str(), || client.get(url.as_str())).await?;
     if !status.is_success() {
         return Err(anyhow!(
             "Coinbase request failed status={} body={body}",

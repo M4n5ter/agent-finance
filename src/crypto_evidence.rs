@@ -1,4 +1,7 @@
+use std::future::Future;
+
 use anyhow::{Result, anyhow};
+use futures_util::future::{BoxFuture, FutureExt, join_all};
 use serde::Serialize;
 
 use crate::cli::{CryptoDiscoverKind, CryptoInstrument, CryptoProvider};
@@ -18,54 +21,71 @@ pub async fn run_quote(
     let config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let capability = CryptoCapability::Quote;
     let instrument = resolve_instrument(args.instrument, capability);
-    let mut results = Vec::new();
-    for provider in selected_providers(args.provider, instrument, capability) {
-        if !provider_supports(provider, instrument, capability) {
-            results.push(unsupported_provider(
-                provider.label(),
-                capability,
-                instrument,
-            ));
-            continue;
+    let symbol = args.symbol;
+    let results = collect_provider_evidence(args.provider, instrument, capability, |provider| {
+        let client = client.clone();
+        let config = config.clone();
+        let symbol = symbol.clone();
+        async move {
+            match provider {
+                CryptoProvider::Binance => provider_from_endpoints(
+                    "binance",
+                    vec![required_payload(
+                        "quote",
+                        binance::fetch_quote(&config, binance_market(instrument), &symbol).await,
+                    )],
+                ),
+                CryptoProvider::Coinbase => provider_from_endpoints(
+                    "coinbase",
+                    collect_endpoint_evidence(vec![
+                        required_endpoint("ticker", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { coinbase::ticker(&client, &symbol).await }
+                        }),
+                        supplemental_endpoint("stats", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { coinbase::stats(&client, &symbol).await }
+                        }),
+                        supplemental_endpoint("product", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { coinbase::product(&client, &symbol).await }
+                        }),
+                    ])
+                    .await,
+                ),
+                CryptoProvider::Okx => provider_from_endpoints(
+                    "okx",
+                    vec![required_value(
+                        "ticker",
+                        okx::ticker(&client, &symbol, instrument).await,
+                    )],
+                ),
+                CryptoProvider::Coingecko => provider_from_endpoints(
+                    "coingecko",
+                    collect_endpoint_evidence(vec![
+                        required_endpoint("simple-price", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { coingecko::simple_price(&client, &symbol).await }
+                        }),
+                        supplemental_endpoint("coin", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { coingecko::coin(&client, &symbol).await }
+                        }),
+                    ])
+                    .await,
+                ),
+                CryptoProvider::Auto => unreachable!(),
+            }
         }
-        results.push(match provider {
-            CryptoProvider::Binance => provider_from_endpoints(
-                "binance",
-                vec![required_payload(
-                    "quote",
-                    binance::fetch_quote(&config, binance_market(instrument), &args.symbol).await,
-                )],
-            ),
-            CryptoProvider::Coinbase => provider_from_endpoints(
-                "coinbase",
-                vec![
-                    required_value("ticker", coinbase::ticker(&client, &args.symbol).await),
-                    supplemental_value("stats", coinbase::stats(&client, &args.symbol).await),
-                    supplemental_value("product", coinbase::product(&client, &args.symbol).await),
-                ],
-            ),
-            CryptoProvider::Okx => provider_from_endpoints(
-                "okx",
-                vec![required_value(
-                    "ticker",
-                    okx::ticker(&client, &args.symbol, instrument).await,
-                )],
-            ),
-            CryptoProvider::Coingecko => provider_from_endpoints(
-                "coingecko",
-                vec![
-                    required_value(
-                        "simple-price",
-                        coingecko::simple_price(&client, &args.symbol).await,
-                    ),
-                    supplemental_value("coin", coingecko::coin(&client, &args.symbol).await),
-                ],
-            ),
-            CryptoProvider::Auto => unreachable!(),
-        });
-    }
+    })
+    .await;
     print_evidence_report(
-        evidence_report(capability, instrument, Some(&args.symbol), results),
+        evidence_report(capability, instrument, Some(&symbol), results),
         args.json,
         args.raw,
     )
@@ -81,50 +101,51 @@ pub async fn run_book(
     let config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let capability = CryptoCapability::Book;
     let instrument = resolve_instrument(args.instrument, capability);
-    let mut results = Vec::new();
-    for provider in selected_providers(args.provider, instrument, capability) {
-        if !provider_supports(provider, instrument, capability) {
-            results.push(unsupported_provider(
-                provider.label(),
-                capability,
-                instrument,
-            ));
-            continue;
+    let symbol = args.symbol;
+    let limit = args.limit;
+    let results = collect_provider_evidence(args.provider, instrument, capability, |provider| {
+        let client = client.clone();
+        let config = config.clone();
+        let symbol = symbol.clone();
+        async move {
+            match provider {
+                CryptoProvider::Binance => provider_from_endpoints(
+                    "binance",
+                    vec![match instrument {
+                        CryptoInstrument::Swap | CryptoInstrument::Futures => required_payload(
+                            "book",
+                            binance::futures_book(&config, &symbol, limit).await,
+                        ),
+                        _ => required_payload(
+                            "book",
+                            binance::spot_book(&config, &symbol, limit).await,
+                        ),
+                    }],
+                ),
+                CryptoProvider::Coinbase => provider_from_endpoints(
+                    "coinbase",
+                    vec![required_value(
+                        "book",
+                        coinbase::book(&client, &symbol, limit).await,
+                    )],
+                ),
+                CryptoProvider::Okx => provider_from_endpoints(
+                    "okx",
+                    vec![required_value(
+                        "book",
+                        okx::book(&client, &symbol, instrument, limit).await,
+                    )],
+                ),
+                CryptoProvider::Coingecko => {
+                    unsupported_provider("coingecko", capability, instrument)
+                }
+                CryptoProvider::Auto => unreachable!(),
+            }
         }
-        results.push(match provider {
-            CryptoProvider::Binance => provider_from_endpoints(
-                "binance",
-                vec![match instrument {
-                    CryptoInstrument::Swap | CryptoInstrument::Futures => required_payload(
-                        "book",
-                        binance::futures_book(&config, &args.symbol, args.limit).await,
-                    ),
-                    _ => required_payload(
-                        "book",
-                        binance::spot_book(&config, &args.symbol, args.limit).await,
-                    ),
-                }],
-            ),
-            CryptoProvider::Coinbase => provider_from_endpoints(
-                "coinbase",
-                vec![required_value(
-                    "book",
-                    coinbase::book(&client, &args.symbol, args.limit).await,
-                )],
-            ),
-            CryptoProvider::Okx => provider_from_endpoints(
-                "okx",
-                vec![required_value(
-                    "book",
-                    okx::book(&client, &args.symbol, instrument, args.limit).await,
-                )],
-            ),
-            CryptoProvider::Coingecko => unsupported_provider("coingecko", capability, instrument),
-            CryptoProvider::Auto => unreachable!(),
-        });
-    }
+    })
+    .await;
     print_evidence_report(
-        evidence_report(capability, instrument, Some(&args.symbol), results),
+        evidence_report(capability, instrument, Some(&symbol), results),
         args.json,
         args.raw,
     )
@@ -140,51 +161,50 @@ pub async fn run_trades(
     let config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let capability = CryptoCapability::Trades;
     let instrument = resolve_instrument(args.instrument, capability);
-    let mut results = Vec::new();
-    for provider in selected_providers(args.provider, instrument, capability) {
-        if !provider_supports(provider, instrument, capability) {
-            results.push(unsupported_provider(
-                provider.label(),
-                capability,
-                instrument,
-            ));
-            continue;
+    let symbol = args.symbol;
+    let limit = args.limit;
+    let aggregate = args.aggregate;
+    let results = collect_provider_evidence(args.provider, instrument, capability, |provider| {
+        let client = client.clone();
+        let config = config.clone();
+        let symbol = symbol.clone();
+        async move {
+            match provider {
+                CryptoProvider::Binance => provider_from_endpoints(
+                    "binance",
+                    vec![match instrument {
+                        CryptoInstrument::Swap | CryptoInstrument::Futures => required_payload(
+                            "trades",
+                            binance::futures_trades(&config, &symbol, limit).await,
+                        ),
+                        _ => required_payload(
+                            "trades",
+                            binance::spot_trades(&config, &symbol, limit, aggregate).await,
+                        ),
+                    }],
+                ),
+                CryptoProvider::Coinbase => provider_from_endpoints(
+                    "coinbase",
+                    vec![required_value(
+                        "trades",
+                        coinbase::trades(&client, &symbol, limit).await,
+                    )],
+                ),
+                CryptoProvider::Okx => provider_from_endpoints(
+                    "okx",
+                    vec![required_value(
+                        "trades",
+                        okx::trades(&client, &symbol, instrument, limit).await,
+                    )],
+                ),
+                CryptoProvider::Coingecko => unreachable!("unsupported provider handled earlier"),
+                CryptoProvider::Auto => unreachable!(),
+            }
         }
-        results.push(match provider {
-            CryptoProvider::Binance => provider_from_endpoints(
-                "binance",
-                vec![match instrument {
-                    CryptoInstrument::Swap | CryptoInstrument::Futures => required_payload(
-                        "trades",
-                        binance::futures_trades(&config, &args.symbol, args.limit).await,
-                    ),
-                    _ => required_payload(
-                        "trades",
-                        binance::spot_trades(&config, &args.symbol, args.limit, args.aggregate)
-                            .await,
-                    ),
-                }],
-            ),
-            CryptoProvider::Coinbase => provider_from_endpoints(
-                "coinbase",
-                vec![required_value(
-                    "trades",
-                    coinbase::trades(&client, &args.symbol, args.limit).await,
-                )],
-            ),
-            CryptoProvider::Okx => provider_from_endpoints(
-                "okx",
-                vec![required_value(
-                    "trades",
-                    okx::trades(&client, &args.symbol, instrument, args.limit).await,
-                )],
-            ),
-            CryptoProvider::Coingecko => unreachable!("unsupported provider handled earlier"),
-            CryptoProvider::Auto => unreachable!(),
-        });
-    }
+    })
+    .await;
     print_evidence_report(
-        evidence_report(capability, instrument, Some(&args.symbol), results),
+        evidence_report(capability, instrument, Some(&symbol), results),
         args.json,
         args.raw,
     )
@@ -200,84 +220,92 @@ pub async fn run_candles(
     let config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let capability = CryptoCapability::Candles;
     let instrument = resolve_instrument(args.instrument, capability);
-    let mut results = Vec::new();
-    for provider in selected_providers(args.provider, instrument, capability) {
-        if !provider_supports(provider, instrument, capability) {
-            results.push(unsupported_provider(
-                provider.label(),
-                capability,
-                instrument,
-            ));
-            continue;
+    let symbol = args.symbol;
+    let interval = args.interval;
+    let limit = args.limit;
+    let results = collect_provider_evidence(args.provider, instrument, capability, |provider| {
+        let client = client.clone();
+        let config = config.clone();
+        let symbol = symbol.clone();
+        let interval = interval.clone();
+        async move {
+            match provider {
+                    CryptoProvider::Binance => provider_from_endpoints(
+                        "binance",
+                        vec![match instrument {
+                            CryptoInstrument::Swap | CryptoInstrument::Futures => required_payload(
+                                "klines",
+                                binance::futures_klines(&config, &symbol, &interval, limit).await,
+                            ),
+                            _ => required_payload(
+                                "klines",
+                                binance::spot_klines(&config, &symbol, &interval, limit).await,
+                            ),
+                        }],
+                    ),
+                    CryptoProvider::Coinbase => provider_from_endpoints(
+                        "coinbase",
+                        vec![required_value(
+                            "candles",
+                            coinbase::candles(&client, &symbol, &interval, limit).await,
+                        )],
+                    ),
+                    CryptoProvider::Okx => provider_from_endpoints(
+                        "okx",
+                        collect_endpoint_evidence(vec![
+                            required_endpoint("candles", {
+                                let client = client.clone();
+                                let symbol = symbol.clone();
+                                let interval = interval.clone();
+                                async move {
+                                    okx::candles(&client, &symbol, instrument, &interval, limit)
+                                        .await
+                                }
+                            }),
+                            supplemental_endpoint("history-candles", {
+                                let client = client.clone();
+                                let symbol = symbol.clone();
+                                let interval = interval.clone();
+                                async move {
+                                    okx::history_candles(
+                                        &client, &symbol, instrument, &interval, limit,
+                                    )
+                                    .await
+                                }
+                            }),
+                        ])
+                        .await,
+                    ),
+                    CryptoProvider::Coingecko => {
+                        provider_from_endpoints(
+                            "coingecko",
+                            collect_endpoint_evidence(vec![
+                                required_endpoint("ohlc", {
+                                    let client = client.clone();
+                                    let symbol = symbol.clone();
+                                    let interval = interval.clone();
+                                    async move {
+                                        coingecko::ohlc(&client, &symbol, &interval, limit).await
+                                    }
+                                }),
+                                supplemental_endpoint("market-chart", {
+                                    let client = client.clone();
+                                    let symbol = symbol.clone();
+                                    async move {
+                                        coingecko::market_chart(&client, &symbol, "1", limit).await
+                                    }
+                                }),
+                            ])
+                            .await,
+                        )
+                    }
+                    CryptoProvider::Auto => unreachable!(),
+                }
         }
-        results.push(match provider {
-            CryptoProvider::Binance => provider_from_endpoints(
-                "binance",
-                vec![match instrument {
-                    CryptoInstrument::Swap | CryptoInstrument::Futures => required_payload(
-                        "klines",
-                        binance::futures_klines(&config, &args.symbol, &args.interval, args.limit)
-                            .await,
-                    ),
-                    _ => required_payload(
-                        "klines",
-                        binance::spot_klines(&config, &args.symbol, &args.interval, args.limit)
-                            .await,
-                    ),
-                }],
-            ),
-            CryptoProvider::Coinbase => provider_from_endpoints(
-                "coinbase",
-                vec![required_value(
-                    "candles",
-                    coinbase::candles(&client, &args.symbol, &args.interval, args.limit).await,
-                )],
-            ),
-            CryptoProvider::Okx => provider_from_endpoints(
-                "okx",
-                vec![
-                    required_value(
-                        "candles",
-                        okx::candles(
-                            &client,
-                            &args.symbol,
-                            instrument,
-                            &args.interval,
-                            args.limit,
-                        )
-                        .await,
-                    ),
-                    supplemental_value(
-                        "history-candles",
-                        okx::history_candles(
-                            &client,
-                            &args.symbol,
-                            instrument,
-                            &args.interval,
-                            args.limit,
-                        )
-                        .await,
-                    ),
-                ],
-            ),
-            CryptoProvider::Coingecko => provider_from_endpoints(
-                "coingecko",
-                vec![
-                    required_value(
-                        "ohlc",
-                        coingecko::ohlc(&client, &args.symbol, &args.interval, args.limit).await,
-                    ),
-                    supplemental_value(
-                        "market-chart",
-                        coingecko::market_chart(&client, &args.symbol, "1", args.limit).await,
-                    ),
-                ],
-            ),
-            CryptoProvider::Auto => unreachable!(),
-        });
-    }
+    })
+    .await;
     print_evidence_report(
-        evidence_report(capability, instrument, Some(&args.symbol), results),
+        evidence_report(capability, instrument, Some(&symbol), results),
         args.json,
         args.raw,
     )
@@ -293,43 +321,46 @@ pub async fn run_funding(
     let config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let capability = CryptoCapability::Funding;
     let instrument = resolve_instrument(args.instrument, capability);
-    let mut results = Vec::new();
-    for provider in selected_providers(args.provider, instrument, capability) {
-        if !provider_supports(provider, instrument, capability) {
-            results.push(unsupported_provider(
-                provider.label(),
-                capability,
-                instrument,
-            ));
-            continue;
+    let symbol = args.symbol;
+    let limit = args.limit;
+    let results = collect_provider_evidence(args.provider, instrument, capability, |provider| {
+        let client = client.clone();
+        let config = config.clone();
+        let symbol = symbol.clone();
+        async move {
+            match provider {
+                CryptoProvider::Binance => provider_from_endpoints(
+                    "binance",
+                    vec![required_payload(
+                        "funding",
+                        binance::futures_funding(&config, &symbol, limit).await,
+                    )],
+                ),
+                CryptoProvider::Okx => provider_from_endpoints(
+                    "okx",
+                    collect_endpoint_evidence(vec![
+                        required_endpoint("funding-rate", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { okx::funding_rate(&client, &symbol, instrument).await }
+                        }),
+                        supplemental_endpoint("funding-rate-history", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move {
+                                okx::funding_rate_history(&client, &symbol, instrument, limit).await
+                            }
+                        }),
+                    ])
+                    .await,
+                ),
+                provider => unsupported_provider(provider.label(), capability, instrument),
+            }
         }
-        results.push(match provider {
-            CryptoProvider::Binance => provider_from_endpoints(
-                "binance",
-                vec![required_payload(
-                    "funding",
-                    binance::futures_funding(&config, &args.symbol, args.limit).await,
-                )],
-            ),
-            CryptoProvider::Okx => provider_from_endpoints(
-                "okx",
-                vec![
-                    required_value(
-                        "funding-rate",
-                        okx::funding_rate(&client, &args.symbol, instrument).await,
-                    ),
-                    supplemental_value(
-                        "funding-rate-history",
-                        okx::funding_rate_history(&client, &args.symbol, instrument, args.limit)
-                            .await,
-                    ),
-                ],
-            ),
-            provider => unsupported_provider(provider.label(), capability, instrument),
-        });
-    }
+    })
+    .await;
     print_evidence_report(
-        evidence_report(capability, instrument, Some(&args.symbol), results),
+        evidence_report(capability, instrument, Some(&symbol), results),
         args.json,
         args.raw,
     )
@@ -345,42 +376,43 @@ pub async fn run_open_interest(
     let config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let capability = CryptoCapability::OpenInterest;
     let instrument = resolve_instrument(args.instrument, capability);
-    let mut results = Vec::new();
-    for provider in selected_providers(args.provider, instrument, capability) {
-        if !provider_supports(provider, instrument, capability) {
-            results.push(unsupported_provider(
-                provider.label(),
-                capability,
-                instrument,
-            ));
-            continue;
-        }
-        results.push(match provider {
-            CryptoProvider::Binance => provider_from_endpoints(
-                "binance",
-                vec![required_payload(
-                    "open-interest",
-                    binance::futures_open_interest(&config, &args.symbol).await,
-                )],
-            ),
-            CryptoProvider::Okx => provider_from_endpoints(
-                "okx",
-                vec![
-                    required_value(
+    let symbol = args.symbol;
+    let results = collect_provider_evidence(args.provider, instrument, capability, |provider| {
+        let client = client.clone();
+        let config = config.clone();
+        let symbol = symbol.clone();
+        async move {
+            match provider {
+                CryptoProvider::Binance => provider_from_endpoints(
+                    "binance",
+                    vec![required_payload(
                         "open-interest",
-                        okx::open_interest(&client, &args.symbol, instrument).await,
-                    ),
-                    supplemental_value(
-                        "mark-price",
-                        okx::mark_price(&client, &args.symbol, instrument).await,
-                    ),
-                ],
-            ),
-            provider => unsupported_provider(provider.label(), capability, instrument),
-        });
-    }
+                        binance::futures_open_interest(&config, &symbol).await,
+                    )],
+                ),
+                CryptoProvider::Okx => provider_from_endpoints(
+                    "okx",
+                    collect_endpoint_evidence(vec![
+                        required_endpoint("open-interest", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { okx::open_interest(&client, &symbol, instrument).await }
+                        }),
+                        supplemental_endpoint("mark-price", {
+                            let client = client.clone();
+                            let symbol = symbol.clone();
+                            async move { okx::mark_price(&client, &symbol, instrument).await }
+                        }),
+                    ])
+                    .await,
+                ),
+                provider => unsupported_provider(provider.label(), capability, instrument),
+            }
+        }
+    })
+    .await;
     print_evidence_report(
-        evidence_report(capability, instrument, Some(&args.symbol), results),
+        evidence_report(capability, instrument, Some(&symbol), results),
         args.json,
         args.raw,
     )
@@ -396,121 +428,194 @@ pub async fn run_discover(
     let config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let capability = CryptoCapability::Discover(args.kind);
     let instrument = resolve_instrument(args.instrument, capability);
-    let mut results = Vec::new();
-    for provider in selected_providers(args.provider, instrument, capability) {
-        if !provider_supports(provider, instrument, capability) {
-            results.push(unsupported_provider(
-                provider.label(),
-                capability,
-                instrument,
-            ));
-            continue;
-        }
-        results.push(match (provider, args.kind) {
-            (
-                CryptoProvider::Binance,
-                CryptoDiscoverKind::Markets | CryptoDiscoverKind::Instruments,
-            ) => provider_from_endpoints(
-                "binance",
-                vec![required_payload(
-                    "exchange-info",
-                    binance::spot_exchange_info(&config, None).await,
-                )],
-            ),
-            (
-                CryptoProvider::Coinbase,
-                CryptoDiscoverKind::Markets | CryptoDiscoverKind::Instruments,
-            ) => provider_from_endpoints(
-                "coinbase",
-                vec![required_value(
-                    "products",
-                    coinbase::products(&client).await,
-                )],
-            ),
-            (CryptoProvider::Coinbase, CryptoDiscoverKind::VolumeSummary) => {
-                provider_from_endpoints(
+    let kind = args.kind;
+    let limit = args.limit;
+    let vs_currency = args.vs_currency;
+    let results = collect_provider_evidence(args.provider, instrument, capability, |provider| {
+        let client = client.clone();
+        let config = config.clone();
+        let vs_currency = vs_currency.clone();
+        async move {
+            match (provider, kind) {
+                (
+                    CryptoProvider::Binance,
+                    CryptoDiscoverKind::Markets | CryptoDiscoverKind::Instruments,
+                ) => provider_from_endpoints(
+                    "binance",
+                    vec![required_payload(
+                        "exchange-info",
+                        binance::spot_exchange_info(&config, None).await,
+                    )],
+                ),
+                (
+                    CryptoProvider::Coinbase,
+                    CryptoDiscoverKind::Markets | CryptoDiscoverKind::Instruments,
+                ) => provider_from_endpoints(
                     "coinbase",
                     vec![required_value(
-                        "volume-summary",
-                        coinbase::volume_summary(&client).await,
+                        "products",
+                        coinbase::products(&client).await,
                     )],
-                )
-            }
-            (
-                CryptoProvider::Okx,
-                CryptoDiscoverKind::Markets | CryptoDiscoverKind::Instruments,
-            ) => provider_from_endpoints(
-                "okx",
-                vec![required_value(
-                    "instruments",
-                    okx::instruments(&client, instrument).await,
-                )],
-            ),
-            (CryptoProvider::Okx, CryptoDiscoverKind::Tickers) => provider_from_endpoints(
-                "okx",
-                vec![required_value(
-                    "tickers",
-                    okx::tickers(&client, instrument).await,
-                )],
-            ),
-            (CryptoProvider::Coingecko, CryptoDiscoverKind::Markets) => provider_from_endpoints(
-                "coingecko",
-                vec![required_value(
-                    "markets",
-                    coingecko::markets(&client, &args.vs_currency, args.limit).await,
-                )],
-            ),
-            (CryptoProvider::Coingecko, CryptoDiscoverKind::Trending) => provider_from_endpoints(
-                "coingecko",
-                vec![required_value(
-                    "trending",
-                    coingecko::trending(&client).await,
-                )],
-            ),
-            (CryptoProvider::Coingecko, CryptoDiscoverKind::Global) => provider_from_endpoints(
-                "coingecko",
-                vec![required_value("global", coingecko::global(&client).await)],
-            ),
-            (CryptoProvider::Coingecko, CryptoDiscoverKind::Exchanges) => provider_from_endpoints(
-                "coingecko",
-                vec![required_value(
-                    "exchanges",
-                    coingecko::exchanges(&client, args.limit).await,
-                )],
-            ),
-            (CryptoProvider::Coingecko, CryptoDiscoverKind::Derivatives) => {
-                provider_from_endpoints(
-                    "coingecko",
+                ),
+                (CryptoProvider::Coinbase, CryptoDiscoverKind::VolumeSummary) => {
+                    provider_from_endpoints(
+                        "coinbase",
+                        vec![required_value(
+                            "volume-summary",
+                            coinbase::volume_summary(&client).await,
+                        )],
+                    )
+                }
+                (
+                    CryptoProvider::Okx,
+                    CryptoDiscoverKind::Markets | CryptoDiscoverKind::Instruments,
+                ) => provider_from_endpoints(
+                    "okx",
                     vec![required_value(
-                        "derivatives",
-                        coingecko::derivatives(&client, args.limit).await,
+                        "instruments",
+                        okx::instruments(&client, instrument).await,
                     )],
-                )
-            }
-            (CryptoProvider::Coingecko, CryptoDiscoverKind::DerivativesExchanges) => {
-                provider_from_endpoints(
-                    "coingecko",
+                ),
+                (CryptoProvider::Okx, CryptoDiscoverKind::Tickers) => provider_from_endpoints(
+                    "okx",
                     vec![required_value(
-                        "derivatives-exchanges",
-                        coingecko::derivatives_exchanges(&client, args.limit).await,
+                        "tickers",
+                        okx::tickers(&client, instrument).await,
                     )],
-                )
+                ),
+                (CryptoProvider::Coingecko, CryptoDiscoverKind::Markets) => {
+                    provider_from_endpoints(
+                        "coingecko",
+                        vec![required_value(
+                            "markets",
+                            coingecko::markets(&client, &vs_currency, limit).await,
+                        )],
+                    )
+                }
+                (CryptoProvider::Coingecko, CryptoDiscoverKind::Trending) => {
+                    provider_from_endpoints(
+                        "coingecko",
+                        vec![required_value(
+                            "trending",
+                            coingecko::trending(&client).await,
+                        )],
+                    )
+                }
+                (CryptoProvider::Coingecko, CryptoDiscoverKind::Global) => provider_from_endpoints(
+                    "coingecko",
+                    vec![required_value("global", coingecko::global(&client).await)],
+                ),
+                (CryptoProvider::Coingecko, CryptoDiscoverKind::Exchanges) => {
+                    provider_from_endpoints(
+                        "coingecko",
+                        vec![required_value(
+                            "exchanges",
+                            coingecko::exchanges(&client, limit).await,
+                        )],
+                    )
+                }
+                (CryptoProvider::Coingecko, CryptoDiscoverKind::Derivatives) => {
+                    provider_from_endpoints(
+                        "coingecko",
+                        vec![required_value(
+                            "derivatives",
+                            coingecko::derivatives(&client, limit).await,
+                        )],
+                    )
+                }
+                (CryptoProvider::Coingecko, CryptoDiscoverKind::DerivativesExchanges) => {
+                    provider_from_endpoints(
+                        "coingecko",
+                        vec![required_value(
+                            "derivatives-exchanges",
+                            coingecko::derivatives_exchanges(&client, limit).await,
+                        )],
+                    )
+                }
+                (CryptoProvider::Coingecko, CryptoDiscoverKind::CoinsList) => {
+                    provider_from_endpoints(
+                        "coingecko",
+                        vec![required_value(
+                            "coins-list",
+                            coingecko::coins_list(&client, limit).await,
+                        )],
+                    )
+                }
+                (provider, _) => unsupported_provider(provider.label(), capability, instrument),
             }
-            (CryptoProvider::Coingecko, CryptoDiscoverKind::CoinsList) => provider_from_endpoints(
-                "coingecko",
-                vec![required_value(
-                    "coins-list",
-                    coingecko::coins_list(&client, args.limit).await,
-                )],
-            ),
-            (provider, _) => unsupported_provider(provider.label(), capability, instrument),
-        });
-    }
+        }
+    })
+    .await;
     print_evidence_report(
         evidence_report(capability, instrument, None, results),
         args.json,
         args.raw,
     )
+}
+
+async fn collect_provider_evidence<F, Fut>(
+    provider: CryptoProvider,
+    instrument: CryptoInstrument,
+    capability: CryptoCapability,
+    fetch: F,
+) -> Vec<ProviderEvidence>
+where
+    F: Fn(CryptoProvider) -> Fut,
+    Fut: Future<Output = ProviderEvidence>,
+{
+    let futures = selected_providers(provider, instrument, capability)
+        .into_iter()
+        .map(|provider| {
+            let fetch = &fetch;
+            async move {
+                if provider_supports(provider, instrument, capability) {
+                    fetch(provider).await
+                } else {
+                    unsupported_provider(provider.label(), capability, instrument)
+                }
+            }
+        });
+    join_all(futures).await
+}
+
+async fn collect_endpoint_evidence(
+    endpoints: Vec<BoxFuture<'static, EndpointEvidence>>,
+) -> Vec<EndpointEvidence> {
+    join_all(endpoints).await
+}
+
+fn required_endpoint<T, Fut>(
+    endpoint: &'static str,
+    result: Fut,
+) -> BoxFuture<'static, EndpointEvidence>
+where
+    T: Serialize + Send + 'static,
+    Fut: Future<Output = Result<T>> + Send + 'static,
+{
+    endpoint_future(endpoint, true, result)
+}
+
+fn supplemental_endpoint<T, Fut>(
+    endpoint: &'static str,
+    result: Fut,
+) -> BoxFuture<'static, EndpointEvidence>
+where
+    T: Serialize + Send + 'static,
+    Fut: Future<Output = Result<T>> + Send + 'static,
+{
+    endpoint_future(endpoint, false, result)
+}
+
+fn endpoint_future<T, Fut>(
+    endpoint: &'static str,
+    required: bool,
+    result: Fut,
+) -> BoxFuture<'static, EndpointEvidence>
+where
+    T: Serialize + Send + 'static,
+    Fut: Future<Output = Result<T>> + Send + 'static,
+{
+    async move { endpoint_result(endpoint, required, result.await) }.boxed()
 }
 
 fn evidence_report(
@@ -529,21 +634,11 @@ fn evidence_report(
 }
 
 fn required_payload<T: Serialize>(endpoint: &str, result: Result<T>) -> EndpointEvidence {
-    match result {
-        Ok(payload) => required_value(
-            endpoint,
-            serde_json::to_value(payload).map_err(anyhow::Error::from),
-        ),
-        Err(error) => EndpointEvidence::error(endpoint, true, format!("{error:#}")),
-    }
+    endpoint_result(endpoint, true, result)
 }
 
 fn required_value(endpoint: &str, result: Result<serde_json::Value>) -> EndpointEvidence {
     endpoint_value(endpoint, true, result)
-}
-
-fn supplemental_value(endpoint: &str, result: Result<serde_json::Value>) -> EndpointEvidence {
-    endpoint_value(endpoint, false, result)
 }
 
 fn endpoint_value(
@@ -559,6 +654,21 @@ fn endpoint_value(
             error: None,
             payload: Some(payload),
         },
+        Err(error) => EndpointEvidence::error(endpoint, required, format!("{error:#}")),
+    }
+}
+
+fn endpoint_result<T: Serialize>(
+    endpoint: &str,
+    required: bool,
+    result: Result<T>,
+) -> EndpointEvidence {
+    match result {
+        Ok(payload) => endpoint_value(
+            endpoint,
+            required,
+            serde_json::to_value(payload).map_err(anyhow::Error::from),
+        ),
         Err(error) => EndpointEvidence::error(endpoint, required, format!("{error:#}")),
     }
 }

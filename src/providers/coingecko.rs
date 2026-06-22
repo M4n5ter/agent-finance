@@ -3,7 +3,7 @@ use serde_json::Value;
 use url::Url;
 use wreq::Client;
 
-use crate::http::{parse_optional_f64, timestamp_ms_to_utc};
+use crate::http::{parse_optional_f64, send_text_with_retries, timestamp_ms_to_utc};
 use crate::model::{HistoryBatch, OhlcBar, Quote};
 
 const PROVIDER: &str = "coingecko";
@@ -255,21 +255,18 @@ async fn get_json(
             query.append_pair(key, &value);
         }
     }
-    let mut request = client.get(url.as_str());
-    if let Ok(key) = std::env::var("COINGECKO_API_KEY") {
-        request = request.header("x-cg-pro-api-key", key);
-    } else if let Ok(key) = std::env::var("COINGECKO_DEMO_API_KEY") {
-        request = request.header("x-cg-demo-api-key", key);
-    }
-    let response = request
-        .send()
-        .await
-        .with_context(|| format!("CoinGecko request failed: {url}"))?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .with_context(|| format!("CoinGecko response body read failed: {url}"))?;
+    let pro_key = std::env::var("COINGECKO_API_KEY").ok();
+    let demo_key = std::env::var("COINGECKO_DEMO_API_KEY").ok();
+    let (status, body) = send_text_with_retries("CoinGecko", url.as_str(), || {
+        let mut request = client.get(url.as_str());
+        if let Some(key) = pro_key.as_ref() {
+            request = request.header("x-cg-pro-api-key", key);
+        } else if let Some(key) = demo_key.as_ref() {
+            request = request.header("x-cg-demo-api-key", key);
+        }
+        request
+    })
+    .await?;
     if !status.is_success() {
         return Err(anyhow!(
             "CoinGecko request failed status={} body={body}",
