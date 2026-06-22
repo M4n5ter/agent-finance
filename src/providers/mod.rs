@@ -4,7 +4,7 @@ use wreq::Client;
 use crate::cli::{HistoryAdjustment, Provider, StooqAsset, StooqMarket};
 use crate::model::{HistoryBatch, Quote};
 
-pub mod binance_futures;
+pub mod binance;
 pub mod capabilities;
 pub mod cnbc;
 pub mod polymarket;
@@ -86,15 +86,9 @@ pub async fn fetch_history(
             )
             .await
         }
-        Provider::BinanceFutures => {
-            binance_futures::fetch_history(
-                client,
-                &request.symbol,
-                &request.interval,
-                request.limit,
-            )
-            .await
-        }
+        Provider::BinanceSpot | Provider::BinanceUsdsFutures => Err(anyhow!(
+            "Binance crypto history requires the crypto-aware app path; use --asset crypto"
+        )),
         Provider::Auto => {
             let yahoo_error = match yahoo::fetch_history(client, request).await {
                 Ok(history) => return Ok(history),

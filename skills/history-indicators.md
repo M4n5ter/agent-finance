@@ -7,7 +7,8 @@ agent-finance history LITE --provider auto --interval 1d --range 1mo --limit 30
 agent-finance history LITE --interval 1m --range 5d --session extended --adjustment raw --no-actions --limit 200
 agent-finance history LITE --interval 1d --range 1y --adjustment auto --repair --limit 252
 agent-finance history AAPL --provider robinhood --interval 5m --range 1d --session extended --limit 80
-agent-finance history LITEUSDT --provider binance-futures --interval 1d --limit 30
+agent-finance history BTC/USDT --asset crypto --provider binance-spot --interval 1h --limit 48
+agent-finance history BTCUSDT --asset crypto --provider binance-usds-futures --interval 1d --limit 30
 ```
 
 ## Intervals
@@ -16,7 +17,7 @@ agent-finance history LITEUSDT --provider binance-futures --interval 1d --limit 
 - Robinhood: `5m`, `10m`, `1h`, `1d`, `1w`.
 - Stooq live: `1d`, `1w`, `1mo`.
 - Stooq bulk cache: `5m`, `1h` after explicit import.
-- Binance futures / TradFi proxy: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`.
+- Binance spot / USD-M futures: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`.
 
 When unsure:
 

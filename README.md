@@ -2,7 +2,7 @@
 
 AI Agent-first CLI for no-key financial market data and research context.
 
-`agent-finance` is designed for human-operated AI agents: the CLI can print its own task-specific skills, then provide current quotes, regular/pre/post/overnight session splits, OHLCV history, local indicators, proxy futures data, prediction-market sentiment, no-key research payloads, URL text extraction, provider capability notes, polling, and Yahoo WebSocket streams.
+`agent-finance` is designed for human-operated AI agents: the CLI can print its own task-specific skills, then provide current quotes, regular/pre/post/overnight session splits, crypto spot and futures market data, OHLCV history, local indicators, prediction-market sentiment, no-key research payloads, URL text extraction, provider capability notes, polling, and Yahoo WebSocket streams.
 
 If you are an AI Agent, start here:
 
@@ -49,13 +49,21 @@ agent-finance price CRDO MRVL --json
 agent-finance sessions CRDO
 agent-finance sessions LITE --proxy-symbol LITEUSDT
 
-# History, indicators, futures/proxy data, and streams.
+# History, indicators, crypto/proxy context, and streams.
 agent-finance history CRDO --range 1mo --interval 1d
 agent-finance history CRDO --range 5d --interval 1m --session extended --adjustment raw --no-actions
 agent-finance indicators CRDO MRVL --limit 120
-agent-finance futures SPCXUSDT
 agent-finance stream CRDO --messages 5
 agent-finance watch CRDO --interval-seconds 15 --iterations 4
+
+# Binance crypto spot and USD-M futures market data.
+agent-finance crypto snapshot BTC/USDT
+agent-finance crypto sentiment BTCUSDT
+agent-finance crypto spot book BTCUSDT --limit 20
+agent-finance crypto futures funding BTCUSDT --limit 8
+agent-finance crypto stream BTCUSDT --market usds-futures --kind mark-price --messages 1
+agent-finance price BTC/USDT --asset crypto
+agent-finance history BTC/USDT --asset crypto --interval 1h --limit 48
 
 # No-key research and discovery.
 agent-finance fundamentals CRDO
@@ -83,11 +91,11 @@ The CLI ships Markdown skills so an AI Agent can learn the exact command surface
 agent-finance skills list
 agent-finance skills get core --full
 agent-finance skills get price
+agent-finance skills get crypto
 agent-finance skills get research-data
 agent-finance skills get providers
 agent-finance skills get prediction-markets
 agent-finance skills get history-indicators
-agent-finance skills get futures
 ```
 
 ## Data Source Rules
@@ -96,7 +104,8 @@ agent-finance skills get futures
 - `sessions SYMBOL` is for explicit regular/pre/post/overnight/provider comparisons.
 - `history` defaults to adjusted prices and includes corporate actions unless disabled.
 - `providers` is the source-of-truth capability matrix. Do not infer coverage from provider names.
-- Binance futures / TradFi perps are derivative/proxy prices. They are useful for 24h price discovery, but they are not the legal equity, broker fill, or pre-IPO ownership price.
+- Binance crypto is a tier-1 24/7 market-data source. Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments, not legal equity, broker fill, or pre-IPO ownership price.
+- Binance Spot WebSocket uses the public market-data-only endpoint. USD-M Futures WebSocket streams are routed through Binance's current public/market paths.
 - Polymarket is a prediction-market sentiment source. Use it for implied probabilities, orderbook, spread, volume, liquidity, open interest, holder preview rows, and probability history. It is not an equity quote, primary-source fact, or confirmation of insider information.
 - `read-url` is an extraction fallback using direct/Jina/Defuddle readers. It is not a login-capable browser.
 - Dynamic, login-gated, screenshot-sensitive, or noisy pages should be verified with a real browser tool. `agent-browser` and `opencli` are examples, not dependencies.

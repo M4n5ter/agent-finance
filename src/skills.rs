@@ -6,11 +6,11 @@ pub struct BuiltinSkill {
 const SKILLS: &[BuiltinSkill] = &[
     BuiltinSkill {
         name: "core",
-        description: "Entry guide for price, sessions, history, research, providers, proxy data, and safe source handling.",
+        description: "Entry guide for price, sessions, crypto, history, research, providers, proxy context, and safe source handling.",
     },
     BuiltinSkill {
         name: "price",
-        description: "Fetch current price summaries, regular-market basis, pre/post/overnight sessions, streams, and proxy prices.",
+        description: "Fetch current price summaries, regular-market basis, pre/post/overnight sessions, crypto prices, streams, and proxy context.",
     },
     BuiltinSkill {
         name: "research-data",
@@ -18,7 +18,11 @@ const SKILLS: &[BuiltinSkill] = &[
     },
     BuiltinSkill {
         name: "providers",
-        description: "Understand Yahoo, SEC EDGAR, CNBC, Robinhood, Stooq, Binance futures, Polymarket, and proxy quote capabilities.",
+        description: "Understand Yahoo, SEC EDGAR, CNBC, Robinhood, Stooq, Binance crypto, Polymarket, and provider capabilities.",
+    },
+    BuiltinSkill {
+        name: "crypto",
+        description: "Use Binance as a tier-1 crypto market-data provider for spot, USD-M futures, snapshot, sentiment, history, and watch.",
     },
     BuiltinSkill {
         name: "prediction-markets",
@@ -27,10 +31,6 @@ const SKILLS: &[BuiltinSkill] = &[
     BuiltinSkill {
         name: "history-indicators",
         description: "Fetch OHLCV, understand intervals, adjustments, repair, actions, and local technical indicators.",
-    },
-    BuiltinSkill {
-        name: "futures",
-        description: "Use Binance USD-M futures / TradFi perps for proxy price, funding, open interest, and mark price.",
     },
 ];
 
@@ -47,9 +47,9 @@ pub fn get(name: &str, full: bool) -> Option<&'static str> {
         ("price", _) => Some(PRICE),
         ("research-data", _) => Some(RESEARCH_DATA),
         ("providers", _) => Some(PROVIDERS),
+        ("crypto", _) => Some(CRYPTO),
         ("prediction-markets", _) => Some(PREDICTION_MARKETS),
         ("history-indicators", _) => Some(HISTORY_INDICATORS),
-        ("futures", _) => Some(FUTURES),
         _ => None,
     }
 }
@@ -59,6 +59,6 @@ const CORE_FULL: &str = include_str!("../skills/core-full.md");
 const PRICE: &str = include_str!("../skills/price.md");
 const RESEARCH_DATA: &str = include_str!("../skills/research-data.md");
 const PROVIDERS: &str = include_str!("../skills/providers.md");
+const CRYPTO: &str = include_str!("../skills/crypto.md");
 const PREDICTION_MARKETS: &str = include_str!("../skills/prediction-markets.md");
 const HISTORY_INDICATORS: &str = include_str!("../skills/history-indicators.md");
-const FUTURES: &str = include_str!("../skills/futures.md");

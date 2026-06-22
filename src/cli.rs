@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+pub use crate::crypto_cli::*;
+
 pub const HISTORY_INTERVAL_HELP: &str = "Bar interval. Provider-specific values: Yahoo 1m/2m/5m/15m/30m/60m/90m/1h/1d/5d/1wk/1mo/3mo; Robinhood 5m/10m/1h/1d/1w; Stooq live 1d/1w/1mo; Stooq bulk 5m/1h after sync; Binance klines 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M.";
 
 #[derive(Parser, Debug)]
@@ -43,8 +45,6 @@ pub enum Command {
     History(HistoryArgs),
     /// Compute local derived indicators from history.
     Indicators(IndicatorsArgs),
-    /// Fetch Binance futures / TradFi proxy stats.
-    Futures(FuturesArgs),
     /// Fetch fundamentals, valuation, statements, cash-flow, and SEC official facts.
     Fundamentals(ProviderResearchArgs),
     /// Fetch Yahoo analyst targets, recommendations, estimates, and revisions.
@@ -61,6 +61,8 @@ pub enum Command {
     ReadUrl(ReadUrlArgs),
     /// Search Yahoo Finance for tickers and news.
     Search(SearchArgs),
+    /// Inspect Binance crypto spot and USD-M futures market data.
+    Crypto(CryptoArgs),
     /// Inspect Polymarket prediction-market sentiment and event-probability signals.
     Polymarket(PolymarketArgs),
     /// Run Yahoo predefined screeners.
@@ -82,10 +84,16 @@ pub struct PriceArgs {
     #[arg(required = true)]
     pub symbols: Vec<String>,
 
+    #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
+    pub asset: AssetClass,
+
+    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
+    pub crypto_market: CryptoMarket,
+
     #[arg(long, value_enum, default_value_t = SessionMode::Smart)]
     pub session: SessionMode,
 
-    /// Optional Binance futures / TradFi proxy symbol to display beside the quote.
+    /// Optional Binance USD-M futures or proxy symbol to display beside the quote.
     #[arg(long)]
     pub proxy_symbol: Option<String>,
 
@@ -97,7 +105,7 @@ pub struct PriceArgs {
 pub struct SessionsArgs {
     pub symbol: String,
 
-    /// Optional Binance futures / TradFi proxy symbol to display beside the quote.
+    /// Optional Binance USD-M futures or proxy symbol to display beside the quote.
     #[arg(long)]
     pub proxy_symbol: Option<String>,
 
@@ -108,6 +116,12 @@ pub struct SessionsArgs {
 #[derive(Parser, Debug)]
 pub struct HistoryArgs {
     pub symbol: String,
+
+    #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
+    pub asset: AssetClass,
+
+    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
+    pub crypto_market: CryptoMarket,
 
     #[arg(long, value_enum, default_value_t = Provider::Auto)]
     pub provider: Provider,
@@ -150,6 +164,12 @@ pub struct IndicatorsArgs {
     #[arg(required = true)]
     pub symbols: Vec<String>,
 
+    #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
+    pub asset: AssetClass,
+
+    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
+    pub crypto_market: CryptoMarket,
+
     #[arg(long, value_enum, default_value_t = Provider::Auto)]
     pub provider: Provider,
 
@@ -178,18 +198,6 @@ pub struct IndicatorsArgs {
     /// Stooq bulk asset scope for 5m/1h cache reads.
     #[arg(long, value_enum, default_value_t = StooqAsset::Stocks)]
     pub stooq_asset: StooqAsset,
-
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(Parser, Debug)]
-pub struct FuturesArgs {
-    /// Binance USD-M futures / TradFi proxy symbol, for example SPCXUSDT.
-    pub symbol: String,
-
-    #[arg(long, default_value_t = 8)]
-    pub funding_limit: usize,
 
     #[arg(long)]
     pub json: bool,
@@ -484,6 +492,12 @@ pub struct WatchArgs {
     #[arg(required = true)]
     pub symbols: Vec<String>,
 
+    #[arg(long, value_enum, default_value_t = AssetClass::Auto)]
+    pub asset: AssetClass,
+
+    #[arg(long, value_enum, default_value_t = CryptoMarket::Auto)]
+    pub crypto_market: CryptoMarket,
+
     #[arg(long, default_value_t = 15)]
     pub interval_seconds: u64,
 
@@ -543,6 +557,13 @@ pub enum SessionMode {
     Extended,
     Overnight,
     All,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum AssetClass {
+    Auto,
+    Equity,
+    Crypto,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -638,7 +659,8 @@ pub enum Provider {
     Stooq,
     CnbcExtended,
     Robinhood,
-    BinanceFutures,
+    BinanceSpot,
+    BinanceUsdsFutures,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -668,7 +690,8 @@ impl Provider {
             Provider::Stooq => "stooq",
             Provider::CnbcExtended => "cnbc-extended",
             Provider::Robinhood => "robinhood",
-            Provider::BinanceFutures => "binance-futures",
+            Provider::BinanceSpot => "binance-spot",
+            Provider::BinanceUsdsFutures => "binance-usds-futures",
         }
     }
 }

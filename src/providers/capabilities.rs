@@ -1,7 +1,10 @@
 use crate::cli::{Provider, ResearchProvider};
 use crate::model::{ProviderCapability, ProviderProfile};
+use crate::providers::binance::BINANCE_ENDPOINTS;
 
 pub fn profiles() -> Vec<ProviderProfile> {
+    let binance_spot_endpoints = binance_endpoint_note("spot");
+    let binance_futures_endpoints = binance_endpoint_note("usds-futures");
     vec![
         profile(
             ResearchProvider::Auto.label(),
@@ -261,24 +264,88 @@ pub fn profiles() -> Vec<ProviderProfile> {
             ],
         ),
         profile(
-            Provider::BinanceFutures.label(),
+            Provider::BinanceSpot.label(),
             false,
             "official-api",
             "exchange-api",
-            "TradFi / futures / pre-IPO proxy contract price discovery.",
+            "Crypto spot price, 24h ticker, order book, trades, and OHLCV through official Binance public API paths.",
             &[
-                cap("quote", "yes", "USD-M futures ticker/mark price"),
-                cap("history", "yes", "klines"),
-                cap(
-                    "proxy metrics",
-                    "yes",
-                    "24h ticker、mark、open interest、funding",
-                ),
-                cap("research", "no", "No company fundamentals/analysis"),
+                cap("quote", "yes", "spot ticker price"),
+                cap("24h ticker", "yes", "rolling 24h statistics"),
+                cap("history", "yes", "spot klines"),
+                cap("order book", "yes", "depth and book ticker"),
+                cap("trades", "yes", "recent and aggregate trades"),
+                cap("exchange info", "yes", "symbol filters and trading rules"),
+                cap("cli endpoints", "yes", &binance_spot_endpoints),
+                cap("research", "no", "No issuer fundamentals/analysis"),
             ],
-            &["Proxy price is not the stock or pre-IPO legal-equity price."],
+            &["Crypto spot markets trade 24/7 and do not use equity sessions."],
+        ),
+        profile(
+            Provider::BinanceUsdsFutures.label(),
+            false,
+            "official-api",
+            "exchange-api",
+            "Crypto USD-M futures and TradFi perpetual market data, leverage sentiment, funding, open interest, and flow.",
+            &[
+                cap("quote", "yes", "USD-M futures ticker price"),
+                cap("24h ticker", "yes", "rolling 24h statistics"),
+                cap("history", "yes", "USD-M futures klines"),
+                cap("order book", "yes", "depth"),
+                cap("trades", "yes", "aggregate trades"),
+                cap(
+                    "mark/index/funding",
+                    "yes",
+                    "mark price and funding reference",
+                ),
+                cap("open interest", "yes", "current open interest"),
+                cap("long/short ratios", "yes", "global and top-trader ratios"),
+                cap("taker flow", "yes", "taker buy/sell volume"),
+                cap("basis", "yes", "futures basis"),
+                cap("cli endpoints", "yes", &binance_futures_endpoints),
+                cap("research", "no", "No issuer fundamentals/analysis"),
+            ],
+            &[
+                "Futures prices are derivatives and can diverge from spot.",
+                "TradFi perpetuals are proxy instruments, not legal equity or broker-fill prices.",
+            ],
         ),
     ]
+}
+
+fn binance_endpoint_note(market: &str) -> String {
+    let routes = BINANCE_ENDPOINTS
+        .iter()
+        .filter(|endpoint| endpoint.market == market || endpoint.market == "combined")
+        .map(|endpoint| {
+            let auth = if endpoint.requires_api_key {
+                "key"
+            } else {
+                "no-key"
+            };
+            match endpoint.live_symbol {
+                Some(symbol) => format!(
+                    "{} -> {} via {} ({auth}, {}, live test {symbol})",
+                    endpoint.route,
+                    endpoint.official_endpoint,
+                    endpoint.implementation,
+                    endpoint.output_model
+                ),
+                None => format!(
+                    "{} -> {} via {} ({auth}, {})",
+                    endpoint.route,
+                    endpoint.official_endpoint,
+                    endpoint.implementation,
+                    endpoint.output_model
+                ),
+            }
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "{} routed CLI endpoints: {}",
+        routes.len(),
+        routes.join("; ")
+    )
 }
 
 fn profile(

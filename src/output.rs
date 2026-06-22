@@ -3,11 +3,14 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 
 use crate::model::{
-    DerivedIndicator, FuturesStats, HistoryBatch, PredictionMarketReport, PredictionMarketSummary,
+    DerivedIndicator, HistoryBatch, PredictionMarketReport, PredictionMarketSummary,
     PredictionOutcome, PredictionSearchReport, PricePoint, PriceSummary, ProviderProfile,
     ResearchReport, SearchReport, StreamQuote,
 };
 use crate::page_read::PageReadReport;
+use crate::providers::binance::{
+    CryptoEndpointReport, CryptoSentimentReport, CryptoSnapshotReport, CryptoStreamReport,
+};
 use crate::time::utc_to_local;
 
 pub fn print_price_summary(summary: &PriceSummary, show_all: bool) {
@@ -159,65 +162,83 @@ pub fn print_indicator_table(indicators: &[DerivedIndicator], errors: &BTreeMap<
     print_table(&headers, &rows);
 }
 
-pub fn print_futures_stats(stats: &FuturesStats, timezone: &str) {
+pub fn print_crypto_endpoint(
+    report: &CryptoEndpointReport,
+    timezone: &str,
+    raw: bool,
+) -> Result<()> {
     println!(
-        "{} futures stats via {} fetched_at={}",
-        stats.symbol,
-        stats.provider,
-        local_or_original(&stats.fetched_at_utc, timezone)
+        "{} {} {} symbol={} fetched={} status={}",
+        report.provider,
+        report.market,
+        report.endpoint,
+        report.symbol.as_deref().unwrap_or("-"),
+        local_or_original(&report.fetched_at_utc, timezone),
+        report.status
     );
-    if let Some(ticker) = stats.ticker_24h.as_ref() {
-        println!(
-            "24h: last={} change={} high={} low={} quote_volume={} trades={}",
-            money_value(ticker.last_price),
-            pct_value(ticker.price_change_pct),
-            money_value(ticker.high_price),
-            money_value(ticker.low_price),
-            number_value(ticker.quote_volume),
-            ticker
-                .count
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "-".to_string())
-        );
-    }
-    if let Some(mark) = stats.mark_price.as_ref() {
-        println!(
-            "mark: mark={} index={} funding={} next_funding={}",
-            money_value(mark.mark_price),
-            money_value(mark.index_price),
-            pct_value(mark.last_funding_rate.map(|value| value * 100.0)),
-            local_or_original_optional(mark.next_funding_time.as_deref(), timezone)
-        );
-    }
-    if let Some(open_interest) = stats.open_interest.as_ref() {
-        println!(
-            "open_interest: {} time={}",
-            number_value(open_interest.open_interest),
-            local_or_original_optional(open_interest.time.as_deref(), timezone)
-        );
-    }
-    if !stats.funding_rates.is_empty() {
-        println!("recent funding:");
-        let headers = ["time", "rate", "mark"];
-        let rows = stats
-            .funding_rates
-            .iter()
-            .map(|row| {
-                vec![
-                    local_or_original_optional(row.funding_time.as_deref(), timezone),
-                    pct_value(row.funding_rate.map(|value| value * 100.0)),
-                    money_value(row.mark_price),
-                ]
-            })
-            .collect::<Vec<_>>();
-        print_table(&headers, &rows);
-    }
-    if !stats.errors.is_empty() {
-        println!("errors:");
-        for (name, error) in &stats.errors {
-            println!("{name}: {error}");
+    print_crypto_value_preview(&report.payload);
+    if !report.rate_limits.is_empty() {
+        println!("rate_limits:");
+        for limit in &report.rate_limits {
+            println!(
+                "{} {:?}/{} count={} retry_after={}",
+                limit.rate_limit_type,
+                limit.interval,
+                limit.interval_num,
+                limit.count,
+                limit
+                    .retry_after
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            );
         }
     }
+    if raw {
+        println!();
+        println!("{}", serde_json::to_string_pretty(&report.payload)?);
+    }
+    Ok(())
+}
+
+pub fn print_crypto_snapshot(
+    report: &CryptoSnapshotReport,
+    timezone: &str,
+    raw: bool,
+) -> Result<()> {
+    println!(
+        "{} crypto snapshot via {} fetched={}",
+        report.symbol,
+        report.provider,
+        local_or_original(&report.fetched_at_utc, timezone)
+    );
+    print_crypto_section("spot", &report.spot);
+    print_crypto_section("futures", &report.futures);
+    print_crypto_errors(&report.errors);
+    if raw {
+        println!();
+        println!("{}", serde_json::to_string_pretty(report)?);
+    }
+    Ok(())
+}
+
+pub fn print_crypto_sentiment(
+    report: &CryptoSentimentReport,
+    timezone: &str,
+    raw: bool,
+) -> Result<()> {
+    println!(
+        "{} crypto sentiment via {} fetched={}",
+        report.symbol,
+        report.provider,
+        local_or_original(&report.fetched_at_utc, timezone)
+    );
+    print_crypto_section("futures", &report.futures);
+    print_crypto_errors(&report.errors);
+    if raw {
+        println!();
+        println!("{}", serde_json::to_string_pretty(report)?);
+    }
+    Ok(())
 }
 
 pub fn print_page_read_report(report: &PageReadReport) {
@@ -611,6 +632,49 @@ pub fn print_stream_quotes(updates: &[StreamQuote]) {
     print_table(&headers, &rows);
 }
 
+pub fn print_crypto_stream(report: &CryptoStreamReport) -> Result<()> {
+    println!(
+        "{} {} stream  provider={}  kind={}  fetched={}",
+        report.symbol, report.market, report.provider, report.kind, report.fetched_at_utc
+    );
+    if let Some(interval) = report.interval.as_deref() {
+        println!("interval: {interval}");
+    }
+    for (index, message) in report.messages.iter().enumerate() {
+        println!("{}. {}", index + 1, serde_json::to_string_pretty(message)?);
+    }
+    Ok(())
+}
+
+pub fn print_crypto_price_points(points: &[PricePoint], errors: &BTreeMap<String, String>) {
+    let headers = ["symbol", "price", "provider", "session", "time", "note"];
+    let rows = points
+        .iter()
+        .map(|point| {
+            vec![
+                point.symbol.clone(),
+                money_value(point.price),
+                point.provider.clone(),
+                point.session.clone().unwrap_or_else(|| "-".to_string()),
+                point
+                    .market_time_local
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+                point.note.clone().unwrap_or_else(|| "-".to_string()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    print_table(&headers, &rows);
+    if !errors.is_empty() {
+        println!();
+        println!("errors");
+        println!("------");
+        for (symbol, error) in errors {
+            println!("{symbol}: {error}");
+        }
+    }
+}
+
 fn price_point_row(point: &PricePoint) -> Vec<String> {
     vec![
         point.label.clone(),
@@ -663,14 +727,79 @@ where
         .join("  ")
 }
 
-fn local_or_original_optional(value: Option<&str>, timezone: &str) -> String {
-    value
-        .map(|value| local_or_original(value, timezone))
-        .unwrap_or_else(|| "-".to_string())
-}
-
 fn local_or_original(value: &str, timezone: &str) -> String {
     utc_to_local(Some(value), timezone).unwrap_or_else(|| value.to_string())
+}
+
+fn print_crypto_section(name: &str, values: &BTreeMap<String, serde_json::Value>) {
+    if values.is_empty() {
+        return;
+    }
+    println!();
+    println!("{name}");
+    println!("{}", "-".repeat(name.len()));
+    for (key, value) in values {
+        print!("{key}: ");
+        print_crypto_value_preview(value);
+    }
+}
+
+fn print_crypto_errors(errors: &BTreeMap<String, String>) {
+    if errors.is_empty() {
+        return;
+    }
+    println!();
+    println!("errors");
+    println!("------");
+    for (key, error) in errors {
+        println!("{key}: {error}");
+    }
+}
+
+fn print_crypto_value_preview(value: &serde_json::Value) {
+    if let Some(object) = value.as_object() {
+        let fields = [
+            "symbol",
+            "price",
+            "lastPrice",
+            "markPrice",
+            "indexPrice",
+            "lastFundingRate",
+            "openInterest",
+            "priceChangePercent",
+            "volume",
+            "quoteVolume",
+            "count",
+        ];
+        let preview = fields
+            .iter()
+            .filter_map(|field| {
+                object
+                    .get(*field)
+                    .map(|value| format!("{field}={}", compact_json(value)))
+            })
+            .collect::<Vec<_>>();
+        if preview.is_empty() {
+            println!("object keys={}", object.len());
+        } else {
+            println!("{}", preview.join(" "));
+        }
+    } else if let Some(values) = value.as_array() {
+        println!("array len={}", values.len());
+        if let Some(first) = values.first() {
+            print!("  first: ");
+            print_crypto_value_preview(first);
+        }
+    } else {
+        println!("{}", compact_json(value));
+    }
+}
+
+fn compact_json(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => value.clone(),
+        _ => value.to_string(),
+    }
 }
 
 fn money_value(value: Option<f64>) -> String {

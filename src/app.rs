@@ -7,18 +7,19 @@ use futures_util::StreamExt;
 use serde::Serialize;
 
 use crate::cli::{
-    Cli, Command, FuturesArgs, HistoryArgs, HistorySession, IndicatorsArgs, NewsArgs, OptionsArgs,
+    AssetClass, Cli, Command, HistoryArgs, HistorySession, IndicatorsArgs, NewsArgs, OptionsArgs,
     OptionsProvider, PolymarketArgs, PolymarketCommand, Provider, ProviderResearchArgs,
     ProvidersArgs, ReadUrlArgs, ResearchArgs, ScreenArgs, SearchArgs, SessionsArgs, StooqArgs,
     StooqCommand, WatchArgs,
 };
+use crate::crypto_app;
 use crate::http::http_client;
 use crate::indicators::compute_indicator;
 use crate::model::DerivedIndicator;
 use crate::output;
 use crate::page_read;
 use crate::price;
-use crate::providers::{self, binance_futures, stooq};
+use crate::providers::{self, binance, stooq};
 use crate::research;
 use crate::skills;
 use crate::stream;
@@ -40,9 +41,6 @@ pub async fn run() -> Result<()> {
             run_history(args, proxy, no_proxy, timeout_seconds, timezone).await
         }
         Command::Indicators(args) => run_indicators(args, proxy, no_proxy, timeout_seconds).await,
-        Command::Futures(args) => {
-            run_futures(args, proxy, no_proxy, timeout_seconds, timezone).await
-        }
         Command::Fundamentals(args) => {
             run_provider_quote_summary(
                 args,
@@ -95,6 +93,9 @@ pub async fn run() -> Result<()> {
         Command::News(args) => run_news(args, proxy, no_proxy, timeout_seconds, timezone).await,
         Command::ReadUrl(args) => run_read_url(args, proxy, no_proxy, timeout_seconds).await,
         Command::Search(args) => run_search(args, proxy, no_proxy, timeout_seconds, timezone).await,
+        Command::Crypto(args) => {
+            crypto_app::run(args, proxy, no_proxy, timeout_seconds, timezone).await
+        }
         Command::Polymarket(args) => {
             run_polymarket(args, proxy, no_proxy, timeout_seconds, timezone).await
         }
@@ -184,14 +185,26 @@ async fn run_price(
     timeout_seconds: u64,
     timezone: &str,
 ) -> Result<()> {
+    if args.asset == AssetClass::Crypto {
+        return crypto_app::run_price(args, proxy, no_proxy, timeout_seconds, timezone).await;
+    }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
+    let binance_config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let summaries = futures_util::stream::iter(args.symbols)
         .map(|symbol| {
             let client = &client;
+            let binance_config = &binance_config;
             let proxy_symbol = args.proxy_symbol.as_deref();
             async move {
-                price::fetch_price_summary(client, &symbol, timezone, args.session, proxy_symbol)
-                    .await
+                price::fetch_price_summary(
+                    client,
+                    &symbol,
+                    timezone,
+                    args.session,
+                    Some(binance_config),
+                    proxy_symbol,
+                )
+                .await
             }
         })
         .buffered(4)
@@ -227,11 +240,13 @@ async fn run_sessions(
     timezone: &str,
 ) -> Result<()> {
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
+    let binance_config = binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy);
     let summary = price::fetch_price_summary(
         &client,
         &args.symbol,
         timezone,
         crate::cli::SessionMode::All,
+        Some(&binance_config),
         args.proxy_symbol.as_deref(),
     )
     .await;
@@ -256,6 +271,14 @@ async fn run_history(
     timeout_seconds: u64,
     timezone: &str,
 ) -> Result<()> {
+    if args.asset == AssetClass::Crypto
+        || matches!(
+            args.provider,
+            Provider::BinanceSpot | Provider::BinanceUsdsFutures
+        )
+    {
+        return crypto_app::run_history(args, proxy, no_proxy, timeout_seconds, timezone).await;
+    }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let provider = effective_history_provider(args.provider, args.session);
     let request = providers::HistoryRequest {
@@ -286,6 +309,14 @@ async fn run_indicators(
     no_proxy: bool,
     timeout_seconds: u64,
 ) -> Result<()> {
+    if args.asset == AssetClass::Crypto
+        || matches!(
+            args.provider,
+            Provider::BinanceSpot | Provider::BinanceUsdsFutures
+        )
+    {
+        return crypto_app::run_indicators(args, proxy, no_proxy, timeout_seconds).await;
+    }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let mut indicators = Vec::new();
     let mut errors = BTreeMap::new();
@@ -345,30 +376,6 @@ async fn run_indicators(
         Ok(())
     } else {
         Err(anyhow!("one or more indicators failed"))
-    }
-}
-
-async fn run_futures(
-    args: FuturesArgs,
-    proxy: Option<&str>,
-    no_proxy: bool,
-    timeout_seconds: u64,
-    timezone: &str,
-) -> Result<()> {
-    let client = http_client(timeout_seconds, proxy, no_proxy)?;
-    let stats =
-        binance_futures::fetch_futures_stats(&client, &args.symbol, args.funding_limit).await;
-
-    if args.json {
-        println!("{}", serde_json::to_string_pretty(&stats)?);
-    } else {
-        output::print_futures_stats(&stats, timezone);
-    }
-
-    if stats.errors.is_empty() {
-        Ok(())
-    } else {
-        Err(anyhow!("one or more Binance futures endpoints failed"))
     }
 }
 
@@ -604,6 +611,9 @@ async fn run_watch(
     timeout_seconds: u64,
     timezone: &str,
 ) -> Result<()> {
+    if args.asset == AssetClass::Crypto {
+        return crypto_app::run_watch(args, proxy, no_proxy, timeout_seconds, timezone).await;
+    }
     let client = http_client(timeout_seconds, proxy, no_proxy)?;
     let mut iteration = 0usize;
     loop {
@@ -617,6 +627,7 @@ async fn run_watch(
                         symbol,
                         timezone,
                         crate::cli::SessionMode::Smart,
+                        None,
                         None,
                     )
                     .await

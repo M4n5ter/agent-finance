@@ -9,7 +9,7 @@ use crate::model::{
     PricePoint, PriceSummary, Quote, RegularBasis, SESSION_EXTENDED, SESSION_OVERNIGHT,
     SESSION_POST, SESSION_PRE, SESSION_REGULAR,
 };
-use crate::providers::{self, binance_futures, cnbc, robinhood, yahoo};
+use crate::providers::{self, binance, cnbc, robinhood, yahoo};
 use crate::time::{now_local, utc_to_local};
 
 pub async fn fetch_price_summary(
@@ -17,6 +17,7 @@ pub async fn fetch_price_summary(
     symbol: &str,
     timezone: &str,
     mode: SessionMode,
+    binance_config: Option<&binance::BinanceConfig>,
     proxy_symbol: Option<&str>,
 ) -> PriceSummary {
     let normalized = symbol.trim().to_uppercase();
@@ -72,16 +73,22 @@ pub async fn fetch_price_summary(
     }
 
     let proxy = if let Some(proxy_symbol) = proxy_symbol {
-        match binance_futures::fetch_quote(client, proxy_symbol).await {
+        let result = match binance_config {
+            Some(config) => binance::futures_quote(config, proxy_symbol).await,
+            None => Err(anyhow::anyhow!(
+                "Binance config is unavailable for proxy symbol"
+            )),
+        };
+        match result {
             Ok(quote) => Some(quote_to_point(
                 quote,
-                "Binance proxy price",
+                "Binance USD-M proxy context",
                 timezone,
                 Some("Proxy price is for price discovery and sentiment monitoring; it is not the stock or legal-equity price".to_string()),
             )),
             Err(error) => {
                 errors.insert(
-                    format!("binance-futures:{proxy_symbol}"),
+                    format!("binance-usds-futures:{proxy_symbol}"),
                     format!("{error:#}"),
                 );
                 None

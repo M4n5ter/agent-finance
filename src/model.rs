@@ -77,58 +77,6 @@ pub struct DerivedIndicator {
     pub realized_vol_20_annualized_pct: Option<f64>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct FuturesStats {
-    pub symbol: String,
-    pub provider: String,
-    pub fetched_at_utc: String,
-    pub ticker_24h: Option<FuturesTicker24h>,
-    pub mark_price: Option<FuturesMarkPrice>,
-    pub open_interest: Option<FuturesOpenInterest>,
-    pub funding_rates: Vec<FuturesFundingRate>,
-    pub errors: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct FuturesTicker24h {
-    pub last_price: Option<f64>,
-    pub price_change: Option<f64>,
-    pub price_change_pct: Option<f64>,
-    pub weighted_avg_price: Option<f64>,
-    pub open_price: Option<f64>,
-    pub high_price: Option<f64>,
-    pub low_price: Option<f64>,
-    pub volume: Option<f64>,
-    pub quote_volume: Option<f64>,
-    pub count: Option<u64>,
-    pub open_time: Option<String>,
-    pub close_time: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct FuturesMarkPrice {
-    pub mark_price: Option<f64>,
-    pub index_price: Option<f64>,
-    pub estimated_settle_price: Option<f64>,
-    pub last_funding_rate: Option<f64>,
-    pub interest_rate: Option<f64>,
-    pub next_funding_time: Option<String>,
-    pub time: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct FuturesOpenInterest {
-    pub open_interest: Option<f64>,
-    pub time: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct FuturesFundingRate {
-    pub funding_rate: Option<f64>,
-    pub funding_time: Option<String>,
-    pub mark_price: Option<f64>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct PricePoint {
     pub label: String,

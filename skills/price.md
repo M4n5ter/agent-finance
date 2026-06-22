@@ -20,15 +20,23 @@ agent-finance sessions CRDO
 agent-finance sessions LITE --proxy-symbol LITEUSDT
 ```
 
-## Proxy Prices
+## Crypto And Proxy Context
 
-If a Binance TradFi / futures contract exists, add `--proxy-symbol`:
+Use the crypto market domain for actual crypto symbols:
+
+```bash
+agent-finance price BTC/USDT --asset crypto
+agent-finance price BTCUSDT --asset crypto --crypto-market spot
+agent-finance price BTCUSDT --asset crypto --crypto-market usds-futures
+```
+
+If an equity or pre-IPO name has a relevant 24/7 derivative or proxy contract, add it only as side context:
 
 ```bash
 agent-finance sessions SPCX --proxy-symbol SPCXUSDT
 ```
 
-Proxy prices are price-discovery and sentiment signals. They are not the legal equity, pre-IPO ownership, or broker-fill price.
+Proxy symbols are price-discovery and sentiment signals. They are not the legal equity, pre-IPO ownership, or broker-fill price.
 
 ## Streaming
 

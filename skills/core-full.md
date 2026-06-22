@@ -10,9 +10,9 @@ agent-finance skills get core
 agent-finance skills get price
 agent-finance skills get research-data
 agent-finance skills get providers
+agent-finance skills get crypto
 agent-finance skills get prediction-markets
 agent-finance skills get history-indicators
-agent-finance skills get futures
 ```
 
 ## Price and Sessions
@@ -62,11 +62,12 @@ Research reports include sources, modules, coverage gaps, highlights, and raw pa
 ```bash
 agent-finance providers
 agent-finance providers --json
-agent-finance futures SPCXUSDT
-agent-finance futures LITEUSDT --json
+agent-finance crypto snapshot BTC/USDT
+agent-finance crypto sentiment BTCUSDT
+agent-finance price BTC/USDT --asset crypto
 ```
 
-Use `providers` as the source-of-truth coverage matrix. Binance futures / TradFi perps are derivative/proxy prices, not legal equity or broker-fill prices.
+Use `providers` as the source-of-truth coverage matrix. Binance crypto is tier-1 market data; USD-M futures / TradFi perps are derivative/proxy prices, not legal equity or broker-fill prices.
 
 ## Prediction Markets
 

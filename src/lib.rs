@@ -1,6 +1,8 @@
 pub mod app;
 mod cache;
 mod cli;
+mod crypto_app;
+mod crypto_cli;
 mod history;
 mod http;
 mod indicators;
@@ -13,3 +15,4 @@ mod research;
 mod skills;
 mod stream;
 mod time;
+mod websocket;
