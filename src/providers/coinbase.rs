@@ -1,9 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
-use url::Url;
 use wreq::Client;
 
-use crate::http::{parse_optional_f64, send_text_with_retries, timestamp_sec_to_utc};
+use crate::http::{build_url, parse_optional_f64, send_get_text, timestamp_sec_to_utc};
 use crate::model::{HistoryBatch, OhlcBar, Quote};
 
 const PROVIDER: &str = "coinbase";
@@ -146,18 +145,9 @@ async fn get_json(
 ) -> Result<Value> {
     let base_url =
         std::env::var("COINBASE_EXCHANGE_BASE_URL").unwrap_or_else(|_| BASE_URL.to_string());
-    let mut url = Url::parse(&base_url)
-        .with_context(|| format!("invalid Coinbase base URL: {base_url}"))?
-        .join(path.trim_start_matches('/'))
-        .with_context(|| format!("invalid Coinbase API path: {path}"))?;
-    {
-        let mut query = url.query_pairs_mut();
-        for (key, value) in params {
-            query.append_pair(key, &value);
-        }
-    }
-    let (status, body) =
-        send_text_with_retries("Coinbase", url.as_str(), || client.get(url.as_str())).await?;
+    let url = build_url(&base_url, path, &params)
+        .with_context(|| format!("invalid Coinbase API URL: {base_url}{path}"))?;
+    let (status, body) = send_get_text(client, "Coinbase", &url, &[]).await?;
     if !status.is_success() {
         return Err(anyhow!(
             "Coinbase request failed status={} body={body}",

@@ -1,9 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
-use url::Url;
 use wreq::Client;
 
-use crate::http::{parse_optional_f64, send_text_with_retries, timestamp_ms_to_utc};
+use crate::http::{build_url, parse_optional_f64, send_get_text, timestamp_ms_to_utc};
 use crate::model::{HistoryBatch, OhlcBar, Quote};
 
 const PROVIDER: &str = "coingecko";
@@ -240,33 +239,10 @@ async fn get_json(
     params: Vec<(&'static str, String)>,
 ) -> Result<Value> {
     let base_url = std::env::var("COINGECKO_BASE_URL").unwrap_or_else(|_| BASE_URL.to_string());
-    let normalized_base_url = if base_url.ends_with('/') {
-        base_url.clone()
-    } else {
-        format!("{base_url}/")
-    };
-    let mut url = Url::parse(&normalized_base_url)
-        .with_context(|| format!("invalid CoinGecko base URL: {base_url}"))?
-        .join(path.trim_start_matches('/'))
-        .with_context(|| format!("invalid CoinGecko API path: {path}"))?;
-    {
-        let mut query = url.query_pairs_mut();
-        for (key, value) in params {
-            query.append_pair(key, &value);
-        }
-    }
-    let pro_key = std::env::var("COINGECKO_API_KEY").ok();
-    let demo_key = std::env::var("COINGECKO_DEMO_API_KEY").ok();
-    let (status, body) = send_text_with_retries("CoinGecko", url.as_str(), || {
-        let mut request = client.get(url.as_str());
-        if let Some(key) = pro_key.as_ref() {
-            request = request.header("x-cg-pro-api-key", key);
-        } else if let Some(key) = demo_key.as_ref() {
-            request = request.header("x-cg-demo-api-key", key);
-        }
-        request
-    })
-    .await?;
+    let url = build_url(&base_url, path, &params)
+        .with_context(|| format!("invalid CoinGecko API URL: {base_url}{path}"))?;
+    let headers = coingecko_headers();
+    let (status, body) = send_get_text(client, "CoinGecko", &url, &headers).await?;
     if !status.is_success() {
         return Err(anyhow!(
             "CoinGecko request failed status={} body={body}",
@@ -275,6 +251,16 @@ async fn get_json(
     }
     serde_json::from_str(&body)
         .with_context(|| format!("CoinGecko response JSON decode failed: {url}"))
+}
+
+fn coingecko_headers() -> Vec<(&'static str, String)> {
+    if let Ok(key) = std::env::var("COINGECKO_API_KEY") {
+        vec![("x-cg-pro-api-key", key)]
+    } else if let Ok(key) = std::env::var("COINGECKO_DEMO_API_KEY") {
+        vec![("x-cg-demo-api-key", key)]
+    } else {
+        Vec::new()
+    }
 }
 
 fn validate_simple_price(payload: &Value, coin_id: &str, vs_currency: &str) -> Result<()> {

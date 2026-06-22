@@ -1,11 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
-use url::Url;
 use wreq::Client;
 
 use crate::cli::CryptoInstrument;
 use crate::http::{
-    parse_optional_f64, parse_optional_u64, send_text_with_retries, timestamp_ms_to_utc,
+    build_url, parse_optional_f64, parse_optional_u64, send_get_text, timestamp_ms_to_utc,
 };
 use crate::model::{HistoryBatch, OhlcBar, Quote};
 
@@ -257,18 +256,9 @@ async fn get_json(
     params: Vec<(&'static str, String)>,
 ) -> Result<Value> {
     let base_url = std::env::var("OKX_BASE_URL").unwrap_or_else(|_| BASE_URL.to_string());
-    let mut url = Url::parse(&base_url)
-        .with_context(|| format!("invalid OKX base URL: {base_url}"))?
-        .join(path.trim_start_matches('/'))
-        .with_context(|| format!("invalid OKX API path: {path}"))?;
-    {
-        let mut query = url.query_pairs_mut();
-        for (key, value) in params {
-            query.append_pair(key, &value);
-        }
-    }
-    let (status, body) =
-        send_text_with_retries("OKX", url.as_str(), || client.get(url.as_str())).await?;
+    let url = build_url(&base_url, path, &params)
+        .with_context(|| format!("invalid OKX API URL: {base_url}{path}"))?;
+    let (status, body) = send_get_text(client, "OKX", &url, &[]).await?;
     if !status.is_success() {
         return Err(anyhow!(
             "OKX request failed status={} body={body}",

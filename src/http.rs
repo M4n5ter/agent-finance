@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{SecondsFormat, TimeZone, Utc};
+use url::Url;
 use wreq::{Client, Proxy, RequestBuilder, StatusCode};
 use wreq_util::Emulation;
 
@@ -33,6 +34,65 @@ pub fn selected_proxy(proxy: Option<&str>, no_proxy: bool) -> Option<String> {
         .or_else(|| std::env::var("HTTP_PROXY").ok())
 }
 
+pub async fn send_get_text(
+    client: &Client,
+    provider: &str,
+    url: &Url,
+    headers: &[(&'static str, String)],
+) -> Result<(StatusCode, String)> {
+    send_text_with_retries(provider, url.as_str(), || {
+        let mut request = client.get(url.as_str());
+        for (key, value) in headers {
+            request = request.header(*key, value);
+        }
+        request
+    })
+    .await
+}
+
+pub async fn send_get_text_from_base_urls(
+    client: &Client,
+    provider: &str,
+    source: &str,
+    base_urls: &[&str],
+    path: &str,
+    params: &[(&'static str, String)],
+    headers: &[(&'static str, String)],
+) -> Result<(Url, StatusCode, String)> {
+    let mut errors = Vec::new();
+    for base_url in base_urls {
+        let url = build_url(base_url, path, params)
+            .with_context(|| format!("invalid {provider} API URL: {base_url}{path}"))?;
+        match send_get_text(client, provider, &url, headers).await {
+            Ok((status, body)) => return Ok((url, status, body)),
+            Err(error) => errors.push(format!("{base_url}: {error:#}")),
+        }
+    }
+    Err(anyhow!(
+        "all {provider} {source} endpoints failed for {path}: {}",
+        errors.join(" | ")
+    ))
+}
+
+pub fn build_url(base_url: &str, path: &str, params: &[(&'static str, String)]) -> Result<Url> {
+    let normalized_base_url = if base_url.ends_with('/') {
+        base_url.to_string()
+    } else {
+        format!("{base_url}/")
+    };
+    let mut url = Url::parse(&normalized_base_url)
+        .with_context(|| format!("invalid base URL: {base_url}"))?
+        .join(path.trim_start_matches('/'))
+        .with_context(|| format!("invalid API path: {path}"))?;
+    {
+        let mut query = url.query_pairs_mut();
+        for (key, value) in params {
+            query.append_pair(key, value);
+        }
+    }
+    Ok(url)
+}
+
 pub async fn send_text_with_retries<F>(
     provider: &str,
     url: &str,
@@ -58,7 +118,11 @@ where
                 }
             }
             Err(error) => {
-                last_error = Some(format!("{provider} request failed: {url}: {error:#}"));
+                let message = format!("{error:#}");
+                if !is_transient_network_error(&message) || attempt == ATTEMPTS {
+                    return Err(anyhow!("{provider} request failed: {url}: {message}"));
+                }
+                last_error = Some(format!("{provider} request failed: {url}: {message}"));
             }
         }
 
@@ -72,6 +136,20 @@ where
         last_error.unwrap_or_else(|| format!("{provider} request failed: {url}")),
         ATTEMPTS
     ))
+}
+
+fn is_transient_network_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    [
+        "unexpected eof",
+        "timed out",
+        "timeout",
+        "connection reset",
+        "connection closed",
+        "connect",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
 }
 
 pub fn utc_now() -> String {

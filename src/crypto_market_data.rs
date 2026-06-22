@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::cli::{
     CryptoInstrument, CryptoProvider, HistoryArgs, IndicatorsArgs, PriceArgs, Provider, WatchArgs,
 };
-use crate::crypto_capabilities::{
+use crate::crypto_capability::{
     CryptoCapability, binance_market, provider_supports, resolve_instrument, selected_providers,
 };
 use crate::http::http_client;
