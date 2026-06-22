@@ -1,3 +1,8 @@
+---
+name: research-data
+description: Fetch no-key Yahoo, SEC EDGAR, Robinhood, and CNBC research data, including fundamentals, analyst data, options, ownership, events, news, search, screeners, and URL text extraction.
+---
+
 # agent-finance research data skill
 
 ## Commands

@@ -1,3 +1,8 @@
+---
+name: prediction-markets
+description: Use Polymarket prediction-market data as quantifiable sentiment and event-probability evidence, including market search, market details, liquidity, orderbook, holder previews, and probability history.
+---
+
 # agent-finance prediction-markets skill
 
 Use this skill when an AI Agent needs prediction-market sentiment, event probabilities, or "what capital is pricing in" for a public event.

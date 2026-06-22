@@ -1,3 +1,8 @@
+---
+name: core
+description: Entry guide for agent-finance price, sessions, crypto, history, research data, provider coverage, prediction markets, proxy context, and safe source handling. Read this before using agent-finance commands.
+---
+
 # agent-finance core skill
 
 This skill is printed by the `agent-finance` CLI. It is the first thing an AI Agent should read before using the tool.

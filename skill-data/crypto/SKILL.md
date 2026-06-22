@@ -1,3 +1,8 @@
+---
+name: crypto
+description: Use capability-first crypto market data across Binance, Coinbase, OKX, and CoinGecko for spot, swap, futures, quotes, order books, trades, candles, funding, open interest, and sentiment.
+---
+
 # agent-finance crypto skill
 
 Use this when crypto markets, Binance/Coinbase/OKX/CoinGecko spot data, Binance/OKX derivatives data, funding, open interest, long/short ratios, taker flow, basis, or 24/7 crypto price discovery matter.

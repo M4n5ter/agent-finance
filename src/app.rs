@@ -163,11 +163,11 @@ async fn run_polymarket(
 fn run_skills(args: crate::cli::SkillsArgs) -> Result<()> {
     match args.command {
         crate::cli::SkillsCommand::List => {
-            skills::print_list();
+            skills::print_list()?;
             Ok(())
         }
         crate::cli::SkillsCommand::Get(args) => {
-            let Some(content) = skills::get(&args.name, args.full) else {
+            let Some(content) = skills::get(&args.name, args.full)? else {
                 return Err(anyhow!(
                     "unknown skill '{}'; run `agent-finance skills list`",
                     args.name

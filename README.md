@@ -91,7 +91,10 @@ agent-finance polymarket market MARKET_ID_OR_SLUG --json
 
 ## Agent Skills
 
-The CLI ships Markdown skills so an AI Agent can learn the exact command surface for the installed version:
+The npm package ships a standard discovery skill at `skills/agent-finance/SKILL.md`.
+That stub points agents back to the installed CLI so command guidance does not drift.
+
+The CLI discovers runtime skills from its packaged `skill-data/` directory:
 
 ```bash
 agent-finance skills list
@@ -103,6 +106,9 @@ agent-finance skills get providers
 agent-finance skills get prediction-markets
 agent-finance skills get history-indicators
 ```
+
+Set `AGENT_FINANCE_SKILL_DATA_DIR` to test or override the runtime skill directory.
+The npm wrapper sets `AGENT_FINANCE_PACKAGE_ROOT` automatically for prebuilt platform binaries.
 
 ## Data Source Rules
 

@@ -24,6 +24,9 @@ fs.mkdirSync(path.join(outDir, "bin"), { recursive: true });
 const targetBinary = path.join(outDir, "bin", executableName(os));
 fs.copyFileSync(binary, targetBinary);
 fs.chmodSync(targetBinary, 0o755);
+fs.cpSync(path.join(root, "skill-data"), path.join(outDir, "skill-data"), {
+  recursive: true,
+});
 
 for (const file of ["LICENSE-MIT", "LICENSE-APACHE"]) {
   fs.copyFileSync(path.join(root, file), path.join(outDir, file));
@@ -47,7 +50,7 @@ writeJson(path.join(outDir, "package.json"), {
   bin: {
     "agent-finance": `bin/${executableName(os)}`,
   },
-  files: ["bin/", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  files: ["bin/", "skill-data/", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
   publishConfig: {
     access: "public",
   },

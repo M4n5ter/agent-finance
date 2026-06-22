@@ -1,3 +1,8 @@
+---
+name: price
+description: Fetch current price summaries, regular-market basis, premarket, postmarket, overnight sessions, crypto prices, proxy symbols, streams, and watch output with agent-finance.
+---
+
 # agent-finance price skill
 
 ## Default Price

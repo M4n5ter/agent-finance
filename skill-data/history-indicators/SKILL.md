@@ -1,3 +1,8 @@
+---
+name: history-indicators
+description: Fetch OHLCV history and local indicators with agent-finance, including equity and crypto intervals, sessions, adjustment modes, repair behavior, and indicator interpretation rules.
+---
+
 # agent-finance history and indicators skill
 
 ## History

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 
 const { resolveBinary } = require("../npm/resolve-binary");
 
@@ -13,7 +14,13 @@ if (!binary) {
   process.exit(127);
 }
 
-const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+const env = {
+  ...process.env,
+  AGENT_FINANCE_PACKAGE_ROOT:
+    process.env.AGENT_FINANCE_PACKAGE_ROOT || path.resolve(__dirname, ".."),
+};
+
+const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit", env });
 
 if (result.error) {
   console.error(result.error.message);

@@ -1,3 +1,8 @@
+---
+name: providers
+description: Understand agent-finance provider capabilities across Yahoo, SEC EDGAR, CNBC, Robinhood, Stooq, Binance, Coinbase, OKX, CoinGecko, Polymarket, and fallback URL readers.
+---
+
 # agent-finance providers skill
 
 ## Capability Matrix
