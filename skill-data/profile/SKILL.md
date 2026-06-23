@@ -69,6 +69,23 @@ agent-finance audit tail --limit 20
 agent-finance audit export --json
 ```
 
+## Gated Smoke Tests
+
+These checks are for maintainers and AI Agents validating signed Binance workflows.
+They require exported `BINANCE_API_KEY` and `BINANCE_PRIVATE_KEY`; the test profiles store only env var names.
+
+Live read-only signed smoke, no orders or transfers:
+
+```bash
+AGENT_FINANCE_LIVE_BINANCE_SIGNED=1 cargo test --test binance_live binance_live_signed_read_only_surface_is_usable -- --ignored --exact --nocapture
+```
+
+Testnet signed order-test smoke, uses Binance test endpoints and does not place a live order:
+
+```bash
+AGENT_FINANCE_TESTNET_BINANCE_SIGNED=1 cargo test --test binance_live binance_testnet_signed_order_test_surface_is_usable -- --ignored --exact --nocapture
+```
+
 ## Guardrails
 
 - Never put API secrets in TOML, Markdown, command history, audit logs, or prompts.

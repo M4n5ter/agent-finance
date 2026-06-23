@@ -1,7 +1,10 @@
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const SYMBOL: &str = "BTCUSDT";
 
@@ -332,6 +335,136 @@ fn crypto_provider_live_cli_surface_is_usable() {
     );
 }
 
+#[test]
+#[ignore = "requires AGENT_FINANCE_LIVE_BINANCE_SIGNED=1 and exported live Binance HMAC env vars"]
+fn binance_live_signed_read_only_surface_is_usable() {
+    if std::env::var("AGENT_FINANCE_LIVE_BINANCE_SIGNED")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        eprintln!(
+            "skipping live signed Binance read-only test; set AGENT_FINANCE_LIVE_BINANCE_SIGNED=1"
+        );
+        return;
+    }
+    require_binance_hmac_env();
+
+    let env = SignedProfileEnv::new("live-binance");
+    env.write_profile("live-binance", SignedProfileEnvironment::Live);
+
+    let doctor = env.command_json(&["profile", "doctor", "--profile", "live-binance", "--json"]);
+    assert_check_ok(&doctor, "profile-parse");
+    assert_check_ok(&doctor, "api-key-env");
+    assert_check_ok(&doctor, "api-secret-env");
+    assert_check_ok(&doctor, "binance-permissions");
+
+    let permissions = env.command_json(&[
+        "account",
+        "permissions",
+        "--profile",
+        "live-binance",
+        "--json",
+    ]);
+    for key in [
+        "enableReading",
+        "enableSpotAndMarginTrading",
+        "enableFutures",
+        "permitsUniversalTransfer",
+    ] {
+        assert!(
+            permissions.get(key).is_some(),
+            "permissions payload should include {key}"
+        );
+    }
+
+    let balances =
+        env.command_json(&["account", "balances", "--profile", "live-binance", "--json"]);
+    assert!(
+        balances["balances"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()),
+        "spot account should include balances array"
+    );
+
+    let positions = env.command_json(&[
+        "account",
+        "positions",
+        "--profile",
+        "live-binance",
+        "--json",
+    ]);
+    assert!(
+        positions["assets"].as_array().is_some(),
+        "USD-M account should include assets array"
+    );
+    assert!(
+        positions["positions"].as_array().is_some(),
+        "USD-M account should include positions array"
+    );
+}
+
+#[test]
+#[ignore = "requires AGENT_FINANCE_TESTNET_BINANCE_SIGNED=1 and exported Binance testnet HMAC env vars"]
+fn binance_testnet_signed_order_test_surface_is_usable() {
+    if std::env::var("AGENT_FINANCE_TESTNET_BINANCE_SIGNED")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        eprintln!(
+            "skipping Binance testnet signed order-test smoke; set AGENT_FINANCE_TESTNET_BINANCE_SIGNED=1"
+        );
+        return;
+    }
+    require_binance_hmac_env();
+
+    let env = SignedProfileEnv::new("testnet-binance");
+    env.write_profile("testnet-binance", SignedProfileEnvironment::Testnet);
+
+    let intent = env.command_json(&[
+        "order",
+        "intent",
+        "BTCUSDT",
+        "--profile",
+        "testnet-binance",
+        "--market",
+        "spot",
+        "--side",
+        "buy",
+        "--kind",
+        "limit",
+        "--quantity",
+        "0.0001",
+        "--price",
+        "50000",
+        "--time-in-force",
+        "gtc",
+        "--json",
+    ]);
+    assert_eq!(intent["risk"]["allowed"], true);
+    let intent_id = intent["intent"]["id"]
+        .as_str()
+        .expect("order intent should have id");
+
+    let submit = env.command_json(&[
+        "order",
+        "submit",
+        intent_id,
+        "--profile",
+        "testnet-binance",
+        "--test",
+        "--json",
+    ]);
+    assert_eq!(submit["risk"]["allowed"], true);
+    assert!(
+        submit["response"]["exchange_rules"]["allowed"]
+            .as_bool()
+            .unwrap_or(false),
+        "exchangeInfo rule preflight should allow the order-test"
+    );
+}
+
 fn command(args: &[&str]) -> serde_json::Value {
     let output = Command::new(env!("CARGO_BIN_EXE_agent-finance"))
         .args(args)
@@ -344,6 +477,131 @@ fn command(args: &[&str]) -> serde_json::Value {
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("command should print JSON")
+}
+
+fn require_binance_hmac_env() {
+    assert!(
+        std::env::var("BINANCE_API_KEY").is_ok(),
+        "BINANCE_API_KEY must be exported for signed Binance smoke tests"
+    );
+    assert!(
+        std::env::var("BINANCE_PRIVATE_KEY").is_ok(),
+        "BINANCE_PRIVATE_KEY must be exported for signed Binance smoke tests"
+    );
+}
+
+fn assert_check_ok(report: &serde_json::Value, name: &str) {
+    let checks = report["checks"].as_array().expect("doctor checks");
+    assert!(
+        checks
+            .iter()
+            .any(|check| check["name"] == name && check["ok"] == true),
+        "doctor check {name} should pass"
+    );
+}
+
+enum SignedProfileEnvironment {
+    Live,
+    Testnet,
+}
+
+struct SignedProfileEnv {
+    root: PathBuf,
+}
+
+impl SignedProfileEnv {
+    fn new(name: &str) -> Self {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "agent-finance-signed-{name}-{}-{nanos}",
+            std::process::id(),
+        ));
+        fs::create_dir_all(&root).expect("signed profile test root");
+        Self { root }
+    }
+
+    fn write_profile(&self, profile: &str, environment: SignedProfileEnvironment) {
+        let profile_dir = self.root.join("config/agent-finance/profiles");
+        fs::create_dir_all(&profile_dir).expect("profile dir");
+        let content = signed_profile_toml(profile, environment);
+        fs::write(profile_dir.join(format!("{profile}.toml")), content).expect("profile write");
+    }
+
+    fn command_json(&self, args: &[&str]) -> serde_json::Value {
+        let output = self.command_output(args);
+        assert!(
+            output.status.success(),
+            "command failed: args={args:?} stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).expect("command should print JSON")
+    }
+
+    fn command_output(&self, args: &[&str]) -> std::process::Output {
+        Command::new(env!("CARGO_BIN_EXE_agent-finance"))
+            .env("XDG_CONFIG_HOME", self.root.join("config"))
+            .env("XDG_DATA_HOME", self.root.join("data"))
+            .args(args)
+            .output()
+            .expect("agent-finance command should start")
+    }
+}
+
+impl Drop for SignedProfileEnv {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+fn signed_profile_toml(profile: &str, environment: SignedProfileEnvironment) -> String {
+    let provider_block = match environment {
+        SignedProfileEnvironment::Live => {
+            r#"[provider]
+provider = "binance"
+environment = "live"
+api_key_env = "BINANCE_API_KEY"
+api_secret_env = "BINANCE_PRIVATE_KEY"
+"#
+        }
+        SignedProfileEnvironment::Testnet => {
+            r#"[provider]
+provider = "binance"
+environment = "testnet"
+api_key_env = "BINANCE_API_KEY"
+api_secret_env = "BINANCE_PRIVATE_KEY"
+spot_base_url = "https://testnet.binance.vision"
+usds_futures_base_url = "https://testnet.binancefuture.com"
+"#
+        }
+    };
+    format!(
+        r#"name = "{profile}"
+
+{provider_block}
+[risk]
+allow_live = false
+max_daily_order_notional_usdt = "50"
+allowed_transfers = []
+
+[[risk.allowed_futures_state_changes]]
+kind = "leverage"
+symbol = "BTCUSDT"
+max_leverage = 2
+
+[[risk.allowed_futures_state_changes]]
+kind = "margin-type"
+symbol = "BTCUSDT"
+margin_type = "isolated"
+
+[risk.allowed_symbols.BTCUSDT]
+markets = ["spot", "usds-futures"]
+order_kinds = ["market", "limit"]
+max_order_notional_usdt = "25"
+"#
+    )
 }
 
 fn assert_aggregate(json: serde_json::Value, required_key: &str) {
