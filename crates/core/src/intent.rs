@@ -49,6 +49,7 @@ pub enum IntentKind {
     Order(OrderIntent),
     Cancel(CancelIntent),
     Transfer(TransferIntent),
+    FuturesState(FuturesStateIntent),
 }
 
 impl IntentEnvelope {
@@ -196,6 +197,13 @@ pub fn create_cancel_intent(intent: CancelIntent, ttl_seconds: i64) -> Result<In
 
 pub fn create_transfer_intent(intent: TransferIntent, ttl_seconds: i64) -> Result<IntentEnvelope> {
     create(IntentKind::Transfer(intent), ttl_seconds)
+}
+
+pub fn create_futures_state_intent(
+    intent: FuturesStateIntent,
+    ttl_seconds: i64,
+) -> Result<IntentEnvelope> {
+    create(IntentKind::FuturesState(intent), ttl_seconds)
 }
 
 fn create(kind: IntentKind, ttl_seconds: i64) -> Result<IntentEnvelope> {

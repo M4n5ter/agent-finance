@@ -269,6 +269,59 @@ pub struct TransferHistoryArgs {
 }
 
 #[derive(Parser, Debug)]
+pub struct StateArgs {
+    #[command(subcommand)]
+    pub command: StateCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum StateCommand {
+    /// Create and persist a USD-M futures state-change intent.
+    Intent(StateIntentArgs),
+    /// Submit an existing state-change intent as dry-run or live write.
+    Submit(StateSubmitArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct StateIntentArgs {
+    #[arg(long, default_value = "default")]
+    pub profile: String,
+
+    #[arg(long, value_enum)]
+    pub kind: TradingFuturesStateChangeKind,
+
+    #[arg(long)]
+    pub symbol: Option<String>,
+
+    #[arg(long)]
+    pub leverage: Option<u8>,
+
+    #[arg(long, value_enum)]
+    pub margin_type: Option<TradingMarginType>,
+
+    #[arg(long, default_value_t = 300)]
+    pub ttl_seconds: i64,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct StateSubmitArgs {
+    pub intent_id: String,
+
+    #[arg(long, default_value = "default")]
+    pub profile: String,
+
+    /// Execute a real live state change when profile policy allows it.
+    #[arg(long)]
+    pub live: bool,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
 pub struct RiskArgs {
     #[command(subcommand)]
     pub command: RiskCommand,
@@ -421,6 +474,27 @@ impl From<TradingPositionSide> for agent_finance_core::PositionSide {
 pub enum TradingTransferDirection {
     SpotToUsdsFutures,
     UsdsFuturesToSpot,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum TradingFuturesStateChangeKind {
+    Leverage,
+    MarginType,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum TradingMarginType {
+    Cross,
+    Isolated,
+}
+
+impl From<TradingMarginType> for agent_finance_core::MarginType {
+    fn from(value: TradingMarginType) -> Self {
+        match value {
+            TradingMarginType::Cross => Self::Cross,
+            TradingMarginType::Isolated => Self::Isolated,
+        }
+    }
 }
 
 impl From<TradingTransferDirection> for agent_finance_core::TransferDirection {

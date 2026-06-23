@@ -206,6 +206,89 @@ pub fn check_transfer_intent(
     decision
 }
 
+pub fn check_futures_state_intent(
+    profile: &Profile,
+    intent: &FuturesStateIntent,
+    live: bool,
+) -> RiskDecision {
+    let mut decision = RiskDecision::allow();
+    check_profile(
+        &mut decision,
+        profile,
+        &intent.profile,
+        intent.provider,
+        intent.environment,
+        live,
+    );
+    if live && intent.environment != Environment::Live {
+        decision.push_block(
+            "state-live-environment-required",
+            "signed futures state changes require a live profile after reviewing the intent",
+        );
+    }
+    if let FuturesStateChange::Leverage { leverage, .. } = intent.change
+        && !(1..=125).contains(&leverage)
+    {
+        decision.push_block(
+            "futures-leverage-out-of-range",
+            format!("requested leverage {leverage} is outside Binance USD-M range 1..=125"),
+        );
+    }
+    let matching_policies = matching_futures_state_policies(profile, intent);
+    if matching_policies.is_empty() {
+        decision.push_block(
+            "futures-state-change-not-allowed",
+            format!(
+                "futures state change {} for {} is not allowed by profile risk.allowed_futures_state_changes",
+                intent.change_kind(),
+                intent.symbol().to_ascii_uppercase()
+            ),
+        );
+        return decision;
+    };
+    match intent.change {
+        FuturesStateChange::Leverage { leverage, .. } => {
+            let max_allowed = matching_policies
+                .iter()
+                .filter_map(|policy| policy.max_leverage())
+                .max()
+                .expect("leverage policies must match leverage intents");
+            if leverage > max_allowed {
+                decision.push_block(
+                    "futures-leverage-too-high",
+                    format!("requested leverage {leverage} exceeds max {max_allowed}"),
+                );
+            }
+        }
+        FuturesStateChange::MarginType { margin_type, .. } => {
+            if !matching_policies
+                .iter()
+                .any(|policy| policy.allows_change(&intent.change))
+            {
+                decision.push_block(
+                    "futures-margin-type-not-allowed",
+                    format!(
+                        "requested margin type {margin_type} is not allowed by matching policies"
+                    ),
+                );
+            }
+        }
+    }
+    decision
+}
+
+fn matching_futures_state_policies<'a>(
+    profile: &'a Profile,
+    intent: &FuturesStateIntent,
+) -> Vec<&'a FuturesStatePolicy> {
+    profile
+        .risk
+        .allowed_futures_state_changes
+        .iter()
+        .filter(|policy| policy.matches_change_scope(&intent.change))
+        .collect()
+}
+
 fn check_profile(
     decision: &mut RiskDecision,
     profile: &Profile,

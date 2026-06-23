@@ -91,6 +91,9 @@ agent-finance profile doctor --profile default
 agent-finance risk explain --profile default
 agent-finance risk check INTENT_ID --profile default --live
 agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
+agent-finance state intent --profile default --kind leverage --symbol BTCUSDT --leverage 2
+agent-finance state intent --profile default --kind margin-type --symbol BTCUSDT --margin-type isolated
+agent-finance state submit INTENT_ID --profile default
 agent-finance audit tail --limit 20
 agent-finance audit export --json
 agent-finance transfer history --profile live --direction spot-to-usds-futures --size 20
@@ -98,6 +101,7 @@ agent-finance transfer history --profile live --direction spot-to-usds-futures -
 
 Use `risk explain` to inspect profile limits and the local audit-backed daily order notional counter before live writes.
 Order test/live submit checks locally checkable Binance exchangeInfo filters before sending the order; market-order notional is reported as not locally checked because the exchange execution price is unknown before submit. Live market orders are blocked until risk notional can be derived from fresh exchange data instead of user-supplied `valuation_price`. Dry-run remains offline and prints the exchangeInfo request for later verification.
+USD-M futures leverage and margin type changes use separate `state` intents and require explicit `risk.allowed_futures_state_changes` policy before live submit. Position mode is intentionally unsupported because Binance treats it as broader account state.
 Transfer history reads Binance SAPI live account data and requires a reviewed live profile.
 
 ## Network and Browser Boundaries

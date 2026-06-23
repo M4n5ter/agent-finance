@@ -108,6 +108,7 @@ pub async fn run() -> Result<()> {
         Command::Account(args) => crate::terminal_app::run_account(args, timeout_seconds).await,
         Command::Order(args) => crate::terminal_app::run_order(args, timeout_seconds).await,
         Command::Transfer(args) => crate::terminal_app::run_transfer(args, timeout_seconds).await,
+        Command::State(args) => crate::terminal_state::run(args, timeout_seconds).await,
         Command::Risk(args) => crate::terminal_app::run_risk(args),
         Command::Audit(args) => crate::terminal_app::run_audit(args),
         Command::Watch(args) => run_watch(args, proxy, no_proxy, timeout_seconds, timezone).await,

@@ -29,6 +29,7 @@ agent-finance skills get crypto
 agent-finance skills get research-data
 agent-finance skills get providers
 agent-finance skills get prediction-markets
+agent-finance skills get profile
 ```
 
 ## Boundaries
@@ -37,4 +38,5 @@ agent-finance skills get prediction-markets
 - Use `sessions` when regular, premarket, postmarket, overnight, provider differences, or proxy prices matter.
 - Inspect daily and minute history before trading, order-quality, stop-loss, or take-profit conclusions.
 - Treat crypto and prediction-market data as market evidence, not primary company facts.
+- Load `skills get profile` before signed account, order, transfer, futures state, risk, or audit workflows.
 - Use a real browser tool for login-gated, dynamic, screenshot-sensitive, X/Reddit, brokerage, or extraction-suspicious pages.

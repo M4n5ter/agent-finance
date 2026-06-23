@@ -148,6 +148,22 @@ impl fmt::Display for MarginType {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub enum FuturesStateChangeKind {
+    Leverage,
+    MarginType,
+}
+
+impl fmt::Display for FuturesStateChangeKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Leverage => formatter.write_str("leverage"),
+            Self::MarginType => formatter.write_str("margin-type"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TransferDirection {
     SpotToUsdsFutures,
     UsdsFuturesToSpot,
@@ -363,6 +379,52 @@ pub struct TransferIntent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FuturesStateIntent {
+    pub profile: String,
+    pub provider: Provider,
+    pub environment: Environment,
+    pub change: FuturesStateChange,
+}
+
+impl FuturesStateIntent {
+    pub fn change_kind(&self) -> FuturesStateChangeKind {
+        self.change.kind()
+    }
+
+    pub fn symbol(&self) -> &str {
+        self.change.symbol()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum FuturesStateChange {
+    Leverage {
+        symbol: String,
+        leverage: u8,
+    },
+    MarginType {
+        symbol: String,
+        margin_type: MarginType,
+    },
+}
+
+impl FuturesStateChange {
+    pub const fn kind(&self) -> FuturesStateChangeKind {
+        match self {
+            Self::Leverage { .. } => FuturesStateChangeKind::Leverage,
+            Self::MarginType { .. } => FuturesStateChangeKind::MarginType,
+        }
+    }
+
+    pub fn symbol(&self) -> &str {
+        match self {
+            Self::Leverage { symbol, .. } | Self::MarginType { symbol, .. } => symbol,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub provider: Provider,
     pub environment: Environment,
@@ -382,6 +444,8 @@ pub struct RiskPolicy {
     pub allowed_symbols: BTreeMap<String, SymbolPolicy>,
     #[serde(default)]
     pub allowed_transfers: Vec<TransferPolicy>,
+    #[serde(default)]
+    pub allowed_futures_state_changes: Vec<FuturesStatePolicy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,6 +462,93 @@ pub struct TransferPolicy {
     pub direction: TransferDirection,
     pub asset: String,
     pub max_amount: DecimalValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum FuturesStatePolicy {
+    Leverage {
+        symbol: String,
+        max_leverage: u8,
+    },
+    MarginType {
+        symbol: String,
+        margin_type: MarginType,
+    },
+}
+
+impl FuturesStatePolicy {
+    pub fn matches_change_scope(&self, change: &FuturesStateChange) -> bool {
+        match (self, change) {
+            (
+                Self::Leverage { symbol, .. },
+                FuturesStateChange::Leverage {
+                    symbol: intent_symbol,
+                    ..
+                },
+            )
+            | (
+                Self::MarginType { symbol, .. },
+                FuturesStateChange::MarginType {
+                    symbol: intent_symbol,
+                    ..
+                },
+            ) => symbol.eq_ignore_ascii_case(intent_symbol),
+            _ => false,
+        }
+    }
+
+    pub fn allows_change(&self, change: &FuturesStateChange) -> bool {
+        if !self.matches_change_scope(change) {
+            return false;
+        }
+        match (self, change) {
+            (
+                Self::Leverage { max_leverage, .. },
+                FuturesStateChange::Leverage { leverage, .. },
+            ) => leverage <= max_leverage,
+            (
+                Self::MarginType { margin_type, .. },
+                FuturesStateChange::MarginType {
+                    margin_type: requested,
+                    ..
+                },
+            ) => requested == margin_type,
+            _ => false,
+        }
+    }
+
+    pub fn max_leverage(&self) -> Option<u8> {
+        match self {
+            Self::Leverage { max_leverage, .. } => Some(*max_leverage),
+            Self::MarginType { .. } => None,
+        }
+    }
+}
+
+impl fmt::Display for FuturesStatePolicy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Leverage {
+                symbol,
+                max_leverage,
+            } => write!(
+                formatter,
+                "leverage:{}<= {}",
+                symbol.to_ascii_uppercase(),
+                max_leverage
+            ),
+            Self::MarginType {
+                symbol,
+                margin_type,
+            } => write!(
+                formatter,
+                "margin-type:{}={}",
+                symbol.to_ascii_uppercase(),
+                margin_type
+            ),
+        }
+    }
 }
 
 impl fmt::Display for TransferPolicy {

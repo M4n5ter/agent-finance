@@ -82,6 +82,8 @@ pub enum Command {
     Order(OrderArgs),
     /// Create and submit internal transfer intents.
     Transfer(TransferArgs),
+    /// Create and submit USD-M futures state-change intents.
+    State(StateArgs),
     /// Check and explain profile risk policy.
     Risk(RiskArgs),
     /// Read local append-only trading audit events.

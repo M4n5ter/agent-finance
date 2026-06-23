@@ -33,6 +33,7 @@ pub enum AuditEventKind {
     LiveSubmit,
     Cancel,
     Transfer,
+    StateChange,
     Error,
 }
 
@@ -313,6 +314,7 @@ mod tests {
                 max_daily_order_notional_usdt: Some("50".parse().expect("decimal")),
                 allowed_symbols: Default::default(),
                 allowed_transfers: Vec::new(),
+                allowed_futures_state_changes: Vec::new(),
             },
         }
     }

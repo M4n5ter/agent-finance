@@ -413,6 +413,424 @@ fn transfer_history_requires_live_profile_before_credentials() {
 }
 
 #[test]
+fn futures_state_intent_is_policy_checked_and_dry_runs() {
+    let env = default_env("futures-state");
+    let intent = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "leverage",
+        "--symbol",
+        "BTCUSDT",
+        "--leverage",
+        "2",
+        "--json",
+    ]));
+    assert_eq!(intent["risk"]["allowed"], true);
+    let intent_id = intent["intent"]["id"].as_str().expect("state intent id");
+
+    let risk = env.json(command(&[
+        "risk",
+        "check",
+        intent_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert_eq!(risk["allowed"], true);
+
+    let plan = env.json(command(&[
+        "state",
+        "submit",
+        intent_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert_eq!(plan["response"]["dry_run"], true);
+    assert_eq!(plan["response"]["request"]["method"], "POST");
+    assert_eq!(
+        plan["response"]["request"]["url"],
+        "https://testnet.binancefuture.com/fapi/v1/leverage"
+    );
+    assert!(
+        plan["response"]["request"]["params"]
+            .as_array()
+            .expect("params")
+            .iter()
+            .any(|param| param[0] == "leverage" && param[1] == "2")
+    );
+
+    let margin = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "margin-type",
+        "--symbol",
+        "BTCUSDT",
+        "--margin-type",
+        "isolated",
+        "--json",
+    ]));
+    let margin_plan = env.json(command(&[
+        "state",
+        "submit",
+        margin["intent"]["id"].as_str().expect("margin intent id"),
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert_eq!(
+        margin_plan["response"]["request"]["url"],
+        "https://testnet.binancefuture.com/fapi/v1/marginType"
+    );
+    assert!(
+        margin_plan["response"]["request"]["params"]
+            .as_array()
+            .expect("params")
+            .iter()
+            .any(|param| param[0] == "marginType" && param[1] == "ISOLATED")
+    );
+
+    let audit = env.json(command(&["audit", "tail", "--limit", "10", "--json"]));
+    assert!(
+        audit
+            .as_array()
+            .expect("audit events")
+            .iter()
+            .any(|event| event["kind"] == "dry-run")
+    );
+}
+
+#[test]
+fn futures_state_policy_and_argument_boundaries_are_enforced() {
+    let env = default_env("futures-state-boundaries");
+    let excessive_leverage = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "leverage",
+        "--symbol",
+        "BTCUSDT",
+        "--leverage",
+        "3",
+        "--json",
+    ]));
+    assert_eq!(excessive_leverage["risk"]["allowed"], false);
+    assert!(
+        excessive_leverage["risk"]["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .any(|finding| finding["code"] == "futures-leverage-too-high")
+    );
+
+    let out_of_range_leverage = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "leverage",
+        "--symbol",
+        "BTCUSDT",
+        "--leverage",
+        "126",
+        "--json",
+    ]));
+    assert_eq!(out_of_range_leverage["risk"]["allowed"], false);
+    assert!(
+        out_of_range_leverage["risk"]["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .any(|finding| finding["code"] == "futures-leverage-out-of-range")
+    );
+
+    let not_allowed = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "margin-type",
+        "--symbol",
+        "ETHUSDT",
+        "--margin-type",
+        "isolated",
+        "--json",
+    ]));
+    assert_eq!(not_allowed["risk"]["allowed"], false);
+    assert!(
+        not_allowed["risk"]["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .any(|finding| finding["code"] == "futures-state-change-not-allowed")
+    );
+
+    let cross_margin = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "margin-type",
+        "--symbol",
+        "BTCUSDT",
+        "--margin-type",
+        "cross",
+        "--json",
+    ]));
+    assert_eq!(cross_margin["risk"]["allowed"], false);
+    assert!(
+        cross_margin["risk"]["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .any(|finding| finding["code"] == "futures-margin-type-not-allowed")
+    );
+
+    let unsupported_position_mode = env.output(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "position-mode",
+        "--json",
+    ]));
+    assert!(
+        !unsupported_position_mode.status.success(),
+        "position-mode is intentionally not exposed as a USD-M scoped state change"
+    );
+}
+
+#[test]
+fn duplicate_futures_state_policies_are_order_independent() {
+    let env = default_env("futures-state-duplicate-policies");
+    env.replace_once_in_profile("default", "max_leverage = 2", "max_leverage = 1");
+    env.append_profile_toml(
+        "default",
+        r#"
+[[risk.allowed_futures_state_changes]]
+kind = "leverage"
+symbol = "BTCUSDT"
+max_leverage = 2
+"#,
+    );
+    env.replace_once_in_profile(
+        "default",
+        "margin_type = \"isolated\"",
+        "margin_type = \"cross\"",
+    );
+    env.append_profile_toml(
+        "default",
+        r#"
+[[risk.allowed_futures_state_changes]]
+kind = "margin-type"
+symbol = "BTCUSDT"
+margin_type = "isolated"
+"#,
+    );
+
+    let leverage = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "leverage",
+        "--symbol",
+        "BTCUSDT",
+        "--leverage",
+        "2",
+        "--json",
+    ]));
+    assert_eq!(
+        leverage["risk"]["allowed"], true,
+        "a later matching leverage policy should allow the request"
+    );
+
+    let margin = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "margin-type",
+        "--symbol",
+        "BTCUSDT",
+        "--margin-type",
+        "isolated",
+        "--json",
+    ]));
+    assert_eq!(
+        margin["risk"]["allowed"], true,
+        "a later matching margin policy should allow the request"
+    );
+}
+
+#[test]
+fn malformed_futures_state_policy_fails_closed_at_profile_parse() {
+    let env = default_env("futures-state-profile-parse");
+    env.replace_once_in_profile("default", "max_leverage = 2", "max_leverage_typo = 2");
+
+    let output = env.output(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "leverage",
+        "--symbol",
+        "BTCUSDT",
+        "--leverage",
+        "2",
+        "--json",
+    ]));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "malformed futures state policy must fail before creating an intent"
+    );
+    assert!(
+        stderr.contains("max_leverage") || stderr.contains("unknown field"),
+        "malformed futures state policy should fail before creating an intent; stderr={stderr}"
+    );
+}
+
+#[test]
+fn futures_state_submit_boundaries_do_not_consume_intents() {
+    let env = default_env("futures-state-submit-boundaries");
+    let state = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "leverage",
+        "--symbol",
+        "BTCUSDT",
+        "--leverage",
+        "2",
+        "--json",
+    ]));
+    let state_id = state["intent"]["id"].as_str().expect("state intent id");
+
+    let wrong_order_submit = env.output(command(&[
+        "order",
+        "submit",
+        state_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert!(
+        !wrong_order_submit.status.success(),
+        "order submit must reject futures state intents"
+    );
+
+    let wrong_transfer_submit = env.output(command(&[
+        "transfer",
+        "submit",
+        state_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert!(
+        !wrong_transfer_submit.status.success(),
+        "transfer submit must reject futures state intents"
+    );
+
+    let state_plan = env.json(command(&[
+        "state",
+        "submit",
+        state_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert_eq!(state_plan["response"]["dry_run"], true);
+
+    let order = create_limit_order(&env);
+    let order_id = order["intent"]["id"].as_str().expect("order intent id");
+    let wrong_state_submit = env.output(command(&[
+        "state",
+        "submit",
+        order_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert!(
+        !wrong_state_submit.status.success(),
+        "state submit must reject order intents"
+    );
+
+    let order_plan = env.json(command(&[
+        "order",
+        "submit",
+        order_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert_eq!(order_plan["response"]["dry_run"], true);
+}
+
+#[test]
+fn blocked_live_futures_state_submit_does_not_claim_intent() {
+    let env = default_env("blocked-live-futures-state");
+    let state = env.json(command(&[
+        "state",
+        "intent",
+        "--profile",
+        "default",
+        "--kind",
+        "leverage",
+        "--symbol",
+        "BTCUSDT",
+        "--leverage",
+        "3",
+        "--json",
+    ]));
+    let state_id = state["intent"]["id"].as_str().expect("state intent id");
+    let path = state["path"].as_str().expect("intent path");
+
+    let live_submit = env.output(command(&[
+        "state",
+        "submit",
+        state_id,
+        "--profile",
+        "default",
+        "--live",
+        "--json",
+    ]));
+
+    assert!(
+        !live_submit.status.success(),
+        "risk-blocked live state submit should fail before credentials or network"
+    );
+    let stderr = String::from_utf8_lossy(&live_submit.stderr);
+    assert!(
+        stderr.contains("risk policy blocked intent submit"),
+        "live state submit should fail at pre-claim risk check; stderr={stderr}"
+    );
+    let saved: Value =
+        serde_json::from_str(&fs::read_to_string(path).expect("intent should still be readable"))
+            .expect("saved intent json");
+    assert_eq!(saved["metadata"]["status"], "created");
+}
+
+#[test]
 fn live_risk_uses_audit_backed_daily_order_limit() {
     let env = TestEnv::new("daily-limit");
     env.write_live_profile("default");
@@ -552,6 +970,34 @@ impl TestEnv {
         let output = self.output(command(&["profile", "template", "--profile", name]));
         assert!(output.status.success(), "profile template should succeed");
         fs::write(profile_dir.join(format!("{name}.toml")), output.stdout).expect("profile write");
+    }
+
+    fn edit_profile(&self, name: &str, edit: impl FnOnce(String) -> String) {
+        let path = self
+            .root
+            .join("config/agent-finance/profiles")
+            .join(format!("{name}.toml"));
+        let content = fs::read_to_string(&path).expect("profile read");
+        fs::write(path, edit(content)).expect("profile write");
+    }
+
+    fn replace_once_in_profile(&self, name: &str, needle: &str, replacement: &str) {
+        self.edit_profile(name, |content| {
+            assert!(
+                content.contains(needle),
+                "profile template should contain {needle:?}"
+            );
+            content.replacen(needle, replacement, 1)
+        });
+    }
+
+    fn append_profile_toml(&self, name: &str, toml: &str) {
+        self.edit_profile(name, |mut content| {
+            content.push('\n');
+            content.push_str(toml.trim());
+            content.push('\n');
+            content
+        });
     }
 
     fn write_live_profile(&self, name: &str) {

@@ -21,5 +21,7 @@ mod skills;
 mod stream;
 mod terminal_app;
 mod terminal_cli;
+mod terminal_state;
+mod terminal_write;
 mod time;
 mod websocket;

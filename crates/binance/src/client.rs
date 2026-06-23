@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use agent_finance_core::{
-    CancelIntent, Environment, Market, OrderIdentifier, OrderIntent, OrderKind, OrderSide,
-    OrderSpec, TransferDirection, TransferIntent,
+    CancelIntent, Environment, FuturesStateChange, FuturesStateIntent, MarginType, Market,
+    OrderIdentifier, OrderIntent, OrderKind, OrderSide, OrderSpec, TransferDirection,
+    TransferIntent,
 };
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
@@ -152,6 +153,12 @@ pub struct BinanceOrderSubmitResponse {
     pub exchange_response: Value,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct BinanceFuturesStateSubmitResponse {
+    pub request: SignedRequest,
+    pub exchange_response: Value,
+}
+
 pub struct BinancePlanner {
     endpoints: BinanceEndpoints,
 }
@@ -223,6 +230,15 @@ impl BinancePlanner {
             "/sapi/v1/asset/transfer",
             transfer_history_params(direction, current, size),
         )
+    }
+
+    pub fn futures_state_request(&self, intent: &FuturesStateIntent) -> Result<SignedRequest> {
+        Ok(unsigned_request(
+            "POST",
+            &self.endpoints.futures_base_url,
+            futures_state_path(intent),
+            futures_state_params(intent),
+        ))
     }
 }
 
@@ -399,6 +415,24 @@ impl BinanceClient {
                 .await
             }
         }
+    }
+
+    pub async fn submit_futures_state(
+        &self,
+        intent: &FuturesStateIntent,
+    ) -> Result<BinanceFuturesStateSubmitResponse> {
+        let request = BinancePlanner::new(self.endpoints.clone()).futures_state_request(intent)?;
+        let exchange_response = self
+            .signed_post(
+                &self.endpoints.futures_base_url,
+                futures_state_path(intent),
+                futures_state_params(intent),
+            )
+            .await?;
+        Ok(BinanceFuturesStateSubmitResponse {
+            request,
+            exchange_response,
+        })
     }
 
     pub async fn transfer_history(
@@ -588,6 +622,39 @@ fn transfer_history_params(
         ("current".to_string(), current.max(1).to_string()),
         ("size".to_string(), size.clamp(1, 100).to_string()),
     ]
+}
+
+fn futures_state_path(intent: &FuturesStateIntent) -> &'static str {
+    match intent.change {
+        FuturesStateChange::Leverage { .. } => "/fapi/v1/leverage",
+        FuturesStateChange::MarginType { .. } => "/fapi/v1/marginType",
+    }
+}
+
+fn futures_state_params(intent: &FuturesStateIntent) -> Vec<(String, String)> {
+    match &intent.change {
+        FuturesStateChange::Leverage { symbol, leverage } => vec![
+            ("symbol".to_string(), symbol.to_ascii_uppercase()),
+            ("leverage".to_string(), leverage.to_string()),
+        ],
+        FuturesStateChange::MarginType {
+            symbol,
+            margin_type,
+        } => vec![
+            ("symbol".to_string(), symbol.to_ascii_uppercase()),
+            (
+                "marginType".to_string(),
+                binance_margin_type(*margin_type).to_string(),
+            ),
+        ],
+    }
+}
+
+fn binance_margin_type(value: MarginType) -> &'static str {
+    match value {
+        MarginType::Cross => "CROSSED",
+        MarginType::Isolated => "ISOLATED",
+    }
 }
 
 fn order_base_url(endpoints: &BinanceEndpoints, market: Market) -> &str {

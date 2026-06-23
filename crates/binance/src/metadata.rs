@@ -17,6 +17,16 @@ allow_live = false
 max_daily_order_notional_usdt = "50"
 allowed_transfers = []
 
+[[risk.allowed_futures_state_changes]]
+kind = "leverage"
+symbol = "BTCUSDT"
+max_leverage = 2
+
+[[risk.allowed_futures_state_changes]]
+kind = "margin-type"
+symbol = "BTCUSDT"
+margin_type = "isolated"
+
 [risk.allowed_symbols.BTCUSDT]
 markets = ["spot", "usds-futures"]
 order_kinds = ["market", "limit"]
@@ -59,6 +69,16 @@ pub fn provider_capability() -> ProviderCapability {
                 strings([
                     "Universal transfer only; withdrawals are intentionally unsupported.",
                     "Signed user universal transfer history is available.",
+                ]),
+            ),
+            Capability::new(
+                "futures-state",
+                "signed/write-gated",
+                strings(["usds-futures"]),
+                strings([
+                    "Intent-first leverage and margin type changes.",
+                    "Live submit requires explicit risk.allowed_futures_state_changes policy.",
+                    "Position mode is intentionally unsupported because Binance treats it as broader account state.",
                 ]),
             ),
         ],

@@ -14,11 +14,11 @@ pub use audit::{
 pub use capabilities::{Capability, CapabilityReport, ProviderCapability};
 pub use intent::{
     IntentEnvelope, IntentKind, IntentMetadata, IntentStore, create_cancel_intent,
-    create_order_intent, create_transfer_intent,
+    create_futures_state_intent, create_order_intent, create_transfer_intent,
 };
 pub use profile::{Profile, ProfileStore};
 pub use risk::{
-    OrderRuntimeRisk, RiskDecision, RiskFinding, check_cancel_intent, check_order_intent,
-    check_order_intent_with_runtime, check_transfer_intent,
+    OrderRuntimeRisk, RiskDecision, RiskFinding, check_cancel_intent, check_futures_state_intent,
+    check_order_intent, check_order_intent_with_runtime, check_transfer_intent,
 };
 pub use types::*;
