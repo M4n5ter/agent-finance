@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use agent_finance_core::{
-    CancelIntent, CancelTarget, Environment, Market, OrderIntent, OrderKind, OrderSide, OrderSpec,
-    TransferDirection, TransferIntent,
+    CancelIntent, Environment, Market, OrderIdentifier, OrderIntent, OrderKind, OrderSide,
+    OrderSpec, TransferDirection, TransferIntent,
 };
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
@@ -11,6 +11,7 @@ use serde_json::Value;
 use url::Url;
 use wreq::Client;
 
+use crate::exchange_rules::{ExchangeRuleCheck, check_order_exchange_rules};
 use crate::signer::{HmacSha256Signer, Signer};
 
 const LIVE_SPOT_BASE_URL: &str = "https://api.binance.com";
@@ -145,6 +146,12 @@ pub struct SignedRequest {
     pub params: Vec<(String, String)>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct BinanceOrderSubmitResponse {
+    pub exchange_rules: ExchangeRuleCheck,
+    pub exchange_response: Value,
+}
+
 pub struct BinancePlanner {
     endpoints: BinanceEndpoints,
 }
@@ -170,6 +177,29 @@ impl BinancePlanner {
             order_path(intent.market, false),
             cancel_params(intent)?,
         ))
+    }
+
+    pub fn query_order_request(
+        &self,
+        market: Market,
+        symbol: &str,
+        target: &OrderIdentifier,
+    ) -> Result<SignedRequest> {
+        Ok(unsigned_request(
+            "GET",
+            order_base_url(&self.endpoints, market),
+            order_path(market, false),
+            order_query_params(symbol, target)?,
+        ))
+    }
+
+    pub fn exchange_info_request(&self, market: Market, symbol: &str) -> SignedRequest {
+        unsigned_request(
+            "GET",
+            market_base_url(&self.endpoints, market),
+            exchange_info_path(market),
+            exchange_info_params(market, symbol),
+        )
     }
 
     pub fn transfer_request(&self, intent: &TransferIntent) -> Result<SignedRequest> {
@@ -261,7 +291,50 @@ impl BinanceClient {
         }
     }
 
+    pub async fn query_order(
+        &self,
+        market: Market,
+        symbol: &str,
+        target: &OrderIdentifier,
+    ) -> Result<Value> {
+        self.signed_get(
+            order_base_url(&self.endpoints, market),
+            order_path(market, false),
+            order_query_params(symbol, target)?,
+        )
+        .await
+    }
+
+    pub async fn exchange_info(&self, market: Market, symbol: &str) -> Result<Value> {
+        self.public_get(
+            market_base_url(&self.endpoints, market),
+            exchange_info_path(market),
+            exchange_info_params(market, symbol),
+        )
+        .await
+    }
+
     pub async fn submit_order(
+        &self,
+        intent: &OrderIntent,
+        mode: BinanceRequestMode,
+    ) -> Result<BinanceOrderSubmitResponse> {
+        let exchange_info = self.exchange_info(intent.market, &intent.symbol).await?;
+        let exchange_rules = check_order_exchange_rules(intent, &exchange_info)?;
+        if !exchange_rules.allowed {
+            return Err(anyhow!(
+                "Binance exchange rules blocked order: {}",
+                serde_json::to_string(&exchange_rules)?
+            ));
+        }
+        let exchange_response = self.submit_unchecked_order(intent, mode).await?;
+        Ok(BinanceOrderSubmitResponse {
+            exchange_rules,
+            exchange_response,
+        })
+    }
+
+    async fn submit_unchecked_order(
         &self,
         intent: &OrderIntent,
         mode: BinanceRequestMode,
@@ -389,28 +462,50 @@ impl BinanceClient {
         self.send(self.http.delete(url.as_str())).await
     }
 
+    async fn public_get(
+        &self,
+        base_url: &str,
+        path: &str,
+        params: Vec<(String, String)>,
+    ) -> Result<Value> {
+        let url = build_url(base_url, path, &params)?;
+        self.send_unsigned(self.http.get(url.as_str())).await
+    }
+
     async fn send(&self, request: wreq::RequestBuilder) -> Result<Value> {
         let response = request
             .header("X-MBX-APIKEY", &self.credentials.api_key)
             .send()
             .await
             .context("Binance signed request failed")?;
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("failed to read Binance signed response")?;
-        if !status.is_success() {
-            return Err(anyhow!(
-                "Binance signed request failed status={} body={body}",
-                status.as_u16()
-            ));
-        }
-        if body.trim().is_empty() {
-            return Ok(serde_json::json!({ "status": status.as_u16() }));
-        }
-        serde_json::from_str(&body).context("failed to decode Binance signed JSON response")
+        decode_response(response).await
     }
+
+    async fn send_unsigned(&self, request: wreq::RequestBuilder) -> Result<Value> {
+        let response = request
+            .send()
+            .await
+            .context("Binance public request failed")?;
+        decode_response(response).await
+    }
+}
+
+async fn decode_response(response: wreq::Response) -> Result<Value> {
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .context("failed to read Binance response")?;
+    if !status.is_success() {
+        return Err(anyhow!(
+            "Binance request failed status={} body={body}",
+            status.as_u16()
+        ));
+    }
+    if body.trim().is_empty() {
+        return Ok(serde_json::json!({ "status": status.as_u16() }));
+    }
+    serde_json::from_str(&body).context("failed to decode Binance JSON response")
 }
 
 fn order_params(intent: &OrderIntent) -> Result<Vec<(String, String)>> {
@@ -452,12 +547,16 @@ fn order_params(intent: &OrderIntent) -> Result<Vec<(String, String)>> {
 }
 
 fn cancel_params(intent: &CancelIntent) -> Result<Vec<(String, String)>> {
-    let mut params = vec![("symbol".to_string(), intent.symbol.to_ascii_uppercase())];
-    match &intent.target {
-        CancelTarget::OrderId { order_id } => {
+    order_query_params(&intent.symbol, &intent.target)
+}
+
+fn order_query_params(symbol: &str, target: &OrderIdentifier) -> Result<Vec<(String, String)>> {
+    let mut params = vec![("symbol".to_string(), symbol.to_ascii_uppercase())];
+    match target {
+        OrderIdentifier::OrderId { order_id } => {
             params.push(("orderId".to_string(), order_id.to_string()));
         }
-        CancelTarget::ClientOrderId { client_order_id } => {
+        OrderIdentifier::ClientOrderId { client_order_id } => {
             params.push(("origClientOrderId".to_string(), client_order_id.to_string()));
         }
     }
@@ -492,6 +591,10 @@ fn transfer_history_params(
 }
 
 fn order_base_url(endpoints: &BinanceEndpoints, market: Market) -> &str {
+    market_base_url(endpoints, market)
+}
+
+fn market_base_url(endpoints: &BinanceEndpoints, market: Market) -> &str {
     match market {
         Market::Spot => &endpoints.spot_base_url,
         Market::UsdsFutures => &endpoints.futures_base_url,
@@ -504,6 +607,20 @@ fn order_path(market: Market, test: bool) -> &'static str {
         (Market::Spot, false) => "/api/v3/order",
         (Market::UsdsFutures, true) => "/fapi/v1/order/test",
         (Market::UsdsFutures, false) => "/fapi/v1/order",
+    }
+}
+
+fn exchange_info_path(market: Market) -> &'static str {
+    match market {
+        Market::Spot => "/api/v3/exchangeInfo",
+        Market::UsdsFutures => "/fapi/v1/exchangeInfo",
+    }
+}
+
+fn exchange_info_params(market: Market, symbol: &str) -> Vec<(String, String)> {
+    match market {
+        Market::Spot => vec![("symbol".to_string(), symbol.to_ascii_uppercase())],
+        Market::UsdsFutures => Vec::new(),
     }
 }
 
@@ -640,6 +757,53 @@ mod tests {
             request
                 .params
                 .contains(&("size".to_string(), "100".to_string()))
+        );
+    }
+
+    #[test]
+    fn maps_query_order_request_params() {
+        let request =
+            BinancePlanner::new(BinanceEndpoints::new(Environment::Live, None, None, None))
+                .query_order_request(
+                    Market::Spot,
+                    "btcusdt",
+                    &OrderIdentifier::ClientOrderId {
+                        client_order_id: "af-test".to_string(),
+                    },
+                )
+                .expect("query request");
+
+        assert_eq!(request.method, "GET");
+        assert!(request.url.ends_with("/api/v3/order"));
+        assert!(
+            request
+                .params
+                .contains(&("symbol".to_string(), "BTCUSDT".to_string()))
+        );
+        assert!(
+            request
+                .params
+                .contains(&("origClientOrderId".to_string(), "af-test".to_string()))
+        );
+    }
+
+    #[test]
+    fn exchange_info_request_follows_market_api_contract() {
+        let planner =
+            BinancePlanner::new(BinanceEndpoints::new(Environment::Live, None, None, None));
+
+        let spot = planner.exchange_info_request(Market::Spot, "btcusdt");
+        let futures = planner.exchange_info_request(Market::UsdsFutures, "btcusdt");
+
+        assert!(spot.url.ends_with("/api/v3/exchangeInfo"));
+        assert!(
+            spot.params
+                .contains(&("symbol".to_string(), "BTCUSDT".to_string()))
+        );
+        assert!(futures.url.ends_with("/fapi/v1/exchangeInfo"));
+        assert!(
+            futures.params.is_empty(),
+            "USD-M futures exchangeInfo has no request parameters"
         );
     }
 

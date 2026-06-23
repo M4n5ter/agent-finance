@@ -72,6 +72,8 @@ pub enum OrderCommand {
     CancelIntent(OrderCancelIntentArgs),
     /// Submit an existing intent as dry-run, exchange test, or live write.
     Submit(OrderSubmitArgs),
+    /// Query one order by exchange order id or client order id.
+    Query(OrderQueryArgs),
     /// Query open orders.
     Open(OrderOpenArgs),
 }
@@ -172,6 +174,26 @@ pub struct OrderOpenArgs {
 
     #[arg(long)]
     pub symbol: Option<String>,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct OrderQueryArgs {
+    pub symbol: String,
+
+    #[arg(long, default_value = "default")]
+    pub profile: String,
+
+    #[arg(long, value_enum)]
+    pub market: TradingMarket,
+
+    #[arg(long)]
+    pub order_id: Option<String>,
+
+    #[arg(long)]
+    pub client_order_id: Option<String>,
 
     #[arg(long)]
     pub json: bool,

@@ -254,7 +254,7 @@ mod tests {
                 environment: Environment::Testnet,
                 market: Market::Spot,
                 symbol: "BTCUSDT".to_string(),
-                target: CancelTarget::ClientOrderId {
+                target: OrderIdentifier::ClientOrderId {
                     client_order_id: "af-test".to_string(),
                 },
             },
@@ -286,7 +286,7 @@ mod tests {
                 environment: Environment::Testnet,
                 market: Market::Spot,
                 symbol: "BTCUSDT".to_string(),
-                target: CancelTarget::ClientOrderId {
+                target: OrderIdentifier::ClientOrderId {
                     client_order_id: "af-test".to_string(),
                 },
             },
@@ -319,7 +319,7 @@ mod tests {
                 environment: Environment::Testnet,
                 market: Market::Spot,
                 symbol: "BTCUSDT".to_string(),
-                target: CancelTarget::ClientOrderId {
+                target: OrderIdentifier::ClientOrderId {
                     client_order_id: "af-test".to_string(),
                 },
             },
@@ -350,7 +350,7 @@ mod tests {
                 environment: Environment::Testnet,
                 market: Market::Spot,
                 symbol: "BTCUSDT".to_string(),
-                target: CancelTarget::ClientOrderId {
+                target: OrderIdentifier::ClientOrderId {
                     client_order_id: "af-test".to_string(),
                 },
             },

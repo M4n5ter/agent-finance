@@ -219,6 +219,14 @@ fn market_order_uses_valuation_only_for_risk_and_test_is_non_consuming() {
             .any(|param| param[0] == "price"),
         "market dry-run should not send an exchange price"
     );
+    assert_eq!(
+        market_submit["response"]["exchange_rules"]["status"],
+        "not-checked"
+    );
+    assert_eq!(
+        market_submit["response"]["exchange_rules"]["request"]["url"],
+        "https://testnet.binance.vision/api/v3/exchangeInfo"
+    );
 
     let test_failure = env.output(command(&[
         "order",
@@ -242,6 +250,44 @@ fn market_order_uses_valuation_only_for_risk_and_test_is_non_consuming() {
         "--json",
     ]));
     assert_eq!(after_failed_test["response"]["dry_run"], true);
+}
+
+#[test]
+fn order_query_requires_exactly_one_order_identifier_before_credentials() {
+    let env = default_env("order-query");
+    let missing_target = env.output(command(&[
+        "order",
+        "query",
+        "BTCUSDT",
+        "--profile",
+        "default",
+        "--market",
+        "spot",
+        "--json",
+    ]));
+    let missing_stderr = String::from_utf8_lossy(&missing_target.stderr);
+    assert!(
+        missing_stderr.contains("requires order id or client order id"),
+        "missing query target should fail before credential loading; stderr={missing_stderr}"
+    );
+
+    let query = env.output(command(&[
+        "order",
+        "query",
+        "BTCUSDT",
+        "--profile",
+        "default",
+        "--market",
+        "spot",
+        "--client-order-id",
+        "af-test",
+        "--json",
+    ]));
+    let query_stderr = String::from_utf8_lossy(&query.stderr);
+    assert!(
+        query_stderr.contains("BINANCE_API_KEY"),
+        "valid query target should progress to credential loading; stderr={query_stderr}"
+    );
 }
 
 #[test]
@@ -404,6 +450,50 @@ fn live_risk_uses_audit_backed_daily_order_limit() {
 
     let export = env.json(command(&["audit", "export", "--json"]));
     assert_eq!(export.as_array().expect("audit export").len(), 2);
+}
+
+#[test]
+fn live_market_orders_are_blocked_until_notional_uses_exchange_data() {
+    let env = TestEnv::new("live-market-notional");
+    env.write_live_profile("default");
+    let order = env.json(command(&[
+        "order",
+        "intent",
+        "BTCUSDT",
+        "--profile",
+        "default",
+        "--market",
+        "spot",
+        "--side",
+        "buy",
+        "--kind",
+        "market",
+        "--quantity",
+        "0.0001",
+        "--valuation-price",
+        "50000",
+        "--json",
+    ]));
+    let order_id = order["intent"]["id"].as_str().expect("order intent id");
+
+    let live_risk = env.json(command(&[
+        "risk",
+        "check",
+        order_id,
+        "--profile",
+        "default",
+        "--live",
+        "--json",
+    ]));
+
+    assert_eq!(live_risk["allowed"], false);
+    assert!(
+        live_risk["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .any(|finding| finding["code"] == "live-market-order-notional-untrusted")
+    );
 }
 
 fn command(args: &[&str]) -> Command {

@@ -8,7 +8,7 @@ pub fn profile_template(name: &str) -> String {
 provider = "binance"
 environment = "testnet"
 api_key_env = "BINANCE_API_KEY"
-api_secret_env = "BINANCE_API_SECRET"
+api_secret_env = "BINANCE_PRIVATE_KEY"
 spot_base_url = "https://testnet.binance.vision"
 usds_futures_base_url = "https://testnet.binancefuture.com"
 
@@ -48,6 +48,8 @@ pub fn provider_capability() -> ProviderCapability {
                 strings([
                     "Intent-first; live submit requires profile policy and --live.",
                     "Daily live order notional limits are enforced from local audit events.",
+                    "Test/live order submit checks locally checkable Binance exchangeInfo filters before sending the order.",
+                    "Signed order query is available by exchange order id or client order id.",
                 ]),
             ),
             Capability::new(

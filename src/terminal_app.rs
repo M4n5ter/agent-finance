@@ -220,7 +220,10 @@ pub(crate) async fn run_order(args: OrderArgs, timeout_seconds: u64) -> Result<(
                 environment: profile.provider.environment,
                 market: args.market.into(),
                 symbol: args.symbol.to_ascii_uppercase(),
-                target: agent_finance_core::CancelTarget::new(args.order_id, args.client_order_id)?,
+                target: agent_finance_core::OrderIdentifier::new(
+                    args.order_id,
+                    args.client_order_id,
+                )?,
             };
             let risk = agent_finance_core::check_cancel_intent(&profile, &intent, false);
             let envelope = agent_finance_core::create_cancel_intent(intent, args.ttl_seconds)?;
@@ -255,6 +258,17 @@ pub(crate) async fn run_order(args: OrderArgs, timeout_seconds: u64) -> Result<(
             )
             .await?;
             print_submit_report(args.json, &report)
+        }
+        OrderCommand::Query(args) => {
+            let profile = load_profile(&args.profile)?;
+            let target =
+                agent_finance_core::OrderIdentifier::new(args.order_id, args.client_order_id)?;
+            let response = binance_client(&profile, timeout_seconds)?
+                .query_order(args.market.into(), &args.symbol, &target)
+                .await?;
+            print_json_or_text(args.json, &response, || {
+                serde_json::to_string_pretty(&response).unwrap()
+            })
         }
         OrderCommand::Open(args) => {
             let profile = load_profile(&args.profile)?;
@@ -542,7 +556,32 @@ struct SubmitReport {
     intent_id: String,
     mode: String,
     risk: agent_finance_core::RiskDecision,
-    response: serde_json::Value,
+    response: SubmitExecution,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum SubmitExecution {
+    Plan(ExecutionPlan),
+    Order(agent_finance_binance::BinanceOrderSubmitResponse),
+    Raw(serde_json::Value),
+}
+
+#[derive(Serialize)]
+struct ExecutionPlan {
+    dry_run: bool,
+    mode: String,
+    request: agent_finance_binance::SignedRequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exchange_rules: Option<ExchangeRulePlan>,
+    note: &'static str,
+}
+
+#[derive(Serialize)]
+struct ExchangeRulePlan {
+    status: &'static str,
+    reason: &'static str,
+    request: agent_finance_binance::SignedRequest,
 }
 
 async fn submit_intent(
@@ -655,11 +694,12 @@ fn live_order_audit_lock(
 fn submit_audit_payload(
     intent: &agent_finance_core::IntentKind,
     risk: &agent_finance_core::RiskDecision,
-    response: &serde_json::Value,
+    response: &SubmitExecution,
 ) -> Result<serde_json::Value> {
+    let response = serde_json::to_value(response)?;
     match intent {
         agent_finance_core::IntentKind::Order(intent) => {
-            agent_finance_core::live_order_audit_payload(intent, risk, response)
+            agent_finance_core::live_order_audit_payload(intent, risk, &response)
         }
         _ => Ok(json!({ "risk": risk, "response": response })),
     }
@@ -707,7 +747,7 @@ async fn execute_intent(
     intent: &agent_finance_core::IntentKind,
     mode: WriteMode,
     timeout_seconds: u64,
-) -> Result<serde_json::Value> {
+) -> Result<SubmitExecution> {
     if matches!(mode, WriteMode::DryRun) {
         return plan_intent(profile, intent, mode);
     }
@@ -716,13 +756,15 @@ async fn execute_intent(
     };
     let client = binance_client(profile, timeout_seconds)?;
     match intent {
-        agent_finance_core::IntentKind::Order(intent) => {
-            client.submit_order(intent, binance_mode).await
+        agent_finance_core::IntentKind::Order(intent) => Ok(SubmitExecution::Order(
+            client.submit_order(intent, binance_mode).await?,
+        )),
+        agent_finance_core::IntentKind::Cancel(intent) => {
+            Ok(SubmitExecution::Raw(client.cancel_order(intent).await?))
         }
-        agent_finance_core::IntentKind::Cancel(intent) => client.cancel_order(intent).await,
-        agent_finance_core::IntentKind::Transfer(intent) => {
-            client.submit_transfer(intent, binance_mode).await
-        }
+        agent_finance_core::IntentKind::Transfer(intent) => Ok(SubmitExecution::Raw(
+            client.submit_transfer(intent, binance_mode).await?,
+        )),
     }
 }
 
@@ -730,18 +772,27 @@ fn plan_intent(
     profile: &agent_finance_core::Profile,
     intent: &agent_finance_core::IntentKind,
     mode: WriteMode,
-) -> Result<serde_json::Value> {
+) -> Result<SubmitExecution> {
     let planner = agent_finance_binance::BinancePlanner::new(binance_endpoints(profile));
     let request = match intent {
         agent_finance_core::IntentKind::Order(intent) => planner.order_request(intent, false)?,
         agent_finance_core::IntentKind::Cancel(intent) => planner.cancel_request(intent)?,
         agent_finance_core::IntentKind::Transfer(intent) => planner.transfer_request(intent)?,
     };
-    Ok(json!({
-        "dry_run": matches!(mode, WriteMode::DryRun),
-        "mode": format!("{mode:?}"),
-        "request": request,
-        "note": "dry-run is offline and does not read Binance API credentials",
+    let exchange_rules = match intent {
+        agent_finance_core::IntentKind::Order(intent) => Some(ExchangeRulePlan {
+            status: "not-checked",
+            reason: "dry-run is offline; locally checkable exchange rules are checked before --test or --live submit",
+            request: planner.exchange_info_request(intent.market, &intent.symbol),
+        }),
+        _ => None,
+    };
+    Ok(SubmitExecution::Plan(ExecutionPlan {
+        dry_run: matches!(mode, WriteMode::DryRun),
+        mode: format!("{mode:?}"),
+        request,
+        exchange_rules,
+        note: "dry-run is offline and does not read Binance API credentials",
     }))
 }
 

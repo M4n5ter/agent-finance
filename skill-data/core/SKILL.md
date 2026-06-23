@@ -81,6 +81,8 @@ agent-finance crypto discover --provider coingecko --kind trending
 ```bash
 agent-finance skills get profile
 agent-finance risk explain --profile default
+agent-finance order submit INTENT_ID --profile default
+agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
 agent-finance audit export --json
 ```
 
@@ -92,6 +94,8 @@ agent-finance audit export --json
 - Use `providers --json` when an Agent needs a machine-readable capability matrix.
 - Use `capabilities --json` for the unified terminal surface, including account/order/transfer safety boundaries.
 - Use `skills get profile` before touching signed account, order, transfer, risk, or audit commands.
+- Signed order test/live submit checks locally checkable Binance exchangeInfo filters before sending an order; dry-run remains offline.
+- Live market orders are blocked until risk notional can be derived from fresh exchange data instead of user-supplied `valuation_price`.
 - Treat crypto as 24/7 market data. Use Binance/Coinbase/OKX/CoinGecko through capability-first crypto commands, then force providers only for cross-checking.
 - Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments.
 - Treat Polymarket as quantifiable prediction-market sentiment and event-probability evidence only; it is not an equity quote or primary-source fact.

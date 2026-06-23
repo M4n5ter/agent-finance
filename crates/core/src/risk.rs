@@ -70,6 +70,12 @@ pub fn check_order_intent(profile: &Profile, intent: &OrderIntent, live: bool) -
             format!("order kind {kind} is not allowed for {symbol_key}"),
         );
     }
+    if live && matches!(intent.spec, OrderSpec::Market { .. }) {
+        decision.push_block(
+            "live-market-order-notional-untrusted",
+            "live market orders are blocked until risk notional can be derived from fresh exchange data instead of local valuation_price",
+        );
+    }
     let Some(notional) = intent.notional_usdt().map(|value| value.0) else {
         decision.push_block("order-notional-overflow", "order notional overflowed");
         return decision;

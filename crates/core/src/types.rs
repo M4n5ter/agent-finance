@@ -326,26 +326,26 @@ pub struct CancelIntent {
     pub environment: Environment,
     pub market: Market,
     pub symbol: String,
-    pub target: CancelTarget,
+    pub target: OrderIdentifier,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum CancelTarget {
+pub enum OrderIdentifier {
     OrderId { order_id: String },
     ClientOrderId { client_order_id: String },
 }
 
-impl CancelTarget {
+impl OrderIdentifier {
     pub fn new(order_id: Option<String>, client_order_id: Option<String>) -> Result<Self> {
         match (order_id, client_order_id) {
             (Some(order_id), None) => Ok(Self::OrderId { order_id }),
             (None, Some(client_order_id)) => Ok(Self::ClientOrderId { client_order_id }),
             (Some(_), Some(_)) => Err(anyhow!(
-                "cancel intent accepts exactly one of order id or client order id"
+                "order identifier accepts exactly one of order id or client order id"
             )),
             (None, None) => Err(anyhow!(
-                "cancel intent requires order id or client order id"
+                "order identifier requires order id or client order id"
             )),
         }
     }
