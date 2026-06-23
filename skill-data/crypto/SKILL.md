@@ -63,6 +63,6 @@ agent-finance crypto stream BTCUSDT --instrument swap --kind mark-price --messag
 - Prefer `crypto sentiment` for futures leverage, funding, open interest, long/short, taker flow, and basis.
 - Prefer `crypto quote/book/trades/candles/funding/open-interest/discover --json` when an Agent needs provider evidence for reasoning.
 - Use `--json` for downstream computation and `--raw` when auditing provider payloads.
-- `BINANCE_API_KEY` is only for read-only market-data endpoints. This CLI must not read Binance secrets, sign requests, or use account/trading endpoints.
+- The `crypto` command surface is read-only market data. Signed Binance account/order/transfer workflows live under `account`, `order`, `transfer`, `risk`, `audit`, and the `profile` skill.
 - Crypto trades 24/7; do not apply equity regular/pre/post/overnight session assumptions.
 - USD-M futures and TradFi perps are derivatives. They are useful for price discovery and sentiment, not legal equity or broker-fill prices.

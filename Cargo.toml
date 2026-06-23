@@ -6,11 +6,17 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/M4n5ter/agent-finance-cli"
 description = "AI Agent-first CLI for no-key financial market data and research context."
 
+[workspace]
+members = [".", "crates/core", "crates/binance"]
+resolver = "3"
+
 [[bin]]
 name = "agent-finance"
 path = "src/main.rs"
 
 [dependencies]
+agent-finance-binance = { path = "crates/binance" }
+agent-finance-core = { path = "crates/core" }
 anyhow = "1.0.102"
 base64 = "0.22.1"
 chrono = "0.4.45"

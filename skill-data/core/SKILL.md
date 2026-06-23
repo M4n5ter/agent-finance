@@ -13,7 +13,9 @@ This skill is printed by the `agent-finance` CLI. It is the first thing an AI Ag
 agent-finance skills list
 agent-finance skills get core --full
 agent-finance providers
+agent-finance capabilities
 agent-finance skills get crypto
+agent-finance skills get profile
 ```
 
 ## Default Workflow
@@ -80,6 +82,8 @@ agent-finance crypto discover --provider coingecko --kind trending
 - Use `sessions` when premarket, postmarket, overnight, BOATS, provider differences, or proxy prices matter.
 - Use both daily and minute history before judging fills, limit-order quality, stop placement, or intraday action.
 - Use `providers --json` when an Agent needs a machine-readable capability matrix.
+- Use `capabilities --json` for the unified terminal surface, including account/order/transfer safety boundaries.
+- Use `skills get profile` before touching signed account, order, transfer, risk, or audit commands.
 - Treat crypto as 24/7 market data. Use Binance/Coinbase/OKX/CoinGecko through capability-first crypto commands, then force providers only for cross-checking.
 - Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments.
 - Treat Polymarket as quantifiable prediction-market sentiment and event-probability evidence only; it is not an equity quote or primary-source fact.

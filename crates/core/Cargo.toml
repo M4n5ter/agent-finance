@@ -1,0 +1,18 @@
+[package]
+name = "agent-finance-core"
+version = "0.2.2"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/M4n5ter/agent-finance-cli"
+description = "Internal domain model for the agent-finance terminal."
+
+[dependencies]
+anyhow = "1.0.102"
+chrono = { version = "0.4.45", features = ["serde"] }
+directories = "6.0.0"
+hex = "0.4.3"
+rust_decimal = { version = "1.42.1", features = ["serde-with-str"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.11.0"
+toml = "1.1.2"

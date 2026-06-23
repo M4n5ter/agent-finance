@@ -19,5 +19,7 @@ mod providers;
 mod research;
 mod skills;
 mod stream;
+mod terminal_app;
+mod terminal_cli;
 mod time;
 mod websocket;

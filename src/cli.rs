@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 pub use crate::crypto_cli::*;
+pub use crate::terminal_cli::*;
 
 pub const HISTORY_INTERVAL_HELP: &str = "Bar interval. Provider-specific values: Yahoo 1m/2m/5m/15m/30m/60m/90m/1h/1d/5d/1wk/1mo/3mo; Robinhood 5m/10m/1h/1d/1w; Stooq live 1d/1w/1mo; Stooq bulk 5m/1h after sync; Binance 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M; Coinbase 1m/5m/15m/1h/6h/1d; OKX 1m/3m/5m/15m/30m/1h/2h/4h/6h/12h/1d/2d/3d; CoinGecko maps common intraday/daily requests to supported day windows.";
 
@@ -71,6 +72,20 @@ pub enum Command {
     Stooq(StooqArgs),
     /// Print provider capability matrix.
     Providers(ProvidersArgs),
+    /// Print capability-first terminal surface for AI agents.
+    Capabilities(CapabilitiesArgs),
+    /// Inspect and explain trading profiles.
+    Profile(ProfileArgs),
+    /// Inspect signed account state.
+    Account(AccountArgs),
+    /// Create, submit, cancel, and query order intents.
+    Order(OrderArgs),
+    /// Create and submit internal transfer intents.
+    Transfer(TransferArgs),
+    /// Check and explain profile risk policy.
+    Risk(RiskArgs),
+    /// Read local append-only trading audit events.
+    Audit(AuditArgs),
     /// Poll live price summaries repeatedly.
     Watch(WatchArgs),
     /// Stream Yahoo real-time price updates over WebSocket.

@@ -188,6 +188,7 @@ fn load_embedded_store() -> Result<Vec<SkillDocument>> {
         embedded_document("history-indicators", HISTORY_INDICATORS, &[])?,
         embedded_document("prediction-markets", PREDICTION_MARKETS, &[])?,
         embedded_document("price", PRICE, &[])?,
+        embedded_document("profile", PROFILE, &[])?,
         embedded_document("providers", PROVIDERS, &[])?,
         embedded_document("research-data", RESEARCH_DATA, &[])?,
     ];
@@ -333,6 +334,7 @@ const CRYPTO: &str = include_str!("../skill-data/crypto/SKILL.md");
 const HISTORY_INDICATORS: &str = include_str!("../skill-data/history-indicators/SKILL.md");
 const PREDICTION_MARKETS: &str = include_str!("../skill-data/prediction-markets/SKILL.md");
 const PRICE: &str = include_str!("../skill-data/price/SKILL.md");
+const PROFILE: &str = include_str!("../skill-data/profile/SKILL.md");
 const PROVIDERS: &str = include_str!("../skill-data/providers/SKILL.md");
 const RESEARCH_DATA: &str = include_str!("../skill-data/research-data/SKILL.md");
 

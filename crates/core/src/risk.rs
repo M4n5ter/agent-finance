@@ -1,0 +1,206 @@
+use serde::{Deserialize, Serialize};
+
+use crate::profile::Profile;
+use crate::types::*;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskDecision {
+    pub allowed: bool,
+    pub findings: Vec<RiskFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskFinding {
+    pub severity: RiskSeverity,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RiskSeverity {
+    Info,
+    Block,
+}
+
+impl RiskDecision {
+    pub fn allow() -> Self {
+        Self {
+            allowed: true,
+            findings: Vec::new(),
+        }
+    }
+
+    fn push_block(&mut self, code: &str, message: impl Into<String>) {
+        self.allowed = false;
+        self.findings.push(RiskFinding {
+            severity: RiskSeverity::Block,
+            code: code.to_string(),
+            message: message.into(),
+        });
+    }
+}
+
+pub fn check_order_intent(profile: &Profile, intent: &OrderIntent, live: bool) -> RiskDecision {
+    let mut decision = RiskDecision::allow();
+    check_profile(
+        &mut decision,
+        profile,
+        &intent.profile,
+        intent.provider,
+        intent.environment,
+        live,
+    );
+
+    let symbol_key = intent.symbol.to_ascii_uppercase();
+    let Some(symbol_policy) =
+        check_symbol_market(&mut decision, profile, &symbol_key, intent.market)
+    else {
+        return decision;
+    };
+    let kind = intent.spec.kind();
+    if !symbol_policy.order_kinds.contains(&kind) {
+        decision.push_block(
+            "order-kind-not-allowed",
+            format!("order kind {kind} is not allowed for {symbol_key}"),
+        );
+    }
+    let Some(notional) = intent
+        .quantity
+        .checked_mul(intent.spec.notional_price())
+        .map(|value| value.0)
+    else {
+        decision.push_block("order-notional-overflow", "order notional overflowed");
+        return decision;
+    };
+    if notional > symbol_policy.max_order_notional_usdt.0 {
+        decision.push_block(
+            "order-notional-too-high",
+            format!(
+                "order notional {notional} exceeds max {}",
+                symbol_policy.max_order_notional_usdt
+            ),
+        );
+    }
+    decision
+}
+
+pub fn check_cancel_intent(profile: &Profile, intent: &CancelIntent, live: bool) -> RiskDecision {
+    let mut decision = RiskDecision::allow();
+    check_profile(
+        &mut decision,
+        profile,
+        &intent.profile,
+        intent.provider,
+        intent.environment,
+        live,
+    );
+    check_symbol_market(
+        &mut decision,
+        profile,
+        &intent.symbol.to_ascii_uppercase(),
+        intent.market,
+    );
+    decision
+}
+
+pub fn check_transfer_intent(
+    profile: &Profile,
+    intent: &TransferIntent,
+    live: bool,
+) -> RiskDecision {
+    let mut decision = RiskDecision::allow();
+    check_profile(
+        &mut decision,
+        profile,
+        &intent.profile,
+        intent.provider,
+        intent.environment,
+        live,
+    );
+    if live && intent.environment != Environment::Live {
+        decision.push_block(
+            "transfer-live-environment-required",
+            "signed transfer is a live-only capability; use a live profile after reviewing the intent",
+        );
+    }
+    let asset = intent.asset.to_ascii_uppercase();
+    let Some(policy) = profile.risk.allowed_transfers.iter().find(|policy| {
+        policy.direction == intent.direction && policy.asset.to_ascii_uppercase() == asset
+    }) else {
+        decision.push_block(
+            "transfer-not-allowed",
+            format!(
+                "transfer {} {} is not allowed by profile risk.allowed_transfers",
+                intent.direction, asset
+            ),
+        );
+        return decision;
+    };
+    if intent.amount.0 > policy.max_amount.0 {
+        decision.push_block(
+            "transfer-amount-too-high",
+            format!(
+                "transfer amount {} exceeds max {} for {} {}",
+                intent.amount, policy.max_amount, intent.direction, asset
+            ),
+        );
+    }
+    decision
+}
+
+fn check_profile(
+    decision: &mut RiskDecision,
+    profile: &Profile,
+    intent_profile: &str,
+    provider: Provider,
+    environment: Environment,
+    live: bool,
+) {
+    if profile.name != intent_profile {
+        decision.push_block(
+            "profile-mismatch",
+            format!(
+                "intent profile '{}' does not match selected profile '{}'",
+                intent_profile, profile.name
+            ),
+        );
+    }
+    if live && !profile.risk.allow_live {
+        decision.push_block("live-disabled", "profile risk.allow_live is false");
+    }
+    if profile.provider.provider != provider {
+        decision.push_block(
+            "provider-mismatch",
+            "intent provider does not match profile",
+        );
+    }
+    if profile.provider.environment != environment {
+        decision.push_block(
+            "environment-mismatch",
+            "intent environment does not match profile",
+        );
+    }
+}
+
+fn check_symbol_market<'a>(
+    decision: &mut RiskDecision,
+    profile: &'a Profile,
+    symbol_key: &str,
+    market: Market,
+) -> Option<&'a SymbolPolicy> {
+    let Some(symbol_policy) = profile.risk.allowed_symbols.get(symbol_key) else {
+        decision.push_block(
+            "symbol-not-allowed",
+            format!("symbol {symbol_key} is not in profile risk.allowed_symbols"),
+        );
+        return None;
+    };
+    if !symbol_policy.markets.contains(&market) {
+        decision.push_block(
+            "market-not-allowed",
+            format!("market {market} is not allowed for {symbol_key}"),
+        );
+    }
+    Some(symbol_policy)
+}
