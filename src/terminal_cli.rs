@@ -189,6 +189,8 @@ pub enum TransferCommand {
     Intent(TransferIntentArgs),
     /// Submit an existing internal transfer intent.
     Submit(TransferSubmitArgs),
+    /// Query Binance user universal transfer history.
+    History(TransferHistoryArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -227,6 +229,24 @@ pub struct TransferSubmitArgs {
 }
 
 #[derive(Parser, Debug)]
+pub struct TransferHistoryArgs {
+    #[arg(long, default_value = "default")]
+    pub profile: String,
+
+    #[arg(long, value_enum)]
+    pub direction: TradingTransferDirection,
+
+    #[arg(long, default_value_t = 1)]
+    pub current: usize,
+
+    #[arg(long, default_value_t = 10)]
+    pub size: usize,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
 pub struct RiskArgs {
     #[command(subcommand)]
     pub command: RiskCommand,
@@ -236,6 +256,8 @@ pub struct RiskArgs {
 pub enum RiskCommand {
     /// Check a persisted intent against a profile.
     Check(RiskCheckArgs),
+    /// Explain a profile risk policy and runtime audit usage.
+    Explain(RiskExplainArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -253,6 +275,15 @@ pub struct RiskCheckArgs {
 }
 
 #[derive(Parser, Debug)]
+pub struct RiskExplainArgs {
+    #[arg(long, default_value = "default")]
+    pub profile: String,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
 pub struct AuditArgs {
     #[command(subcommand)]
     pub command: AuditCommand,
@@ -262,6 +293,8 @@ pub struct AuditArgs {
 pub enum AuditCommand {
     /// Print recent audit events.
     Tail(AuditTailArgs),
+    /// Export audit events as JSON array or JSONL.
+    Export(AuditExportArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -269,6 +302,12 @@ pub struct AuditTailArgs {
     #[arg(long, default_value_t = 20)]
     pub limit: usize,
 
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct AuditExportArgs {
     #[arg(long)]
     pub json: bool,
 }

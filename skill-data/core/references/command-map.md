@@ -83,6 +83,21 @@ agent-finance skills get prediction-markets
 
 Use Polymarket for quantifiable sentiment and event-probability signals. It does not replace SEC/IR/company releases, verified news, or equity quotes.
 
+## Signed Profile, Risk, and Audit
+
+```bash
+agent-finance skills get profile
+agent-finance profile doctor --profile default
+agent-finance risk explain --profile default
+agent-finance risk check INTENT_ID --profile default --live
+agent-finance audit tail --limit 20
+agent-finance audit export --json
+agent-finance transfer history --profile live --direction spot-to-usds-futures --size 20
+```
+
+Use `risk explain` to inspect profile limits and the local audit-backed daily order notional counter before live writes.
+Transfer history reads Binance SAPI live account data and requires a reviewed live profile.
+
 ## Network and Browser Boundaries
 
 The CLI respects `--proxy`, `AGENT_FINANCE_PROXY`, and standard proxy environment variables. It does not hardcode a local proxy.

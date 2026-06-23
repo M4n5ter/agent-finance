@@ -22,6 +22,7 @@ agent-finance profile path --profile default
 agent-finance profile template --profile default
 agent-finance profile doctor --profile default
 agent-finance profile explain --profile default
+agent-finance risk explain --profile default
 ```
 
 ## Order Flow
@@ -43,6 +44,14 @@ agent-finance transfer intent USDT --profile default --direction spot-to-usds-fu
 agent-finance risk check INTENT_ID --profile default
 agent-finance transfer submit INTENT_ID --profile default
 agent-finance transfer submit INTENT_ID --profile default --live
+agent-finance transfer history --profile live --direction spot-to-usds-futures --size 20
+```
+
+## Audit Flow
+
+```bash
+agent-finance audit tail --limit 20
+agent-finance audit export --json
 ```
 
 ## Guardrails
@@ -50,7 +59,9 @@ agent-finance transfer submit INTENT_ID --profile default --live
 - Never put API secrets in TOML, Markdown, command history, audit logs, or prompts.
 - Use Binance testnet profiles first.
 - For live profiles, keep whitelist and notional limits small.
+- `max_daily_order_notional_usdt` is enforced from the local append-only audit log for `risk check --live` and live order submit. Matching live-submit events with missing notional data fail closed.
 - `order submit` without flags is an offline dry-run; `--test` calls an exchange test endpoint where available but does not consume the intent; only `--live` consumes the intent.
 - Limit orders use `--price` as the exchange price. Market orders use `--valuation-price` for risk notional checks and never send an exchange `price` parameter.
 - Live universal transfers require explicit `[[risk.allowed_transfers]]` entries with direction, asset, and max amount.
+- Transfer history reads Binance SAPI live account data and requires a reviewed live profile.
 - Do not use this CLI for withdrawals, margin, COIN-M, options, earn, or external transfers.

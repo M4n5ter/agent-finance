@@ -180,6 +180,20 @@ impl BinancePlanner {
             transfer_params(intent),
         ))
     }
+
+    pub fn transfer_history_request(
+        &self,
+        direction: TransferDirection,
+        current: usize,
+        size: usize,
+    ) -> SignedRequest {
+        unsigned_request(
+            "GET",
+            &self.endpoints.sapi_base_url,
+            "/sapi/v1/asset/transfer",
+            transfer_history_params(direction, current, size),
+        )
+    }
 }
 
 impl BinanceClient {
@@ -312,6 +326,20 @@ impl BinanceClient {
                 .await
             }
         }
+    }
+
+    pub async fn transfer_history(
+        &self,
+        direction: TransferDirection,
+        current: usize,
+        size: usize,
+    ) -> Result<Value> {
+        self.signed_get(
+            &self.endpoints.sapi_base_url,
+            "/sapi/v1/asset/transfer",
+            transfer_history_params(direction, current, size),
+        )
+        .await
     }
 
     fn signed_url(
@@ -451,6 +479,18 @@ fn transfer_params(intent: &TransferIntent) -> Vec<(String, String)> {
     ]
 }
 
+fn transfer_history_params(
+    direction: TransferDirection,
+    current: usize,
+    size: usize,
+) -> Vec<(String, String)> {
+    vec![
+        ("type".to_string(), transfer_type(direction).to_string()),
+        ("current".to_string(), current.max(1).to_string()),
+        ("size".to_string(), size.clamp(1, 100).to_string()),
+    ]
+}
+
 fn order_base_url(endpoints: &BinanceEndpoints, market: Market) -> &str {
     match market {
         Market::Spot => &endpoints.spot_base_url,
@@ -575,6 +615,31 @@ mod tests {
         assert_eq!(
             transfer_type(TransferDirection::UsdsFuturesToSpot),
             "UMFUTURE_MAIN"
+        );
+    }
+
+    #[test]
+    fn maps_transfer_history_request_params() {
+        let request =
+            BinancePlanner::new(BinanceEndpoints::new(Environment::Live, None, None, None))
+                .transfer_history_request(TransferDirection::SpotToUsdsFutures, 0, 250);
+
+        assert_eq!(request.method, "GET");
+        assert!(request.url.ends_with("/sapi/v1/asset/transfer"));
+        assert!(
+            request
+                .params
+                .contains(&("type".to_string(), "MAIN_UMFUTURE".to_string()))
+        );
+        assert!(
+            request
+                .params
+                .contains(&("current".to_string(), "1".to_string()))
+        );
+        assert!(
+            request
+                .params
+                .contains(&("size".to_string(), "100".to_string()))
         );
     }
 

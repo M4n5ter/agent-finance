@@ -2,6 +2,7 @@ use std::fs;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::Utc;
 use serde_json::Value;
 
 #[test]
@@ -330,6 +331,81 @@ fn profile_and_command_boundaries_are_enforced() {
     );
 }
 
+#[test]
+fn transfer_history_requires_live_profile_before_credentials() {
+    let env = default_env("transfer-history");
+    let testnet_history = env.output(command(&[
+        "transfer",
+        "history",
+        "--profile",
+        "default",
+        "--direction",
+        "spot-to-usds-futures",
+        "--json",
+    ]));
+    let testnet_stderr = String::from_utf8_lossy(&testnet_history.stderr);
+    assert!(
+        testnet_stderr.contains("uses Binance SAPI live account data"),
+        "testnet transfer history should fail at environment guard; stderr={testnet_stderr}"
+    );
+
+    env.write_live_profile("live");
+    let live_history = env.output(command(&[
+        "transfer",
+        "history",
+        "--profile",
+        "live",
+        "--direction",
+        "spot-to-usds-futures",
+        "--json",
+    ]));
+    let live_stderr = String::from_utf8_lossy(&live_history.stderr);
+    assert!(
+        live_stderr.contains("BINANCE_API_KEY"),
+        "live transfer history should progress to credential loading; stderr={live_stderr}"
+    );
+}
+
+#[test]
+fn live_risk_uses_audit_backed_daily_order_limit() {
+    let env = TestEnv::new("daily-limit");
+    env.write_live_profile("default");
+    env.append_live_order_audit("49");
+    let order = create_limit_order(&env);
+    let order_id = order["intent"]["id"].as_str().expect("order intent id");
+
+    let risk = env.json(command(&[
+        "risk",
+        "check",
+        order_id,
+        "--profile",
+        "default",
+        "--live",
+        "--json",
+    ]));
+
+    assert_eq!(risk["allowed"], false);
+    assert!(
+        risk["findings"]
+            .as_array()
+            .expect("findings")
+            .iter()
+            .any(|finding| finding["code"] == "daily-order-notional-too-high")
+    );
+
+    let explain = env.json(command(&[
+        "risk",
+        "explain",
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert_eq!(explain["daily_order_notional_used_utc"], "49");
+
+    let export = env.json(command(&["audit", "export", "--json"]));
+    assert_eq!(export.as_array().expect("audit export").len(), 2);
+}
+
 fn command(args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_agent-finance"));
     command.args(args);
@@ -386,6 +462,37 @@ impl TestEnv {
         let output = self.output(command(&["profile", "template", "--profile", name]));
         assert!(output.status.success(), "profile template should succeed");
         fs::write(profile_dir.join(format!("{name}.toml")), output.stdout).expect("profile write");
+    }
+
+    fn write_live_profile(&self, name: &str) {
+        let profile_dir = self.root.join("config/agent-finance/profiles");
+        fs::create_dir_all(&profile_dir).expect("profile dir");
+        let output = self.output(command(&["profile", "template", "--profile", name]));
+        assert!(output.status.success(), "profile template should succeed");
+        let content = String::from_utf8(output.stdout)
+            .expect("profile template")
+            .replace("environment = \"testnet\"", "environment = \"live\"")
+            .replace("allow_live = false", "allow_live = true");
+        fs::write(profile_dir.join(format!("{name}.toml")), content).expect("profile write");
+    }
+
+    fn append_live_order_audit(&self, order_notional: &str) {
+        let audit_dir = self.root.join("data/agent-finance/audit");
+        fs::create_dir_all(&audit_dir).expect("audit dir");
+        let event = serde_json::json!({
+            "timestamp_utc": Utc::now().to_rfc3339(),
+            "profile": "default",
+            "provider": "binance",
+            "environment": "Live",
+            "intent_id": "seed",
+            "kind": "live-submit",
+            "summary": "seed live order",
+            "payload": {
+                "order_notional_usdt": order_notional,
+                "response": {"seed": true}
+            }
+        });
+        fs::write(audit_dir.join("events.jsonl"), format!("{event}\n")).expect("audit write");
     }
 
     fn json(&self, command: Command) -> Value {

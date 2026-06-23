@@ -315,6 +315,16 @@ pub(crate) async fn run_transfer(args: TransferArgs, timeout_seconds: u64) -> Re
             .await?;
             print_submit_report(args.json, &report)
         }
+        TransferCommand::History(args) => {
+            let profile = load_profile(&args.profile)?;
+            ensure_live_sapi_profile(&profile, "transfer history")?;
+            let response = binance_client(&profile, timeout_seconds)?
+                .transfer_history(args.direction.into(), args.current, args.size)
+                .await?;
+            print_json_or_text(args.json, &response, || {
+                serde_json::to_string_pretty(&response).unwrap()
+            })
+        }
     }
 }
 
@@ -326,7 +336,7 @@ pub(crate) fn run_risk(args: RiskArgs) -> Result<()> {
                 agent_finance_core::IntentStore::from_default_dir()?.load(&args.intent_id)?;
             let risk = match &envelope.kind {
                 agent_finance_core::IntentKind::Order(intent) => {
-                    agent_finance_core::check_order_intent(&profile, intent, args.live)
+                    check_order_with_runtime_limits(&profile, intent, args.live)?
                 }
                 agent_finance_core::IntentKind::Cancel(intent) => {
                     agent_finance_core::check_cancel_intent(&profile, intent, args.live)
@@ -347,6 +357,23 @@ pub(crate) fn run_risk(args: RiskArgs) -> Result<()> {
                         .join("\n");
                     format!("allowed: {}\n{findings}", risk.allowed)
                 }
+            })
+        }
+        RiskCommand::Explain(args) => {
+            let profile = load_profile(&args.profile)?;
+            let used = agent_finance_core::daily_live_order_notional_used_today(&profile)?;
+            let report = json!({
+                "profile": profile.name,
+                "provider": profile.provider.provider,
+                "environment": profile.provider.environment,
+                "allow_live": profile.risk.allow_live,
+                "max_daily_order_notional_usdt": profile.risk.max_daily_order_notional_usdt,
+                "daily_order_notional_used_utc": used.to_string(),
+                "allowed_symbols": profile.risk.allowed_symbols,
+                "allowed_transfers": profile.risk.allowed_transfers,
+            });
+            print_json_or_text(args.json, &report, || {
+                serde_json::to_string_pretty(&report).unwrap()
             })
         }
     }
@@ -370,6 +397,17 @@ pub(crate) fn run_audit(args: AuditArgs) -> Result<()> {
                     .collect::<Vec<_>>()
                     .join("\n")
             })
+        }
+        AuditCommand::Export(args) => {
+            let events = agent_finance_core::read_all_audit_events()?;
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&events)?);
+            } else {
+                for event in events {
+                    println!("{}", serde_json::to_string(&event)?);
+                }
+            }
+            Ok(())
         }
     }
 }
@@ -402,6 +440,15 @@ fn binance_endpoints(
         profile.provider.usds_futures_base_url.clone(),
         profile.provider.sapi_base_url.clone(),
     )
+}
+
+fn ensure_live_sapi_profile(profile: &agent_finance_core::Profile, operation: &str) -> Result<()> {
+    if profile.provider.environment == agent_finance_core::Environment::Live {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "{operation} uses Binance SAPI live account data; use a live profile after reviewing the request"
+    ))
 }
 
 fn parse_optional_decimal(
@@ -515,7 +562,7 @@ async fn submit_intent(
             "--test is only supported for order intents with Binance test endpoints"
         ));
     }
-    let risk = check_intent(profile, &envelope.kind, mode.is_live());
+    let risk = check_intent(profile, &envelope.kind, mode.is_live())?;
     if !risk.allowed {
         let error = anyhow!("risk policy blocked intent submit");
         return Err(error);
@@ -538,7 +585,8 @@ async fn submit_intent(
     }
     let envelope = store.claim_for_submit(&envelope.id)?;
     expected_kind.validate(&envelope.kind)?;
-    let risk = check_intent(profile, &envelope.kind, mode.is_live());
+    let _audit_lock = live_order_audit_lock(profile, &envelope.kind, mode)?;
+    let risk = check_intent(profile, &envelope.kind, mode.is_live())?;
     if !risk.allowed {
         let error = anyhow!("risk policy blocked claimed intent submit");
         store.mark_failed(&envelope.id)?;
@@ -554,14 +602,15 @@ async fn submit_intent(
     let response = execute_intent(profile, &envelope.kind, mode, timeout_seconds).await;
     match response {
         Ok(response) => {
-            store.mark_submitted(&envelope.id)?;
+            let payload = submit_audit_payload(&envelope.kind, &risk, &response)?;
             append_audit(
                 profile,
                 Some(envelope.id.clone()),
                 mode.audit_kind(&envelope.kind),
                 format!("submitted intent {}", envelope.id),
-                json!({ "risk": risk, "response": response }),
+                payload,
             )?;
+            store.mark_submitted(&envelope.id)?;
             Ok(SubmitReport {
                 intent_id: envelope.id,
                 mode: format!("{mode:?}"),
@@ -583,22 +632,74 @@ async fn submit_intent(
     }
 }
 
+fn live_order_audit_lock(
+    profile: &agent_finance_core::Profile,
+    intent: &agent_finance_core::IntentKind,
+    mode: WriteMode,
+) -> Result<Option<agent_finance_core::AuditScopeLock>> {
+    if !matches!(mode, WriteMode::Live)
+        || !matches!(intent, agent_finance_core::IntentKind::Order(_))
+    {
+        return Ok(None);
+    }
+    let scope = format!(
+        "daily-order-notional:{}:{}:{}:{}",
+        profile.name,
+        profile.provider.provider,
+        profile.provider.environment,
+        Utc::now().date_naive()
+    );
+    agent_finance_core::AuditScopeLock::acquire(&scope).map(Some)
+}
+
+fn submit_audit_payload(
+    intent: &agent_finance_core::IntentKind,
+    risk: &agent_finance_core::RiskDecision,
+    response: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    match intent {
+        agent_finance_core::IntentKind::Order(intent) => {
+            agent_finance_core::live_order_audit_payload(intent, risk, response)
+        }
+        _ => Ok(json!({ "risk": risk, "response": response })),
+    }
+}
+
 fn check_intent(
     profile: &agent_finance_core::Profile,
     intent: &agent_finance_core::IntentKind,
     live: bool,
-) -> agent_finance_core::RiskDecision {
+) -> Result<agent_finance_core::RiskDecision> {
     match intent {
         agent_finance_core::IntentKind::Order(intent) => {
-            agent_finance_core::check_order_intent(profile, intent, live)
+            check_order_with_runtime_limits(profile, intent, live)
         }
-        agent_finance_core::IntentKind::Cancel(intent) => {
-            agent_finance_core::check_cancel_intent(profile, intent, live)
-        }
-        agent_finance_core::IntentKind::Transfer(intent) => {
-            agent_finance_core::check_transfer_intent(profile, intent, live)
-        }
+        agent_finance_core::IntentKind::Cancel(intent) => Ok(
+            agent_finance_core::check_cancel_intent(profile, intent, live),
+        ),
+        agent_finance_core::IntentKind::Transfer(intent) => Ok(
+            agent_finance_core::check_transfer_intent(profile, intent, live),
+        ),
     }
+}
+
+fn check_order_with_runtime_limits(
+    profile: &agent_finance_core::Profile,
+    intent: &agent_finance_core::OrderIntent,
+    live: bool,
+) -> Result<agent_finance_core::RiskDecision> {
+    let runtime = if live {
+        agent_finance_core::OrderRuntimeRisk {
+            daily_order_notional_used_utc: Some(
+                agent_finance_core::daily_live_order_notional_used_today(profile)?,
+            ),
+        }
+    } else {
+        agent_finance_core::OrderRuntimeRisk::default()
+    };
+    Ok(agent_finance_core::check_order_intent_with_runtime(
+        profile, intent, live, &runtime,
+    ))
 }
 
 async fn execute_intent(
@@ -682,7 +783,7 @@ fn append_audit(
         timestamp_utc: Utc::now(),
         profile: profile.name.clone(),
         provider: profile.provider.provider.to_string(),
-        environment: format!("{:?}", profile.provider.environment),
+        environment: profile.provider.environment.to_string(),
         intent_id,
         kind,
         summary,

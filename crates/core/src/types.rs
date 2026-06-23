@@ -33,6 +33,15 @@ impl Environment {
     }
 }
 
+impl fmt::Display for Environment {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Testnet => formatter.write_str("testnet"),
+            Self::Live => formatter.write_str("live"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Market {
@@ -161,8 +170,16 @@ impl DecimalValue {
         Self(value)
     }
 
+    pub fn zero() -> Self {
+        Self(Decimal::ZERO)
+    }
+
     pub fn checked_mul(&self, other: &Self) -> Option<Self> {
         self.0.checked_mul(other.0).map(Self)
+    }
+
+    pub fn checked_add(&self, other: &Self) -> Option<Self> {
+        self.0.checked_add(other.0).map(Self)
     }
 }
 
@@ -198,6 +215,12 @@ pub struct OrderIntent {
     pub reduce_only: bool,
     pub position_side: Option<PositionSide>,
     pub client_order_id: String,
+}
+
+impl OrderIntent {
+    pub fn notional_usdt(&self) -> Option<DecimalValue> {
+        self.quantity.checked_mul(self.spec.notional_price())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -353,6 +376,8 @@ pub struct ProviderConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RiskPolicy {
     pub allow_live: bool,
+    #[serde(default)]
+    pub max_daily_order_notional_usdt: Option<DecimalValue>,
     #[serde(default)]
     pub allowed_symbols: BTreeMap<String, SymbolPolicy>,
     #[serde(default)]

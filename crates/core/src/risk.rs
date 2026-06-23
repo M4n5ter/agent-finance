@@ -41,6 +41,11 @@ impl RiskDecision {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OrderRuntimeRisk {
+    pub daily_order_notional_used_utc: Option<DecimalValue>,
+}
+
 pub fn check_order_intent(profile: &Profile, intent: &OrderIntent, live: bool) -> RiskDecision {
     let mut decision = RiskDecision::allow();
     check_profile(
@@ -65,11 +70,7 @@ pub fn check_order_intent(profile: &Profile, intent: &OrderIntent, live: bool) -
             format!("order kind {kind} is not allowed for {symbol_key}"),
         );
     }
-    let Some(notional) = intent
-        .quantity
-        .checked_mul(intent.spec.notional_price())
-        .map(|value| value.0)
-    else {
+    let Some(notional) = intent.notional_usdt().map(|value| value.0) else {
         decision.push_block("order-notional-overflow", "order notional overflowed");
         return decision;
     };
@@ -81,6 +82,19 @@ pub fn check_order_intent(profile: &Profile, intent: &OrderIntent, live: bool) -
                 symbol_policy.max_order_notional_usdt
             ),
         );
+    }
+    decision
+}
+
+pub fn check_order_intent_with_runtime(
+    profile: &Profile,
+    intent: &OrderIntent,
+    live: bool,
+    runtime: &OrderRuntimeRisk,
+) -> RiskDecision {
+    let mut decision = check_order_intent(profile, intent, live);
+    if live {
+        apply_daily_order_limit(&mut decision, profile, intent, runtime);
     }
     decision
 }
@@ -102,6 +116,43 @@ pub fn check_cancel_intent(profile: &Profile, intent: &CancelIntent, live: bool)
         intent.market,
     );
     decision
+}
+
+fn apply_daily_order_limit(
+    decision: &mut RiskDecision,
+    profile: &Profile,
+    intent: &OrderIntent,
+    runtime: &OrderRuntimeRisk,
+) {
+    let Some(max_daily) = &profile.risk.max_daily_order_notional_usdt else {
+        return;
+    };
+    let Some(used) = &runtime.daily_order_notional_used_utc else {
+        decision.push_block(
+            "daily-order-notional-runtime-missing",
+            "daily order notional runtime usage is required for live order checks",
+        );
+        return;
+    };
+    let Some(current_order) = intent.notional_usdt() else {
+        decision.push_block("order-notional-overflow", "order notional overflowed");
+        return;
+    };
+    let Some(used_after) = used.checked_add(&current_order) else {
+        decision.push_block(
+            "daily-order-notional-overflow",
+            "daily order notional overflowed",
+        );
+        return;
+    };
+    if used_after.0 > max_daily.0 {
+        decision.push_block(
+            "daily-order-notional-too-high",
+            format!(
+                "daily live order notional would become {used_after}, exceeding max {max_daily}"
+            ),
+        );
+    }
 }
 
 pub fn check_transfer_intent(

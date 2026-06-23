@@ -14,6 +14,7 @@ usds_futures_base_url = "https://testnet.binancefuture.com"
 
 [risk]
 allow_live = false
+max_daily_order_notional_usdt = "50"
 allowed_transfers = []
 
 [risk.allowed_symbols.BTCUSDT]
@@ -44,13 +45,19 @@ pub fn provider_capability() -> ProviderCapability {
                 "orders",
                 "signed/write-gated",
                 strings(["spot", "usds-futures"]),
-                strings(["Intent-first; live submit requires profile policy and --live."]),
+                strings([
+                    "Intent-first; live submit requires profile policy and --live.",
+                    "Daily live order notional limits are enforced from local audit events.",
+                ]),
             ),
             Capability::new(
                 "transfers",
                 "signed/write-gated",
                 strings(["spot<->usds-futures"]),
-                strings(["Universal transfer only; withdrawals are intentionally unsupported."]),
+                strings([
+                    "Universal transfer only; withdrawals are intentionally unsupported.",
+                    "Signed user universal transfer history is available.",
+                ]),
             ),
         ],
     )

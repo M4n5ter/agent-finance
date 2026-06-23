@@ -76,6 +76,14 @@ agent-finance crypto book BTC/USDT --provider okx --limit 20
 agent-finance crypto discover --provider coingecko --kind trending
 ```
 
+7. Signed trading profile and audit workflows:
+
+```bash
+agent-finance skills get profile
+agent-finance risk explain --profile default
+agent-finance audit export --json
+```
+
 ## Rules
 
 - Use `price` for the default "what is the current price?" answer.
