@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use crate::paths::data_dir;
 use crate::profile::Profile;
 use crate::risk::RiskDecision;
+use crate::submit::SubmitExecutionSnapshot;
 use crate::types::{DecimalValue, OrderIntent};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,14 +87,14 @@ fn read_audit_log(mut handle: impl FnMut(AuditEvent) -> Result<()>) -> Result<()
 pub fn live_order_audit_payload(
     intent: &OrderIntent,
     risk: &RiskDecision,
-    response: &Value,
+    execution: &SubmitExecutionSnapshot,
 ) -> Result<Value> {
     let notional = intent
         .notional_usdt()
         .ok_or_else(|| anyhow!("order notional overflowed"))?;
     Ok(json!({
         "risk": risk,
-        "response": response,
+        "execution": execution,
         "order_notional_usdt": notional.to_string(),
     }))
 }
@@ -243,6 +244,7 @@ fn trim_edge_separators(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::submit::SubmitExecutionKind;
 
     #[test]
     fn sanitizes_lock_scope_for_paths() {
@@ -266,8 +268,15 @@ mod tests {
             intent_id: Some("intent-1".to_string()),
             kind: AuditEventKind::LiveSubmit,
             summary: "submitted intent".to_string(),
-            payload: live_order_audit_payload(&intent, &risk, &json!({"ok": true}))
-                .expect("payload"),
+            payload: live_order_audit_payload(
+                &intent,
+                &risk,
+                &SubmitExecutionSnapshot {
+                    kind: SubmitExecutionKind::OrderSubmit,
+                    payload: json!({"ok": true}),
+                },
+            )
+            .expect("payload"),
         };
 
         let used =
@@ -287,7 +296,12 @@ mod tests {
             intent_id: Some("intent-1".to_string()),
             kind: AuditEventKind::LiveSubmit,
             summary: "submitted intent".to_string(),
-            payload: json!({ "response": { "ok": true } }),
+            payload: json!({
+                "execution": {
+                    "kind": "order-submit",
+                    "payload": { "ok": true }
+                }
+            }),
         };
 
         assert!(

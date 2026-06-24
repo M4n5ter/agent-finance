@@ -77,19 +77,23 @@ fn binance_live_order_cancel_smoke_is_usable() {
         "--live",
         "--json",
     ]);
-    assert_eq!(submitted["mode"], "Live");
+    assert_eq!(submitted["mode"], "live");
+    assert_eq!(submitted["intent_kind"], "order");
+    assert_eq!(submitted["execution"]["kind"], "order-submit");
     assert_eq!(submitted["risk"]["allowed"], true);
     assert_eq!(
-        submitted["response"]["exchange_response"]["clientOrderId"],
+        submitted["execution"]["payload"]["exchange_response"]["clientOrderId"],
         client_order_id
     );
     assert_audit_contains_intent(&env, "live-submit", intent_id);
 
     let canceled = cleanup.cancel();
-    assert_eq!(canceled.response["mode"], "Live");
+    assert_eq!(canceled.response["mode"], "live");
+    assert_eq!(canceled.response["intent_kind"], "cancel");
+    assert_eq!(canceled.response["execution"]["kind"], "cancel");
     assert_eq!(canceled.response["risk"]["allowed"], true);
     assert_eq!(
-        canceled.response["response"]["clientOrderId"],
+        canceled.response["execution"]["payload"]["clientOrderId"],
         client_order_id
     );
     assert_audit_contains_intent(&env, "cancel", &canceled.intent_id);
@@ -105,9 +109,9 @@ fn binance_live_order_cancel_smoke_is_usable() {
         client_order_id,
         "--json",
     ]);
-    assert_eq!(order["clientOrderId"], client_order_id);
+    assert_eq!(order["payload"]["clientOrderId"], client_order_id);
     assert_ne!(
-        order["status"], "NEW",
+        order["payload"]["status"], "NEW",
         "live smoke order should not remain open after cancel"
     );
 }
@@ -175,11 +179,15 @@ fn binance_live_transfer_smoke_is_usable() {
         "--live",
         "--json",
     ]);
-    assert_eq!(submitted["mode"], "Live");
+    assert_eq!(submitted["mode"], "live");
+    assert_eq!(submitted["intent_kind"], "transfer");
+    assert_eq!(submitted["execution"]["kind"], "transfer");
     assert_eq!(submitted["risk"]["allowed"], true);
     assert!(
-        submitted["response"].get("tranId").is_some()
-            || submitted["response"].get("clientTranId").is_some(),
+        submitted["execution"]["payload"].get("tranId").is_some()
+            || submitted["execution"]["payload"]
+                .get("clientTranId")
+                .is_some(),
         "live transfer response should include an exchange transfer identifier"
     );
     assert_audit_contains_intent(&env, "transfer", intent_id);

@@ -80,6 +80,12 @@ agent-finance order query BTCUSDT --profile default --market spot --client-order
 agent-finance order open --profile default --market spot --symbol BTCUSDT --json
 ```
 
+Signed submit JSON output is a `SubmitSnapshot` envelope:
+
+- `profile`, `provider`, `environment`, `intent_id`, `intent_kind`, `mode`, `risk`
+- `execution.kind`: `plan`, `order-submit`, `cancel`, `transfer`, or `futures-state`
+- `execution.payload`: dry-run request plan, exchange rule check, or raw provider execution payload
+
 ## Cancel Flow
 
 `order cancel` creates a cancel intent; it does not cancel an exchange order until the intent is checked and submitted.

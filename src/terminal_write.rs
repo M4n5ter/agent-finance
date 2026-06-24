@@ -128,36 +128,35 @@ impl WriteMode {
             Self::Live => Some(agent_finance_binance::BinanceRequestMode::Live),
         }
     }
+
+    fn snapshot_mode(self) -> agent_finance_core::SubmitMode {
+        match self {
+            Self::DryRun => agent_finance_core::SubmitMode::DryRun,
+            Self::Test => agent_finance_core::SubmitMode::Test,
+            Self::Live => agent_finance_core::SubmitMode::Live,
+        }
+    }
 }
 
-#[derive(Serialize)]
-pub(crate) struct SubmitReport {
-    intent_id: String,
-    mode: String,
-    risk: agent_finance_core::RiskDecision,
-    response: SubmitExecution,
-}
-
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 #[serde(untagged)]
 enum SubmitExecution {
     Plan(ExecutionPlan),
     Order(agent_finance_binance::BinanceOrderSubmitResponse),
+    Cancel(serde_json::Value),
+    Transfer(serde_json::Value),
     FuturesState(agent_finance_binance::BinanceFuturesStateSubmitResponse),
-    Raw(serde_json::Value),
 }
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 struct ExecutionPlan {
-    dry_run: bool,
-    mode: String,
     request: agent_finance_binance::SignedRequest,
     #[serde(skip_serializing_if = "Option::is_none")]
     exchange_rules: Option<ExchangeRulePlan>,
     note: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(serde::Serialize)]
 struct ExchangeRulePlan {
     status: &'static str,
     reason: &'static str,
@@ -170,7 +169,7 @@ pub(crate) async fn submit_intent(
     expected_kind: ExpectedIntentKind,
     mode: WriteMode,
     timeout_seconds: u64,
-) -> Result<SubmitReport> {
+) -> Result<agent_finance_core::SubmitSnapshot> {
     let store = agent_finance_core::IntentStore::from_default_dir()?;
     submit_intent_from_store(
         profile,
@@ -192,7 +191,7 @@ async fn submit_intent_from_store(
     mode: WriteMode,
     permission_source: LivePermissionSource,
     timeout_seconds: u64,
-) -> Result<SubmitReport> {
+) -> Result<agent_finance_core::SubmitSnapshot> {
     let envelope = store.load_for_submit(intent_id)?;
     expected_kind.validate(&envelope.kind)?;
     if matches!(mode, WriteMode::Test)
@@ -210,19 +209,15 @@ async fn submit_intent_from_store(
     check_live_permissions(profile, &envelope.kind, mode, permission_source).await?;
     if !mode.consumes_intent() {
         let response = execute_intent(profile, &envelope.kind, mode, timeout_seconds).await?;
+        let snapshot = submit_snapshot(profile, &envelope, mode, risk.clone(), response)?;
         append_audit(
             profile,
             Some(envelope.id.clone()),
             mode.audit_kind(&envelope.kind),
             format!("planned intent {}", envelope.id),
-            json!({ "risk": risk, "response": response }),
+            json!({ "risk": risk, "execution": snapshot.execution }),
         )?;
-        return Ok(SubmitReport {
-            intent_id: envelope.id,
-            mode: format!("{mode:?}"),
-            risk,
-            response,
-        });
+        return Ok(snapshot);
     }
     let envelope = store.claim_for_submit(&envelope.id)?;
     expected_kind.validate(&envelope.kind)?;
@@ -243,7 +238,8 @@ async fn submit_intent_from_store(
     let response = execute_intent(profile, &envelope.kind, mode, timeout_seconds).await;
     match response {
         Ok(response) => {
-            let payload = submit_audit_payload(&envelope.kind, &risk, &response)?;
+            let snapshot = submit_snapshot(profile, &envelope, mode, risk.clone(), response)?;
+            let payload = submit_audit_payload(&envelope.kind, &risk, &snapshot.execution)?;
             append_audit(
                 profile,
                 Some(envelope.id.clone()),
@@ -252,12 +248,7 @@ async fn submit_intent_from_store(
                 payload,
             )?;
             store.mark_submitted(&envelope.id)?;
-            Ok(SubmitReport {
-                intent_id: envelope.id,
-                mode: format!("{mode:?}"),
-                risk,
-                response,
-            })
+            Ok(snapshot)
         }
         Err(error) => {
             store.mark_failed(&envelope.id)?;
@@ -331,15 +322,47 @@ fn live_order_audit_lock(
 fn submit_audit_payload(
     intent: &agent_finance_core::IntentKind,
     risk: &agent_finance_core::RiskDecision,
-    response: &SubmitExecution,
+    execution: &agent_finance_core::SubmitExecutionSnapshot,
 ) -> Result<serde_json::Value> {
-    let response = serde_json::to_value(response)?;
     match intent {
         agent_finance_core::IntentKind::Order(intent) => {
-            agent_finance_core::live_order_audit_payload(intent, risk, &response)
+            agent_finance_core::live_order_audit_payload(intent, risk, execution)
         }
-        _ => Ok(json!({ "risk": risk, "response": response })),
+        _ => Ok(json!({ "risk": risk, "execution": execution })),
     }
+}
+
+fn submit_snapshot(
+    profile: &agent_finance_core::Profile,
+    envelope: &agent_finance_core::IntentEnvelope,
+    mode: WriteMode,
+    risk: agent_finance_core::RiskDecision,
+    response: SubmitExecution,
+) -> Result<agent_finance_core::SubmitSnapshot> {
+    let execution = submit_execution_snapshot(response)?;
+    Ok(agent_finance_core::SubmitSnapshot::from_envelope(
+        profile,
+        envelope,
+        mode.snapshot_mode(),
+        risk,
+        execution,
+    ))
+}
+
+fn submit_execution_snapshot(
+    response: SubmitExecution,
+) -> Result<agent_finance_core::SubmitExecutionSnapshot> {
+    let kind = match &response {
+        SubmitExecution::Plan(_) => agent_finance_core::SubmitExecutionKind::Plan,
+        SubmitExecution::Order(_) => agent_finance_core::SubmitExecutionKind::OrderSubmit,
+        SubmitExecution::Cancel(_) => agent_finance_core::SubmitExecutionKind::Cancel,
+        SubmitExecution::Transfer(_) => agent_finance_core::SubmitExecutionKind::Transfer,
+        SubmitExecution::FuturesState(_) => agent_finance_core::SubmitExecutionKind::FuturesState,
+    };
+    Ok(agent_finance_core::SubmitExecutionSnapshot {
+        kind,
+        payload: serde_json::to_value(response)?,
+    })
 }
 
 fn check_intent(
@@ -389,7 +412,7 @@ async fn execute_intent(
     timeout_seconds: u64,
 ) -> Result<SubmitExecution> {
     if matches!(mode, WriteMode::DryRun) {
-        return plan_intent(profile, intent, mode);
+        return plan_intent(profile, intent);
     }
     let Some(binance_mode) = mode.binance_mode() else {
         unreachable!("dry-run returned above");
@@ -400,9 +423,9 @@ async fn execute_intent(
             client.submit_order(intent, binance_mode).await?,
         )),
         agent_finance_core::IntentKind::Cancel(intent) => {
-            Ok(SubmitExecution::Raw(client.cancel_order(intent).await?))
+            Ok(SubmitExecution::Cancel(client.cancel_order(intent).await?))
         }
-        agent_finance_core::IntentKind::Transfer(intent) => Ok(SubmitExecution::Raw(
+        agent_finance_core::IntentKind::Transfer(intent) => Ok(SubmitExecution::Transfer(
             client.submit_transfer(intent, binance_mode).await?,
         )),
         agent_finance_core::IntentKind::FuturesState(intent) => Ok(SubmitExecution::FuturesState(
@@ -414,7 +437,6 @@ async fn execute_intent(
 fn plan_intent(
     profile: &agent_finance_core::Profile,
     intent: &agent_finance_core::IntentKind,
-    mode: WriteMode,
 ) -> Result<SubmitExecution> {
     let planner = agent_finance_binance::BinancePlanner::new(binance_endpoints(profile));
     let request = match intent {
@@ -434,23 +456,26 @@ fn plan_intent(
         _ => None,
     };
     Ok(SubmitExecution::Plan(ExecutionPlan {
-        dry_run: matches!(mode, WriteMode::DryRun),
-        mode: format!("{mode:?}"),
         request,
         exchange_rules,
         note: "dry-run is offline and does not read Binance API credentials",
     }))
 }
 
-pub(crate) fn print_submit_report(json_output: bool, report: &SubmitReport) -> Result<()> {
+pub(crate) fn print_submit_report(
+    json_output: bool,
+    report: &agent_finance_core::SubmitSnapshot,
+) -> Result<()> {
     print_json_or_text(json_output, report, || {
         let findings = risk_findings_text(&report.risk);
         format!(
-            "submitted intent {}\nrisk allowed: {}\n{}{}",
+            "submitted intent {}\nmode: {}\nexecution: {}\nrisk allowed: {}\n{}{}",
             report.intent_id,
+            report.mode,
+            report.execution.kind,
             report.risk.allowed,
             findings,
-            serde_json::to_string_pretty(&report.response).unwrap()
+            serde_json::to_string_pretty(&report.execution.payload).unwrap()
         )
     })
 }

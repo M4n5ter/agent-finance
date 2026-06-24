@@ -30,8 +30,14 @@ fn order_intent_can_be_risk_checked_and_dry_run_repeatedly() {
         "default",
         "--json",
     ]));
-    assert_eq!(submit["response"]["dry_run"], true);
-    assert_eq!(submit["response"]["request"]["method"], "POST");
+    assert_eq!(submit["profile"], "default");
+    assert_eq!(submit["provider"], "binance");
+    assert_eq!(submit["environment"], "testnet");
+    assert_eq!(submit["intent_id"], order_id);
+    assert_eq!(submit["intent_kind"], "order");
+    assert_eq!(submit["mode"], "dry-run");
+    assert_eq!(submit["execution"]["kind"], "plan");
+    assert_eq!(submit["execution"]["payload"]["request"]["method"], "POST");
 
     let second_plan = env.json(command(&[
         "order",
@@ -41,7 +47,12 @@ fn order_intent_can_be_risk_checked_and_dry_run_repeatedly() {
         "default",
         "--json",
     ]));
-    assert_eq!(second_plan["response"]["dry_run"], true);
+    assert_eq!(second_plan["mode"], "dry-run");
+    assert_eq!(second_plan["execution"]["kind"], "plan");
+    assert_eq!(
+        second_plan["execution"]["payload"]["request"]["method"],
+        "POST"
+    );
 
     let audit = env.json(command(&["audit", "tail", "--limit", "10", "--json"]));
     let events = audit.as_array().expect("audit events");
@@ -255,7 +266,13 @@ fn cancel_test_failure_does_not_consume_intent() {
         "default",
         "--json",
     ]));
-    assert_eq!(cancel_submit["response"]["request"]["method"], "DELETE");
+    assert_eq!(cancel_submit["intent_kind"], "cancel");
+    assert_eq!(cancel_submit["mode"], "dry-run");
+    assert_eq!(cancel_submit["execution"]["kind"], "plan");
+    assert_eq!(
+        cancel_submit["execution"]["payload"]["request"]["method"],
+        "DELETE"
+    );
 
     let cancel_test = env.output(command(&[
         "order",
@@ -279,7 +296,7 @@ fn cancel_test_failure_does_not_consume_intent() {
         "--json",
     ]));
     assert_eq!(
-        cancel_submit_after_test_failure["response"]["request"]["method"],
+        cancel_submit_after_test_failure["execution"]["payload"]["request"]["method"],
         "DELETE"
     );
 }
@@ -386,7 +403,7 @@ fn market_order_uses_valuation_only_for_risk_and_test_is_non_consuming() {
         "--json",
     ]));
     assert!(
-        !market_submit["response"]["request"]["params"]
+        !market_submit["execution"]["payload"]["request"]["params"]
             .as_array()
             .expect("request params")
             .iter()
@@ -394,11 +411,11 @@ fn market_order_uses_valuation_only_for_risk_and_test_is_non_consuming() {
         "market dry-run should not send an exchange price"
     );
     assert_eq!(
-        market_submit["response"]["exchange_rules"]["status"],
+        market_submit["execution"]["payload"]["exchange_rules"]["status"],
         "not-checked"
     );
     assert_eq!(
-        market_submit["response"]["exchange_rules"]["request"]["url"],
+        market_submit["execution"]["payload"]["exchange_rules"]["request"]["url"],
         "https://testnet.binance.vision/api/v3/exchangeInfo"
     );
 
@@ -423,7 +440,8 @@ fn market_order_uses_valuation_only_for_risk_and_test_is_non_consuming() {
         "default",
         "--json",
     ]));
-    assert_eq!(after_failed_test["response"]["dry_run"], true);
+    assert_eq!(after_failed_test["mode"], "dry-run");
+    assert_eq!(after_failed_test["execution"]["kind"], "plan");
 }
 
 #[test]
@@ -458,7 +476,7 @@ fn spot_limit_maker_order_dry_run_uses_post_only_exchange_shape() {
         "default",
         "--json",
     ]));
-    let params = submit["response"]["request"]["params"]
+    let params = submit["execution"]["payload"]["request"]["params"]
         .as_array()
         .expect("request params");
     assert!(
@@ -634,6 +652,56 @@ fn transfer_history_requires_live_profile_before_credentials() {
 }
 
 #[test]
+fn transfer_submit_dry_run_uses_submit_snapshot_contract() {
+    let env = default_env("transfer-submit-contract");
+    env.replace_once_in_profile(
+        "default",
+        "universal_transfer = false",
+        "universal_transfer = true",
+    );
+    env.replace_once_in_profile(
+        "default",
+        "allowed_transfers = []",
+        r#"
+[[risk.allowed_transfers]]
+direction = "spot-to-usds-futures"
+asset = "USDT"
+max_amount = "10"
+"#
+        .trim(),
+    );
+    let transfer = env.json(command(&[
+        "transfer",
+        "create",
+        "USDT",
+        "--profile",
+        "default",
+        "--direction",
+        "spot-to-usds-futures",
+        "--amount",
+        "1",
+        "--json",
+    ]));
+    assert_eq!(transfer["risk"]["allowed"], true);
+    let transfer_id = transfer["intent"]["id"]
+        .as_str()
+        .expect("transfer intent id");
+
+    let plan = env.json(command(&[
+        "transfer",
+        "submit",
+        transfer_id,
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    assert_eq!(plan["intent_kind"], "transfer");
+    assert_eq!(plan["mode"], "dry-run");
+    assert_eq!(plan["execution"]["kind"], "plan");
+    assert_eq!(plan["execution"]["payload"]["request"]["method"], "POST");
+}
+
+#[test]
 fn futures_state_intent_is_policy_checked_and_dry_runs() {
     let env = default_env("futures-state");
     let intent = env.json(command(&[
@@ -670,14 +738,16 @@ fn futures_state_intent_is_policy_checked_and_dry_runs() {
         "default",
         "--json",
     ]));
-    assert_eq!(plan["response"]["dry_run"], true);
-    assert_eq!(plan["response"]["request"]["method"], "POST");
+    assert_eq!(plan["intent_kind"], "futures-state");
+    assert_eq!(plan["mode"], "dry-run");
+    assert_eq!(plan["execution"]["kind"], "plan");
+    assert_eq!(plan["execution"]["payload"]["request"]["method"], "POST");
     assert_eq!(
-        plan["response"]["request"]["url"],
+        plan["execution"]["payload"]["request"]["url"],
         "https://testnet.binancefuture.com/fapi/v1/leverage"
     );
     assert!(
-        plan["response"]["request"]["params"]
+        plan["execution"]["payload"]["request"]["params"]
             .as_array()
             .expect("params")
             .iter()
@@ -706,11 +776,11 @@ fn futures_state_intent_is_policy_checked_and_dry_runs() {
         "--json",
     ]));
     assert_eq!(
-        margin_plan["response"]["request"]["url"],
+        margin_plan["execution"]["payload"]["request"]["url"],
         "https://testnet.binancefuture.com/fapi/v1/marginType"
     );
     assert!(
-        margin_plan["response"]["request"]["params"]
+        margin_plan["execution"]["payload"]["request"]["params"]
             .as_array()
             .expect("params")
             .iter()
@@ -755,11 +825,11 @@ mode = "hedge"
         "--json",
     ]));
     assert_eq!(
-        position_plan["response"]["request"]["url"],
+        position_plan["execution"]["payload"]["request"]["url"],
         "https://testnet.binancefuture.com/fapi/v1/positionSide/dual"
     );
     assert!(
-        position_plan["response"]["request"]["params"]
+        position_plan["execution"]["payload"]["request"]["params"]
             .as_array()
             .expect("params")
             .iter()
@@ -999,7 +1069,7 @@ mode = "hedge"
         "--json",
     ]));
     assert!(
-        hedge_plan["response"]["request"]["params"]
+        hedge_plan["execution"]["payload"]["request"]["params"]
             .as_array()
             .expect("params")
             .iter()
@@ -1050,7 +1120,7 @@ mode = "hedge"
         "--json",
     ]));
     assert!(
-        one_way_plan["response"]["request"]["params"]
+        one_way_plan["execution"]["payload"]["request"]["params"]
             .as_array()
             .expect("params")
             .iter()
@@ -1235,7 +1305,9 @@ fn futures_state_submit_boundaries_do_not_consume_intents() {
         "default",
         "--json",
     ]));
-    assert_eq!(state_plan["response"]["dry_run"], true);
+    assert_eq!(state_plan["intent_kind"], "futures-state");
+    assert_eq!(state_plan["mode"], "dry-run");
+    assert_eq!(state_plan["execution"]["kind"], "plan");
 
     let order = create_limit_order(&env);
     let order_id = order["intent"]["id"].as_str().expect("order intent id");
@@ -1260,7 +1332,9 @@ fn futures_state_submit_boundaries_do_not_consume_intents() {
         "default",
         "--json",
     ]));
-    assert_eq!(order_plan["response"]["dry_run"], true);
+    assert_eq!(order_plan["intent_kind"], "order");
+    assert_eq!(order_plan["mode"], "dry-run");
+    assert_eq!(order_plan["execution"]["kind"], "plan");
 }
 
 #[test]
@@ -1521,7 +1595,10 @@ impl TestEnv {
             "summary": "seed live order",
             "payload": {
                 "order_notional_usdt": order_notional,
-                "response": {"seed": true}
+                "execution": {
+                    "kind": "order-submit",
+                    "payload": {"seed": true}
+                }
             }
         });
         fs::write(audit_dir.join("events.jsonl"), format!("{event}\n")).expect("audit write");

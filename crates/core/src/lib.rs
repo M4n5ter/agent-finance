@@ -4,6 +4,7 @@ pub mod intent;
 pub mod paths;
 pub mod profile;
 pub mod risk;
+pub mod submit;
 pub mod types;
 
 pub use audit::{
@@ -21,5 +22,8 @@ pub use risk::{
     OrderRuntimeRisk, RiskDecision, RiskFinding, check_cancel_intent, check_futures_state_intent,
     check_order_intent, check_order_intent_with_runtime, check_profile_permission_policy,
     check_transfer_intent,
+};
+pub use submit::{
+    SubmitExecutionKind, SubmitExecutionSnapshot, SubmitIntentKind, SubmitMode, SubmitSnapshot,
 };
 pub use types::*;

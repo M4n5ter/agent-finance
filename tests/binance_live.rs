@@ -495,8 +495,11 @@ fn binance_testnet_signed_order_test_surface_is_usable() {
         "--json",
     ]);
     assert_eq!(submit["risk"]["allowed"], true);
+    assert_eq!(submit["intent_kind"], "order");
+    assert_eq!(submit["mode"], "test");
+    assert_eq!(submit["execution"]["kind"], "order-submit");
     assert!(
-        submit["response"]["exchange_rules"]["allowed"]
+        submit["execution"]["payload"]["exchange_rules"]["allowed"]
             .as_bool()
             .unwrap_or(false),
         "exchangeInfo rule preflight should allow the order-test"

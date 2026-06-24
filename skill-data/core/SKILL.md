@@ -104,6 +104,7 @@ agent-finance audit export --json
 - Use `skills get profile` before touching signed account, order, transfer, futures state, risk, or audit commands.
 - Signed read commands return a typed `SignedReadSnapshot` envelope with `profile`, `provider`, `environment`, `kind`, typed `request` scope, and raw provider data under `payload`.
 - Signed read snapshot kinds are command discriminators: `account permissions` -> `api-permissions`, `account balances` -> `spot-balances`, `account positions` -> `usds-futures-positions`, `order query` -> `order-query`, `order open` -> `open-orders`, `transfer history` -> `transfer-history`.
+- Signed submit commands return a typed `SubmitSnapshot` envelope with `profile`, `provider`, `environment`, `intent_id`, `intent_kind`, `mode`, `risk`, `execution.kind`, and execution data under `execution.payload`.
 - Run `profile doctor` before live writes; it checks `[permissions]` against the risk policy, reports Binance API permission checks when HMAC env vars are set, and live submit rechecks exchange permissions before claiming the intent.
 - Signed order test/live submit checks locally checkable Binance exchangeInfo filters before sending an order; dry-run remains offline.
 - Live market orders are blocked until risk notional can be derived from fresh exchange data instead of user-supplied `valuation_price`.
