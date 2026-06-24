@@ -456,7 +456,7 @@ fn binance_testnet_signed_order_test_surface_is_usable() {
 
     let intent = env.command_json(&[
         "order",
-        "intent",
+        "create",
         "BTCUSDT",
         "--profile",
         "testnet-binance",

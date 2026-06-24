@@ -67,9 +67,9 @@ pub struct OrderArgs {
 #[derive(Subcommand, Debug)]
 pub enum OrderCommand {
     /// Create and persist an order intent.
-    Intent(OrderIntentArgs),
-    /// Create and persist a cancel intent.
-    CancelIntent(OrderCancelIntentArgs),
+    Create(OrderCreateArgs),
+    /// Create and persist a cancel intent for an existing exchange order.
+    Cancel(OrderCancelArgs),
     /// Submit an existing intent as dry-run, exchange test, or live write.
     Submit(OrderSubmitArgs),
     /// Query one order by exchange order id or client order id.
@@ -79,7 +79,7 @@ pub enum OrderCommand {
 }
 
 #[derive(Parser, Debug)]
-pub struct OrderIntentArgs {
+pub struct OrderCreateArgs {
     pub symbol: String,
 
     #[arg(long, default_value = "default")]
@@ -142,7 +142,7 @@ pub struct OrderSubmitArgs {
 }
 
 #[derive(Parser, Debug)]
-pub struct OrderCancelIntentArgs {
+pub struct OrderCancelArgs {
     pub symbol: String,
 
     #[arg(long, default_value = "default")]
@@ -208,7 +208,7 @@ pub struct TransferArgs {
 #[derive(Subcommand, Debug)]
 pub enum TransferCommand {
     /// Create and persist an internal transfer intent.
-    Intent(TransferIntentArgs),
+    Create(TransferCreateArgs),
     /// Submit an existing internal transfer intent.
     Submit(TransferSubmitArgs),
     /// Query Binance user universal transfer history.
@@ -216,7 +216,7 @@ pub enum TransferCommand {
 }
 
 #[derive(Parser, Debug)]
-pub struct TransferIntentArgs {
+pub struct TransferCreateArgs {
     pub asset: String,
 
     #[arg(long, default_value = "default")]
@@ -277,13 +277,13 @@ pub struct StateArgs {
 #[derive(Subcommand, Debug)]
 pub enum StateCommand {
     /// Create and persist a Binance futures state-change intent.
-    Intent(StateIntentArgs),
+    Create(StateCreateArgs),
     /// Submit an existing state-change intent as dry-run or live write.
     Submit(StateSubmitArgs),
 }
 
 #[derive(Parser, Debug)]
-pub struct StateIntentArgs {
+pub struct StateCreateArgs {
     #[arg(long, default_value = "default")]
     pub profile: String,
 

@@ -184,7 +184,7 @@ pub(crate) async fn run_account(args: AccountArgs, timeout_seconds: u64) -> Resu
 
 pub(crate) async fn run_order(args: OrderArgs, timeout_seconds: u64) -> Result<()> {
     match args.command {
-        OrderCommand::Intent(args) => {
+        OrderCommand::Create(args) => {
             let profile = load_profile(&args.profile)?;
             let market = args.market.into();
             let intent = agent_finance_core::OrderIntent {
@@ -228,7 +228,7 @@ pub(crate) async fn run_order(args: OrderArgs, timeout_seconds: u64) -> Result<(
                 },
             )
         }
-        OrderCommand::CancelIntent(args) => {
+        OrderCommand::Cancel(args) => {
             let profile = load_profile(&args.profile)?;
             let intent = agent_finance_core::CancelIntent {
                 profile: profile.name.clone(),
@@ -300,7 +300,7 @@ pub(crate) async fn run_order(args: OrderArgs, timeout_seconds: u64) -> Result<(
 
 pub(crate) async fn run_transfer(args: TransferArgs, timeout_seconds: u64) -> Result<()> {
     match args.command {
-        TransferCommand::Intent(args) => {
+        TransferCommand::Create(args) => {
             let profile = load_profile(&args.profile)?;
             let intent = agent_finance_core::TransferIntent {
                 profile: profile.name.clone(),

@@ -33,15 +33,25 @@ agent-finance risk explain --profile default
 ## Order Flow
 
 ```bash
-agent-finance order intent BTCUSDT --profile default --market spot --side buy --kind limit --quantity 0.001 --price 50000 --time-in-force gtc
-agent-finance order intent BTCUSDT --profile default --market spot --side buy --kind limit-maker --quantity 0.001 --price 50000
-agent-finance order intent BTCUSDT --profile default --market spot --side buy --kind market --quantity 0.001 --valuation-price 50000
+agent-finance order create BTCUSDT --profile default --market spot --side buy --kind limit --quantity 0.001 --price 50000 --time-in-force gtc
+agent-finance order create BTCUSDT --profile default --market spot --side buy --kind limit-maker --quantity 0.001 --price 50000
+agent-finance order create BTCUSDT --profile default --market spot --side buy --kind market --quantity 0.001 --valuation-price 50000
 agent-finance risk check INTENT_ID --profile default
 agent-finance order submit INTENT_ID --profile default
 agent-finance order submit INTENT_ID --profile default --test
 agent-finance order submit INTENT_ID --profile default --live
 agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
-agent-finance order cancel-intent BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
+```
+
+## Cancel Flow
+
+`order cancel` creates a cancel intent; it does not cancel an exchange order until the intent is checked and submitted.
+
+```bash
+agent-finance order cancel BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
+agent-finance risk check CANCEL_INTENT_ID --profile default
+agent-finance order submit CANCEL_INTENT_ID --profile default
+agent-finance order submit CANCEL_INTENT_ID --profile default --live
 ```
 
 ## Futures State Flow
@@ -55,9 +65,9 @@ mode = "hedge"
 ```
 
 ```bash
-agent-finance state intent --profile default --kind leverage --symbol BTCUSDT --leverage 2
-agent-finance state intent --profile default --kind margin-type --symbol BTCUSDT --margin-type isolated
-agent-finance state intent --profile default --kind position-mode --position-mode hedge
+agent-finance state create --profile default --kind leverage --symbol BTCUSDT --leverage 2
+agent-finance state create --profile default --kind margin-type --symbol BTCUSDT --margin-type isolated
+agent-finance state create --profile default --kind position-mode --position-mode hedge
 agent-finance risk check INTENT_ID --profile default --live
 agent-finance state submit INTENT_ID --profile default
 agent-finance state submit INTENT_ID --profile default --live
@@ -66,7 +76,7 @@ agent-finance state submit INTENT_ID --profile default --live
 ## Transfer Flow
 
 ```bash
-agent-finance transfer intent USDT --profile default --direction spot-to-usds-futures --amount 10
+agent-finance transfer create USDT --profile default --direction spot-to-usds-futures --amount 10
 agent-finance risk check INTENT_ID --profile default
 agent-finance transfer submit INTENT_ID --profile default
 agent-finance transfer submit INTENT_ID --profile default --live

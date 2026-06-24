@@ -60,7 +60,7 @@ fn cancel_test_failure_does_not_consume_intent() {
     let env = default_env("cancel-flow");
     let cancel = env.json(command(&[
         "order",
-        "cancel-intent",
+        "cancel",
         "BTCUSDT",
         "--profile",
         "default",
@@ -115,7 +115,7 @@ fn invalid_and_risk_blocked_orders_are_rejected_at_the_right_boundary() {
     let env = default_env("risk-boundaries");
     let blocked = env.output(command(&[
         "order",
-        "intent",
+        "create",
         "BTCUSDT",
         "--profile",
         "default",
@@ -154,7 +154,7 @@ fn invalid_and_risk_blocked_orders_are_rejected_at_the_right_boundary() {
 
     let invalid_limit = env.output(command(&[
         "order",
-        "intent",
+        "create",
         "BTCUSDT",
         "--profile",
         "default",
@@ -185,7 +185,7 @@ fn market_order_uses_valuation_only_for_risk_and_test_is_non_consuming() {
     let env = default_env("market-order");
     let market = env.json(command(&[
         "order",
-        "intent",
+        "create",
         "BTCUSDT",
         "--profile",
         "default",
@@ -257,7 +257,7 @@ fn spot_limit_maker_order_dry_run_uses_post_only_exchange_shape() {
     let env = default_env("limit-maker-order");
     let order = env.json(command(&[
         "order",
-        "intent",
+        "create",
         "BTCUSDT",
         "--profile",
         "default",
@@ -363,7 +363,7 @@ fn profile_and_command_boundaries_are_enforced() {
 
     let transfer = env.json(command(&[
         "transfer",
-        "intent",
+        "create",
         "USDT",
         "--profile",
         "default",
@@ -464,7 +464,7 @@ fn futures_state_intent_is_policy_checked_and_dry_runs() {
     let env = default_env("futures-state");
     let intent = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -512,7 +512,7 @@ fn futures_state_intent_is_policy_checked_and_dry_runs() {
 
     let margin = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -553,7 +553,7 @@ mode = "hedge"
     );
     let position_mode = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -593,7 +593,7 @@ mode = "hedge"
     );
     let position_text = env.output(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -644,7 +644,7 @@ fn futures_state_policy_and_argument_boundaries_are_enforced() {
     let env = default_env("futures-state-boundaries");
     let excessive_leverage = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -666,7 +666,7 @@ fn futures_state_policy_and_argument_boundaries_are_enforced() {
 
     let out_of_range_leverage = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -688,7 +688,7 @@ fn futures_state_policy_and_argument_boundaries_are_enforced() {
 
     let not_allowed = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -710,7 +710,7 @@ fn futures_state_policy_and_argument_boundaries_are_enforced() {
 
     let cross_margin = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -732,7 +732,7 @@ fn futures_state_policy_and_argument_boundaries_are_enforced() {
 
     let position_mode_with_symbol = env.output(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -750,7 +750,7 @@ fn futures_state_policy_and_argument_boundaries_are_enforced() {
 
     let missing_position_policy = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -784,7 +784,7 @@ mode = "hedge"
     );
     let blocked_one_way = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -804,7 +804,7 @@ mode = "hedge"
 
     let allowed_hedge = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -835,7 +835,7 @@ mode = "hedge"
     env.replace_once_in_profile("default", "mode = \"hedge\"", "mode = \"one-way\"");
     let blocked_hedge = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -855,7 +855,7 @@ mode = "hedge"
 
     let allowed_one_way = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -914,7 +914,7 @@ margin_type = "isolated"
 
     let leverage = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -932,7 +932,7 @@ margin_type = "isolated"
 
     let margin = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -956,7 +956,7 @@ fn malformed_futures_state_policy_fails_closed_at_profile_parse() {
 
     let output = env.output(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -989,7 +989,7 @@ mode = "hedge"
     );
     let scoped_position = scoped_position_env.output(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -1014,7 +1014,7 @@ fn futures_state_submit_boundaries_do_not_consume_intents() {
     let env = default_env("futures-state-submit-boundaries");
     let state = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -1094,7 +1094,7 @@ fn blocked_live_futures_state_submit_does_not_claim_intent() {
     let env = default_env("blocked-live-futures-state");
     let state = env.json(command(&[
         "state",
-        "intent",
+        "create",
         "--profile",
         "default",
         "--kind",
@@ -1179,7 +1179,7 @@ fn live_market_orders_are_blocked_until_notional_uses_exchange_data() {
     env.write_live_profile("default");
     let order = env.json(command(&[
         "order",
-        "intent",
+        "create",
         "BTCUSDT",
         "--profile",
         "default",
@@ -1232,7 +1232,7 @@ fn default_env(name: &str) -> TestEnv {
 fn create_limit_order(env: &TestEnv) -> Value {
     env.json(command(&[
         "order",
-        "intent",
+        "create",
         "BTCUSDT",
         "--profile",
         "default",

@@ -9,7 +9,7 @@ use crate::terminal_write::{
 
 pub(crate) async fn run(args: StateArgs, timeout_seconds: u64) -> Result<()> {
     match args.command {
-        StateCommand::Intent(args) => {
+        StateCommand::Create(args) => {
             let profile = load_profile(&args.profile)?;
             let change = futures_state_change(&args)?;
             let intent = agent_finance_core::FuturesStateIntent {
@@ -59,7 +59,7 @@ pub(crate) async fn run(args: StateArgs, timeout_seconds: u64) -> Result<()> {
 }
 
 fn futures_state_change(
-    args: &crate::cli::StateIntentArgs,
+    args: &crate::cli::StateCreateArgs,
 ) -> Result<agent_finance_core::FuturesStateChange> {
     match args.kind {
         crate::cli::TradingFuturesStateChangeKind::Leverage => {
@@ -97,7 +97,7 @@ fn futures_state_change(
     }
 }
 
-fn required_symbol(args: &crate::cli::StateIntentArgs) -> Result<&str> {
+fn required_symbol(args: &crate::cli::StateCreateArgs) -> Result<&str> {
     args.symbol
         .as_deref()
         .ok_or_else(|| anyhow!("this futures state change requires --symbol"))

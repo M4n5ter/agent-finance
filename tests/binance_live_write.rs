@@ -31,7 +31,7 @@ fn binance_live_order_cancel_smoke_is_usable() {
 
     let intent = env.command_json(&[
         "order",
-        "intent",
+        "create",
         &spec.symbol,
         "--profile",
         "live-binance-order",
@@ -140,7 +140,7 @@ fn binance_live_transfer_smoke_is_usable() {
 
     let intent = env.command_json(&[
         "transfer",
-        "intent",
+        "create",
         &spec.asset,
         "--profile",
         "live-binance-transfer",
@@ -358,7 +358,7 @@ impl LiveOrderCleanup {
     fn cancel(&mut self) -> LiveCancelResult {
         let cancel = self.runner.command_json(&[
             "order",
-            "cancel-intent",
+            "cancel",
             &self.symbol,
             "--profile",
             &self.profile,
@@ -396,7 +396,7 @@ impl Drop for LiveOrderCleanup {
         }
         let cancel = self.runner.command_output(&[
             "order",
-            "cancel-intent",
+            "cancel",
             &self.symbol,
             "--profile",
             &self.profile,

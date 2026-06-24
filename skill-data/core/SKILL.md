@@ -83,8 +83,8 @@ agent-finance skills get profile
 agent-finance risk explain --profile default
 agent-finance order submit INTENT_ID --profile default
 agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
-agent-finance state intent --profile default --kind leverage --symbol BTCUSDT --leverage 2
-agent-finance state intent --profile default --kind position-mode --position-mode hedge
+agent-finance state create --profile default --kind leverage --symbol BTCUSDT --leverage 2
+agent-finance state create --profile default --kind position-mode --position-mode hedge
 agent-finance state submit INTENT_ID --profile default
 agent-finance audit export --json
 ```
