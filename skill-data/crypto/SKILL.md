@@ -58,7 +58,7 @@ agent-finance market crypto stream BTCUSDT --instrument swap --kind mark-price -
 - Binance/OKX are stronger for exchange microstructure and derivatives evidence. Coinbase is a spot exchange cross-check. CoinGecko is stronger for aggregate breadth, trending, metadata, and exchange discovery.
 - Prefer `market crypto snapshot` for current observable market state.
 - Prefer `market crypto sentiment` for futures leverage, funding, open interest, long/short, taker flow, and basis.
-- Prefer `market crypto quote/book/trades/candles/funding/open-interest/discover --json` when an Agent needs provider evidence for reasoning.
+- Prefer `market crypto quote/book/trades/candles/funding/open-interest/discover --json` for provider evidence in downstream reasoning.
 - Use `--json` for downstream computation and `--raw` when auditing provider payloads.
 - The `market crypto` command surface is read-only market data. Signed Binance account/order/transfer/futures-state workflows live under `account`, `order`, `transfer`, `state`, `risk`, `audit`, and the `profile` skill.
 - Crypto trades 24/7; do not apply equity regular/pre/post/overnight session assumptions.

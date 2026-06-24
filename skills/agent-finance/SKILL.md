@@ -1,12 +1,11 @@
 ---
 name: agent-finance
-description: agent-finance is an AI-agent-first market intelligence CLI for evidence-driven financial research. Use when Codex or another AI agent needs current quotes, regular/pre/post/overnight session splits, crypto market data, OHLCV history, indicators, prediction-market sentiment, provider capability discovery, no-key research payloads, URL text extraction, polling, or WebSocket streams.
-hidden: true
+description: Use agent-finance for evidence-driven financial research that needs current quotes, regular/pre/post/overnight session splits, crypto market data, OHLCV history, indicators, prediction-market sentiment, provider capability discovery, no-key research payloads, URL text extraction, polling, or WebSocket streams.
 ---
 
 # agent-finance
 
-`agent-finance` is a finance and market-data CLI built for AI agents.
+`agent-finance` is a finance and market-data CLI for evidence-driven market work.
 
 ## CLI Availability
 

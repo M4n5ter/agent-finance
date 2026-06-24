@@ -110,7 +110,7 @@ agent-finance audit export --json
 - Use `market price` for the default "what is the current price?" answer.
 - Use `market sessions` when premarket, postmarket, overnight, BOATS, provider differences, or proxy prices matter.
 - Use both daily and minute history before judging fills, limit-order quality, stop placement, or intraday action.
-- Use `market providers --json` when an Agent needs a machine-readable capability matrix.
+- Use `market providers --json` for a machine-readable capability matrix.
 - Use `capabilities --json` for the unified terminal surface, including account/order/transfer/futures-state safety boundaries.
 - Treat crypto as 24/7 market data. Use Binance/Coinbase/OKX/CoinGecko through capability-first crypto commands, then force providers only for cross-checking.
 - Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments.

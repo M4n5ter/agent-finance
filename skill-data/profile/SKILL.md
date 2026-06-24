@@ -1,6 +1,6 @@
 ---
 name: profile
-description: Configure agent-finance trading profiles, Binance HMAC env references, risk policy, intent-first live writes, audit logs, and safe AI Agent workflows.
+description: Configure agent-finance trading profiles, Binance HMAC env references, risk policy, intent-first live writes, audit logs, and guarded signed workflows.
 ---
 
 # agent-finance profile skill

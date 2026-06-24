@@ -5,7 +5,7 @@ description: Use Polymarket prediction-market data as quantifiable sentiment and
 
 # agent-finance prediction-markets skill
 
-Use this skill when an AI Agent needs prediction-market sentiment, event probabilities, or "what capital is pricing in" for a public event.
+Use this skill for prediction-market sentiment, event probabilities, or "what capital is pricing in" for a public event.
 
 ## Commands
 

@@ -11,8 +11,11 @@ const SEC_TICKERS_URL: &str = "https://www.sec.gov/files/company_tickers.json";
 const SEC_SUBMISSIONS_BASE_URL: &str = "https://data.sec.gov/submissions";
 const SEC_COMPANYFACTS_BASE_URL: &str = "https://data.sec.gov/api/xbrl/companyfacts";
 const SEC_USER_AGENT_ENV: &str = "AGENT_FINANCE_SEC_USER_AGENT";
-const DEFAULT_SEC_USER_AGENT: &str =
-    "agent-finance/0.3.1 (+https://github.com/M4n5ter/agent-finance)";
+const DEFAULT_SEC_USER_AGENT: &str = concat!(
+    "agent-finance/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/M4n5ter/agent-finance)"
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SecCompany {
