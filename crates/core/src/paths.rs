@@ -4,15 +4,27 @@ use anyhow::{Result, anyhow};
 use directories::ProjectDirs;
 
 pub fn config_dir() -> Result<PathBuf> {
+    if let Some(path) = env_path("AGENT_FINANCE_CONFIG_HOME") {
+        return Ok(path);
+    }
     project_dirs()
         .map(|dirs| dirs.config_dir().to_path_buf())
         .ok_or_else(|| anyhow!("failed to resolve agent-finance config directory"))
 }
 
 pub fn data_dir() -> Result<PathBuf> {
+    if let Some(path) = env_path("AGENT_FINANCE_DATA_HOME") {
+        return Ok(path);
+    }
     project_dirs()
         .map(|dirs| dirs.data_dir().to_path_buf())
         .ok_or_else(|| anyhow!("failed to resolve agent-finance data directory"))
+}
+
+fn env_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 fn project_dirs() -> Option<ProjectDirs> {

@@ -1535,7 +1535,7 @@ impl TestEnv {
     }
 
     fn write_profile(&self, name: &str) {
-        let profile_dir = self.root.join("config/agent-finance/profiles");
+        let profile_dir = self.config_home().join("profiles");
         fs::create_dir_all(&profile_dir).expect("profile dir");
         let output = self.output(command(&["profile", "template", "--profile", name]));
         assert!(output.status.success(), "profile template should succeed");
@@ -1544,8 +1544,8 @@ impl TestEnv {
 
     fn edit_profile(&self, name: &str, edit: impl FnOnce(String) -> String) {
         let path = self
-            .root
-            .join("config/agent-finance/profiles")
+            .config_home()
+            .join("profiles")
             .join(format!("{name}.toml"));
         let content = fs::read_to_string(&path).expect("profile read");
         fs::write(path, edit(content)).expect("profile write");
@@ -1571,7 +1571,7 @@ impl TestEnv {
     }
 
     fn write_live_profile(&self, name: &str) {
-        let profile_dir = self.root.join("config/agent-finance/profiles");
+        let profile_dir = self.config_home().join("profiles");
         fs::create_dir_all(&profile_dir).expect("profile dir");
         let output = self.output(command(&["profile", "template", "--profile", name]));
         assert!(output.status.success(), "profile template should succeed");
@@ -1583,7 +1583,7 @@ impl TestEnv {
     }
 
     fn append_live_order_audit(&self, order_notional: &str) {
-        let audit_dir = self.root.join("data/agent-finance/audit");
+        let audit_dir = self.data_home().join("audit");
         fs::create_dir_all(&audit_dir).expect("audit dir");
         let event = serde_json::json!({
             "timestamp_utc": Utc::now().to_rfc3339(),
@@ -1615,10 +1615,20 @@ impl TestEnv {
         serde_json::from_slice(&output.stdout).expect("json stdout")
     }
 
+    fn config_home(&self) -> std::path::PathBuf {
+        self.root.join("config")
+    }
+
+    fn data_home(&self) -> std::path::PathBuf {
+        self.root.join("data")
+    }
+
     fn output(&self, mut command: Command) -> Output {
-        let config_home = self.root.join("config");
-        let data_home = self.root.join("data");
+        let config_home = self.config_home();
+        let data_home = self.data_home();
         command
+            .env("AGENT_FINANCE_CONFIG_HOME", &config_home)
+            .env("AGENT_FINANCE_DATA_HOME", &data_home)
             .env("XDG_CONFIG_HOME", config_home)
             .env("XDG_DATA_HOME", data_home)
             .output()
