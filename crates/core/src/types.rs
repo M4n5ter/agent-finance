@@ -511,6 +511,41 @@ pub struct ProviderConfig {
     pub sapi_base_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticCheck {
+    pub name: String,
+    pub ok: bool,
+    pub required: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+}
+
+impl DiagnosticCheck {
+    pub fn new(name: &'static str, ok: bool, required: bool, message: impl Into<String>) -> Self {
+        Self {
+            name: name.to_string(),
+            ok,
+            required,
+            message: message.into(),
+            payload: None,
+        }
+    }
+
+    pub fn optional(name: &'static str, ok: bool, message: impl Into<String>) -> Self {
+        Self::new(name, ok, false, message)
+    }
+
+    pub fn required(name: &'static str, ok: bool, message: impl Into<String>) -> Self {
+        Self::new(name, ok, true, message)
+    }
+
+    pub fn with_payload(mut self, payload: serde_json::Value) -> Self {
+        self.payload = Some(payload);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProfilePermission {

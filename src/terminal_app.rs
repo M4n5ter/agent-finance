@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use chrono::Utc;
+use serde::Serialize;
 use serde_json::json;
 
 use crate::cli::{
@@ -75,31 +76,34 @@ pub(crate) async fn run_profile(args: ProfileArgs, timeout_seconds: u64) -> Resu
         }
         ProfileCommand::Doctor(args) => {
             let profile = store.load(&args.profile)?;
-            let mut checks = vec![json!({
-                "name": "profile-parse",
-                "ok": true,
-                "message": "profile TOML parsed successfully",
-            })];
+            let mut checks = vec![agent_finance_core::DiagnosticCheck::optional(
+                "profile-parse",
+                true,
+                "profile TOML parsed successfully",
+            )];
             let key_ok = std::env::var(&profile.provider.api_key_env).is_ok();
             let secret_ok = std::env::var(&profile.provider.api_secret_env).is_ok();
-            checks.push(json!({
-                "name": "api-key-env",
-                "ok": key_ok,
-                "message": format!("{} {}", profile.provider.api_key_env, if key_ok { "is set" } else { "is missing" }),
-            }));
-            checks.push(json!({
-                "name": "api-secret-env",
-                "ok": secret_ok,
-                "message": format!("{} {}", profile.provider.api_secret_env, if secret_ok { "is set" } else { "is missing" }),
-            }));
-            for check in agent_finance_core::check_profile_permission_policy(&profile) {
-                checks.push(json!({
-                    "name": check.name,
-                    "ok": check.ok,
-                    "required": check.required,
-                    "message": check.message,
-                }));
-            }
+            checks.push(agent_finance_core::DiagnosticCheck::required(
+                "api-key-env",
+                key_ok,
+                format!(
+                    "{} {}",
+                    profile.provider.api_key_env,
+                    if key_ok { "is set" } else { "is missing" }
+                ),
+            ));
+            checks.push(agent_finance_core::DiagnosticCheck::required(
+                "api-secret-env",
+                secret_ok,
+                format!(
+                    "{} {}",
+                    profile.provider.api_secret_env,
+                    if secret_ok { "is set" } else { "is missing" }
+                ),
+            ));
+            checks.extend(agent_finance_core::check_profile_permission_policy(
+                &profile,
+            ));
             if key_ok && secret_ok {
                 match binance_client(&profile, timeout_seconds)?
                     .account_permissions()
@@ -108,47 +112,37 @@ pub(crate) async fn run_profile(args: ProfileArgs, timeout_seconds: u64) -> Resu
                     Ok(payload) => {
                         let permission_checks =
                             agent_finance_binance::profile_permission_checks(&profile, &payload);
-                        checks.push(json!({
-                            "name": "binance-permissions",
-                            "ok": true,
-                            "message": "Binance API key permission endpoint succeeded",
-                            "payload": payload,
-                        }));
-                        for check in permission_checks {
-                            checks.push(json!({
-                                "name": check.name,
-                                "ok": check.ok,
-                                "required": check.required,
-                                "message": check.message,
-                            }));
-                        }
+                        checks.push(
+                            agent_finance_core::DiagnosticCheck::required(
+                                "binance-permissions",
+                                true,
+                                "Binance API key permission endpoint succeeded",
+                            )
+                            .with_payload(payload),
+                        );
+                        checks.extend(permission_checks);
                     }
-                    Err(error) => checks.push(json!({
-                        "name": "binance-permissions",
-                        "ok": false,
-                        "message": format!("{error:#}"),
-                    })),
+                    Err(error) => checks.push(agent_finance_core::DiagnosticCheck::required(
+                        "binance-permissions",
+                        false,
+                        format!("{error:#}"),
+                    )),
                 }
             }
-            let report = json!({
-                "profile": args.profile,
-                "checks": checks,
-            });
+            let report = ProfileDoctorReport {
+                profile: args.profile,
+                checks,
+            };
             print_json_or_text(args.json, &report, || {
-                report["checks"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
+                report
+                    .checks
+                    .iter()
                     .map(|check| {
                         format!(
                             "{}: {} - {}",
-                            if check["ok"].as_bool().unwrap_or(false) {
-                                "ok"
-                            } else {
-                                "fail"
-                            },
-                            check["name"].as_str().unwrap_or("unknown"),
-                            check["message"].as_str().unwrap_or("")
+                            if check.ok { "ok" } else { "fail" },
+                            check.name,
+                            check.message
                         )
                     })
                     .collect::<Vec<_>>()
@@ -156,6 +150,12 @@ pub(crate) async fn run_profile(args: ProfileArgs, timeout_seconds: u64) -> Resu
             })
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+struct ProfileDoctorReport {
+    profile: String,
+    checks: Vec<agent_finance_core::DiagnosticCheck>,
 }
 
 pub(crate) async fn run_account(args: AccountArgs, timeout_seconds: u64) -> Result<()> {

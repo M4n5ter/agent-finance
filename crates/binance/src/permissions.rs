@@ -1,28 +1,21 @@
-use agent_finance_core::{IntentKind, Profile, ProfilePermission, ProfilePermissionSet};
-use serde::Serialize;
+use agent_finance_core::{
+    DiagnosticCheck, IntentKind, Profile, ProfilePermission, ProfilePermissionSet,
+};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct PermissionCheck {
-    pub name: &'static str,
-    pub ok: bool,
-    pub required: bool,
-    pub message: String,
-}
-
-pub fn profile_permission_checks(profile: &Profile, payload: &Value) -> Vec<PermissionCheck> {
+pub fn profile_permission_checks(profile: &Profile, payload: &Value) -> Vec<DiagnosticCheck> {
     permission_checks(profile.permissions.declared_profile_permissions(), payload)
 }
 
-pub fn intent_permission_checks(intent: &IntentKind, payload: &Value) -> Vec<PermissionCheck> {
+pub fn intent_permission_checks(intent: &IntentKind, payload: &Value) -> Vec<DiagnosticCheck> {
     permission_checks(intent.required_profile_permissions(), payload)
 }
 
-pub fn blocking_permission_error(checks: &[PermissionCheck]) -> Option<String> {
+pub fn blocking_permission_error(checks: &[DiagnosticCheck]) -> Option<String> {
     let failed = checks
         .iter()
         .filter(|check| check.required && !check.ok)
-        .map(|check| check.name)
+        .map(|check| check.name.as_str())
         .collect::<Vec<_>>();
     if failed.is_empty() {
         None
@@ -34,7 +27,7 @@ pub fn blocking_permission_error(checks: &[PermissionCheck]) -> Option<String> {
     }
 }
 
-fn permission_checks(requirements: ProfilePermissionSet, payload: &Value) -> Vec<PermissionCheck> {
+fn permission_checks(requirements: ProfilePermissionSet, payload: &Value) -> Vec<DiagnosticCheck> {
     ProfilePermission::ALL
         .into_iter()
         .map(|permission| {
@@ -51,7 +44,7 @@ fn permission_check(
     permission: ProfilePermission,
     required: bool,
     granted: Option<bool>,
-) -> PermissionCheck {
+) -> DiagnosticCheck {
     let ok = !required || granted == Some(true);
     let message = match (required, granted) {
         (false, Some(true)) => "permission is present but not required by this profile".to_string(),
@@ -67,12 +60,7 @@ fn permission_check(
             binance_required_message(permission)
         ),
     };
-    PermissionCheck {
-        name: binance_check_name(permission),
-        ok,
-        required,
-        message,
-    }
+    DiagnosticCheck::new(binance_check_name(permission), ok, required, message)
 }
 
 fn bool_any(payload: &Value, keys: &[&str]) -> Option<bool> {
@@ -204,7 +192,7 @@ mod tests {
         assert!(!check(&transfer, "binance-spot-trading").required);
     }
 
-    fn check<'a>(checks: &'a [PermissionCheck], name: &str) -> &'a PermissionCheck {
+    fn check<'a>(checks: &'a [DiagnosticCheck], name: &str) -> &'a DiagnosticCheck {
         checks.iter().find(|check| check.name == name).expect(name)
     }
 

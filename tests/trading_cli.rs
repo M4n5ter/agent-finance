@@ -104,6 +104,29 @@ fn profile_permissions_are_live_policy_not_just_doctor_metadata() {
 }
 
 #[test]
+fn profile_doctor_json_exposes_typed_diagnostic_contract() {
+    let env = default_env("profile-doctor-contract");
+    let doctor = env.json(command(&[
+        "profile",
+        "doctor",
+        "--profile",
+        "default",
+        "--json",
+    ]));
+    let checks = doctor["checks"].as_array().expect("doctor checks");
+    assert!(
+        checks.iter().all(|check| check["required"].is_boolean()),
+        "every profile doctor check should expose a boolean required field: {doctor}"
+    );
+    assert_check_required(checks, "profile-parse", false);
+    assert_check_required(checks, "api-key-env", true);
+    assert_check_required(checks, "api-secret-env", true);
+    assert_check_required(checks, "profile-permission-spot-trading", true);
+    assert_check_required(checks, "profile-permission-usds-futures", true);
+    assert_check_required(checks, "profile-permission-universal-transfer", false);
+}
+
+#[test]
 fn missing_or_partial_profile_permissions_fail_closed_with_diagnostics() {
     let legacy_env = default_env("legacy-profile-permissions");
     legacy_env.edit_profile("default", |content| {
@@ -1412,6 +1435,14 @@ fn assert_risk_finding(value: &Value, code: &str) {
             .any(|finding| finding["code"] == code),
         "expected risk finding {code}: {value}"
     );
+}
+
+fn assert_check_required(checks: &[Value], name: &str, required: bool) {
+    let check = checks
+        .iter()
+        .find(|check| check["name"] == name)
+        .unwrap_or_else(|| panic!("missing check {name}"));
+    assert_eq!(check["required"], required, "wrong required flag: {check}");
 }
 
 struct TestEnv {

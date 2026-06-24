@@ -18,14 +18,6 @@ pub struct RiskFinding {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProfilePermissionPolicyCheck {
-    pub name: &'static str,
-    pub ok: bool,
-    pub required: bool,
-    pub message: String,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RiskSeverity {
@@ -356,7 +348,7 @@ fn check_required_permissions(
     }
 }
 
-pub fn check_profile_permission_policy(profile: &Profile) -> Vec<ProfilePermissionPolicyCheck> {
+pub fn check_profile_permission_policy(profile: &Profile) -> Vec<DiagnosticCheck> {
     let required = profile.risk.required_profile_permissions();
     ProfilePermission::ALL
         .into_iter()
@@ -374,7 +366,7 @@ fn profile_permission_policy_check(
     permission: ProfilePermission,
     required: bool,
     declared: bool,
-) -> ProfilePermissionPolicyCheck {
+) -> DiagnosticCheck {
     let ok = !required || declared;
     let message = match (required, declared) {
         (false, true) => "permission is declared but not required by risk policy".to_string(),
@@ -387,12 +379,7 @@ fn profile_permission_policy_check(
             )
         }
     };
-    ProfilePermissionPolicyCheck {
-        name: permission.policy_check_name(),
-        ok,
-        required,
-        message,
-    }
+    DiagnosticCheck::new(permission.policy_check_name(), ok, required, message)
 }
 
 fn matching_futures_state_policies<'a>(
@@ -497,10 +484,7 @@ mod tests {
         assert_finding(&decision, "symbol-not-allowed");
     }
 
-    fn check<'a>(
-        checks: &'a [ProfilePermissionPolicyCheck],
-        name: &str,
-    ) -> &'a ProfilePermissionPolicyCheck {
+    fn check<'a>(checks: &'a [DiagnosticCheck], name: &str) -> &'a DiagnosticCheck {
         checks.iter().find(|check| check.name == name).expect(name)
     }
 
