@@ -150,6 +150,21 @@ Testnet signed order-test smoke, uses Binance test endpoints and does not place 
 AGENT_FINANCE_TESTNET_BINANCE_SIGNED=1 cargo test --test binance_live binance_testnet_signed_order_test_surface_is_usable -- --ignored --exact --nocapture
 ```
 
+Testnet order-flow smoke places a Binance testnet spot `LIMIT_MAKER` order, checks open orders and order query, then cancels it.
+It uses the Binance testnet environment and skips live SAPI permission probing; it does not touch live Binance funds, but it still requires testnet credentials, explicit ACK, a deliberately post-only order, and enough testnet balance.
+If the testnet price would take liquidity, Binance should reject the `LIMIT_MAKER` submit and the smoke fails before open/query/cancel assertions:
+
+```bash
+AGENT_FINANCE_TESTNET_BINANCE_ORDER_FLOW=1 \
+AGENT_FINANCE_TESTNET_BINANCE_ORDER_FLOW_ACK=I_UNDERSTAND_THIS_PLACES_A_TESTNET_ORDER \
+AGENT_FINANCE_TESTNET_BINANCE_ORDER_SYMBOL=BTCUSDT \
+AGENT_FINANCE_TESTNET_BINANCE_ORDER_SIDE=buy \
+AGENT_FINANCE_TESTNET_BINANCE_ORDER_QUANTITY=0.0004 \
+AGENT_FINANCE_TESTNET_BINANCE_ORDER_PRICE=30000 \
+AGENT_FINANCE_TESTNET_BINANCE_ORDER_MAX_NOTIONAL_USDT=15 \
+cargo test --test binance_live_write binance_testnet_order_open_query_cancel_flow_is_usable -- --ignored --exact --nocapture
+```
+
 Live place-and-cancel smoke places a real Binance spot `LIMIT_MAKER` post-only order and then cancels it.
 The test also reads the live Binance order book and fails before submit unless buy price is below best bid or sell price is above best ask.
 Use only with a deliberately non-marketable tiny order that still satisfies Binance min-notional filters; do not fix min-notional failures by making the price marketable.

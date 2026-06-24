@@ -27,7 +27,7 @@ fn binance_live_order_cancel_smoke_is_usable() {
     let spec = LiveOrderSmokeSpec::from_env();
     let env = SignedProfileEnv::new_live_write("live-binance-order");
     env.write_profile_toml("live-binance-order", signed_live_order_profile_toml(&spec));
-    assert_non_marketable_order(&env, &spec);
+    assert_non_marketable_order(&env, &spec.symbol, &spec.side, &spec.price());
 
     let intent = env.command_json(&[
         "order",
@@ -66,8 +66,13 @@ fn binance_live_order_cancel_smoke_is_usable() {
     ]);
     assert_eq!(live_risk["allowed"], true);
 
-    let mut cleanup =
-        LiveOrderCleanup::new(&env.runner, "live-binance-order", &spec, client_order_id);
+    let mut cleanup = OrderCleanup::new(
+        &env.runner,
+        "live-binance-order",
+        &spec.symbol,
+        &spec.market,
+        client_order_id,
+    );
     let submitted = env.command_json(&[
         "order",
         "submit",
@@ -114,6 +119,158 @@ fn binance_live_order_cancel_smoke_is_usable() {
         order["payload"]["status"], "NEW",
         "live smoke order should not remain open after cancel"
     );
+}
+
+#[test]
+#[ignore = "requires AGENT_FINANCE_TESTNET_BINANCE_ORDER_FLOW=1, explicit ACK, testnet order params, testnet HMAC env vars, and testnet balance"]
+fn binance_testnet_order_open_query_cancel_flow_is_usable() {
+    require_confirmation("AGENT_FINANCE_TESTNET_BINANCE_ORDER_FLOW", "1");
+    require_confirmation(
+        "AGENT_FINANCE_TESTNET_BINANCE_ORDER_FLOW_ACK",
+        "I_UNDERSTAND_THIS_PLACES_A_TESTNET_ORDER",
+    );
+    require_binance_hmac_env();
+
+    let spec = TestnetOrderFlowSpec::from_env();
+    let env = SignedProfileEnv::new_testnet_write("testnet-binance-order-flow");
+    env.write_profile_toml(
+        "testnet-binance-order-flow",
+        signed_testnet_order_flow_profile_toml(&spec),
+    );
+
+    let intent = env.command_json(&[
+        "order",
+        "create",
+        &spec.symbol,
+        "--profile",
+        "testnet-binance-order-flow",
+        "--market",
+        "spot",
+        "--side",
+        &spec.side,
+        "--kind",
+        "limit-maker",
+        "--quantity",
+        &spec.quantity,
+        "--price",
+        &spec.price,
+        "--json",
+    ]);
+    assert_eq!(intent["risk"]["allowed"], true);
+    let intent_id = intent["intent"]["id"]
+        .as_str()
+        .expect("testnet order intent should have id");
+    let client_order_id = intent["intent"]["kind"]["client_order_id"]
+        .as_str()
+        .expect("testnet order intent should have client order id");
+
+    let live_risk = env.command_json(&[
+        "risk",
+        "check",
+        intent_id,
+        "--profile",
+        "testnet-binance-order-flow",
+        "--live",
+        "--json",
+    ]);
+    assert_eq!(live_risk["allowed"], true);
+
+    let mut cleanup = OrderCleanup::new(
+        &env.runner,
+        "testnet-binance-order-flow",
+        &spec.symbol,
+        "spot",
+        client_order_id,
+    );
+    let submitted = env.command_json(&[
+        "order",
+        "submit",
+        intent_id,
+        "--profile",
+        "testnet-binance-order-flow",
+        "--live",
+        "--json",
+    ]);
+    assert_eq!(submitted["mode"], "live");
+    assert_eq!(submitted["intent_kind"], "order");
+    assert_eq!(submitted["execution"]["kind"], "order-submit");
+    assert_eq!(submitted["risk"]["allowed"], true);
+    assert_eq!(
+        submitted["execution"]["payload"]["exchange_response"]["clientOrderId"],
+        client_order_id
+    );
+    assert_audit_contains_intent(&env, "live-submit", intent_id);
+
+    let open = env.command_json(&[
+        "order",
+        "open",
+        "--profile",
+        "testnet-binance-order-flow",
+        "--market",
+        "spot",
+        "--symbol",
+        &spec.symbol,
+        "--json",
+    ]);
+    assert_order_list_contains(&open["payload"], client_order_id);
+
+    let order = env.command_json(&[
+        "order",
+        "query",
+        &spec.symbol,
+        "--profile",
+        "testnet-binance-order-flow",
+        "--market",
+        "spot",
+        "--client-order-id",
+        client_order_id,
+        "--json",
+    ]);
+    assert_eq!(order["kind"], "order-query");
+    assert_eq!(order["payload"]["clientOrderId"], client_order_id);
+    assert_eq!(order["payload"]["status"], "NEW");
+
+    let canceled = cleanup.cancel();
+    assert_eq!(canceled.response["mode"], "live");
+    assert_eq!(canceled.response["intent_kind"], "cancel");
+    assert_eq!(canceled.response["execution"]["kind"], "cancel");
+    assert_eq!(canceled.response["risk"]["allowed"], true);
+    assert_eq!(
+        canceled.response["execution"]["payload"]["clientOrderId"],
+        client_order_id
+    );
+    assert_audit_contains_intent(&env, "cancel", &canceled.intent_id);
+
+    let canceled_order = env.command_json(&[
+        "order",
+        "query",
+        &spec.symbol,
+        "--profile",
+        "testnet-binance-order-flow",
+        "--market",
+        "spot",
+        "--client-order-id",
+        client_order_id,
+        "--json",
+    ]);
+    assert_eq!(canceled_order["payload"]["clientOrderId"], client_order_id);
+    assert_ne!(
+        canceled_order["payload"]["status"], "NEW",
+        "testnet smoke order should not remain open after cancel"
+    );
+
+    let open_after_cancel = env.command_json(&[
+        "order",
+        "open",
+        "--profile",
+        "testnet-binance-order-flow",
+        "--market",
+        "spot",
+        "--symbol",
+        &spec.symbol,
+        "--json",
+    ]);
+    assert_order_list_excludes(&open_after_cancel["payload"], client_order_id);
 }
 
 #[test]
@@ -227,12 +384,17 @@ fn assert_audit_contains_intent(env: &SignedProfileEnv, expected_kind: &str, int
     );
 }
 
-fn assert_non_marketable_order(env: &SignedProfileEnv, spec: &LiveOrderSmokeSpec) {
+fn assert_non_marketable_order(
+    env: &SignedProfileEnv,
+    symbol: &str,
+    side: &str,
+    price: &DecimalValue,
+) {
     let book = env.command_json(&[
         "market",
         "crypto",
         "book",
-        &spec.symbol,
+        symbol,
         "--provider",
         "binance",
         "--instrument",
@@ -244,8 +406,7 @@ fn assert_non_marketable_order(env: &SignedProfileEnv, spec: &LiveOrderSmokeSpec
     let payload = &book["results"][0]["endpoints"][0]["payload"]["payload"];
     let best_bid = book_price(payload, "bids");
     let best_ask = book_price(payload, "asks");
-    let price = spec.price();
-    match spec.side.as_str() {
+    match side {
         "buy" => assert!(
             price.0 < best_bid.0,
             "live buy smoke price must be below best bid to avoid taking liquidity: price={price} best_bid={best_bid}"
@@ -256,6 +417,28 @@ fn assert_non_marketable_order(env: &SignedProfileEnv, spec: &LiveOrderSmokeSpec
         ),
         other => panic!("unsupported live smoke side {other:?}"),
     }
+}
+
+fn assert_order_list_contains(payload: &serde_json::Value, client_order_id: &str) {
+    assert!(
+        order_list_has_client_order_id(payload, client_order_id),
+        "open orders should include client order id {client_order_id}; payload={payload}"
+    );
+}
+
+fn assert_order_list_excludes(payload: &serde_json::Value, client_order_id: &str) {
+    assert!(
+        !order_list_has_client_order_id(payload, client_order_id),
+        "open orders should not include client order id {client_order_id}; payload={payload}"
+    );
+}
+
+fn order_list_has_client_order_id(payload: &serde_json::Value, client_order_id: &str) -> bool {
+    payload
+        .as_array()
+        .expect("open orders payload should be an array")
+        .iter()
+        .any(|order| order["clientOrderId"] == client_order_id)
 }
 
 fn book_price(payload: &serde_json::Value, side: &str) -> DecimalValue {
@@ -288,6 +471,25 @@ impl SignedProfileEnv {
             runner: CommandEnv {
                 config_home: root.join("config"),
                 data_home,
+            },
+            root,
+        }
+    }
+
+    fn new_testnet_write(name: &str) -> Self {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "agent-finance-testnet-write-{name}-{}-{nanos}",
+            std::process::id(),
+        ));
+        fs::create_dir_all(&root).expect("signed testnet profile test root");
+        Self {
+            runner: CommandEnv {
+                config_home: root.join("config"),
+                data_home: root.join("data"),
             },
             root,
         }
@@ -337,7 +539,7 @@ impl CommandEnv {
     }
 }
 
-struct LiveOrderCleanup {
+struct OrderCleanup {
     runner: CommandEnv,
     profile: String,
     symbol: String,
@@ -346,18 +548,19 @@ struct LiveOrderCleanup {
     active: bool,
 }
 
-impl LiveOrderCleanup {
+impl OrderCleanup {
     fn new(
         runner: &CommandEnv,
         profile: &str,
-        spec: &LiveOrderSmokeSpec,
+        symbol: &str,
+        market: &str,
         client_order_id: &str,
     ) -> Self {
         Self {
             runner: runner.clone(),
             profile: profile.to_string(),
-            symbol: spec.symbol.clone(),
-            market: spec.market.clone(),
+            symbol: symbol.to_string(),
+            market: market.to_string(),
             client_order_id: client_order_id.to_string(),
             active: true,
         }
@@ -397,7 +600,7 @@ impl LiveOrderCleanup {
     }
 }
 
-impl Drop for LiveOrderCleanup {
+impl Drop for OrderCleanup {
     fn drop(&mut self) {
         if !self.active {
             return;
@@ -459,6 +662,28 @@ struct LiveOrderSmokeSpec {
     quantity: String,
     price: String,
     max_notional_usdt: String,
+}
+
+struct TestnetOrderFlowSpec {
+    symbol: String,
+    side: String,
+    quantity: String,
+    price: String,
+    max_notional_usdt: String,
+}
+
+impl TestnetOrderFlowSpec {
+    fn from_env() -> Self {
+        Self {
+            symbol: required_env("AGENT_FINANCE_TESTNET_BINANCE_ORDER_SYMBOL").to_ascii_uppercase(),
+            side: required_env("AGENT_FINANCE_TESTNET_BINANCE_ORDER_SIDE"),
+            quantity: required_env("AGENT_FINANCE_TESTNET_BINANCE_ORDER_QUANTITY"),
+            price: required_env("AGENT_FINANCE_TESTNET_BINANCE_ORDER_PRICE"),
+            max_notional_usdt: required_env(
+                "AGENT_FINANCE_TESTNET_BINANCE_ORDER_MAX_NOTIONAL_USDT",
+            ),
+        }
+    }
 }
 
 impl LiveOrderSmokeSpec {
@@ -543,6 +768,39 @@ max_order_notional_usdt = "{max_notional}"
 "#,
         symbol = spec.symbol,
         market = spec.market,
+        max_notional = spec.max_notional_usdt,
+    )
+}
+
+fn signed_testnet_order_flow_profile_toml(spec: &TestnetOrderFlowSpec) -> String {
+    format!(
+        r#"name = "testnet-binance-order-flow"
+
+[provider]
+provider = "binance"
+environment = "testnet"
+api_key_env = "BINANCE_API_KEY"
+api_secret_env = "BINANCE_PRIVATE_KEY"
+spot_base_url = "https://testnet.binance.vision"
+usds_futures_base_url = "https://testnet.binancefuture.com"
+
+[permissions]
+spot_trading = true
+usds_futures = false
+universal_transfer = false
+
+[risk]
+allow_live = true
+max_daily_order_notional_usdt = "{max_notional}"
+allowed_transfers = []
+allowed_futures_state_changes = []
+
+[risk.allowed_symbols.{symbol}]
+markets = ["spot"]
+order_kinds = ["limit-maker"]
+max_order_notional_usdt = "{max_notional}"
+"#,
+        symbol = spec.symbol,
         max_notional = spec.max_notional_usdt,
     )
 }

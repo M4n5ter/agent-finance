@@ -278,7 +278,7 @@ async fn check_live_permissions(
     mode: WriteMode,
     source: LivePermissionSource,
 ) -> Result<()> {
-    if !matches!(mode, WriteMode::Live) {
+    if !matches!(mode, WriteMode::Live) || !profile.provider.environment.is_live() {
         return Ok(());
     }
     let payload;
@@ -603,6 +603,34 @@ mod tests {
         let saved = store.load(&intent_id).unwrap();
         assert_eq!(saved.metadata.status, IntentStatus::Created);
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn testnet_live_submit_does_not_require_live_sapi_permission_probe() {
+        let mut profile = test_profile();
+        profile.provider.environment = Environment::Testnet;
+        let intent = agent_finance_core::IntentKind::FuturesState(FuturesStateIntent {
+            profile: profile.name.clone(),
+            provider: Provider::Binance,
+            environment: Environment::Testnet,
+            change: FuturesStateChange::MarginType {
+                symbol: "BTCUSDT".to_string(),
+                margin_type: MarginType::Isolated,
+            },
+        });
+
+        check_live_permissions(
+            &profile,
+            &intent,
+            WriteMode::Live,
+            LivePermissionSource::Static(json!({
+                "enableSpotAndMarginTrading": false,
+                "enableFutures": false,
+                "permitsUniversalTransfer": false
+            })),
+        )
+        .await
+        .expect("testnet writes must not read or require live SAPI permission probes");
     }
 
     fn test_profile() -> agent_finance_core::Profile {
