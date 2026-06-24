@@ -11,10 +11,11 @@ hidden: true
 ## CLI Availability
 
 The npm package name is `agent-finance-cli`; the installed command is `agent-finance`.
-If `agent-finance` is not available on `PATH`, install it with:
+If `agent-finance` is missing or stale, install or update the npm package:
 
 ```bash
-npm install -g agent-finance-cli
+npm install -g agent-finance-cli@latest
+agent-finance --version
 ```
 
 This file is a discovery stub. Before data collection, load the runtime guide from the installed CLI:

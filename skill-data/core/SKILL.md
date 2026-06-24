@@ -7,15 +7,6 @@ description: Entry guide for agent-finance market price, sessions, crypto, histo
 
 This is the runtime entry guide for using `agent-finance`.
 
-## CLI Availability
-
-The npm package name is `agent-finance-cli`; the installed command is `agent-finance`.
-If `agent-finance` is not available on `PATH`, install it with:
-
-```bash
-npm install -g agent-finance-cli
-```
-
 ## Start
 
 ```bash
