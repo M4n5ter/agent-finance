@@ -97,9 +97,9 @@ fn binance_live_order_cancel_smoke_is_usable() {
     assert_eq!(canceled.response["intent_kind"], "cancel");
     assert_eq!(canceled.response["execution"]["kind"], "cancel");
     assert_eq!(canceled.response["risk"]["allowed"], true);
-    assert_eq!(
-        canceled.response["execution"]["payload"]["clientOrderId"],
-        client_order_id
+    assert_cancel_targets_client_order_id(
+        &canceled.response["execution"]["payload"],
+        client_order_id,
     );
     assert_audit_contains_intent(&env, "cancel", &canceled.intent_id);
     let order = env.command_json(&[
@@ -235,9 +235,9 @@ fn binance_testnet_order_open_query_cancel_flow_is_usable() {
     assert_eq!(canceled.response["intent_kind"], "cancel");
     assert_eq!(canceled.response["execution"]["kind"], "cancel");
     assert_eq!(canceled.response["risk"]["allowed"], true);
-    assert_eq!(
-        canceled.response["execution"]["payload"]["clientOrderId"],
-        client_order_id
+    assert_cancel_targets_client_order_id(
+        &canceled.response["execution"]["payload"],
+        client_order_id,
     );
     assert_audit_contains_intent(&env, "cancel", &canceled.intent_id);
 
@@ -430,6 +430,17 @@ fn assert_order_list_excludes(payload: &serde_json::Value, client_order_id: &str
     assert!(
         !order_list_has_client_order_id(payload, client_order_id),
         "open orders should not include client order id {client_order_id}; payload={payload}"
+    );
+}
+
+fn assert_cancel_targets_client_order_id(payload: &serde_json::Value, client_order_id: &str) {
+    let target = payload
+        .get("origClientOrderId")
+        .or_else(|| payload.get("clientOrderId"));
+    assert_eq!(
+        target,
+        Some(&serde_json::Value::String(client_order_id.to_string())),
+        "cancel response should identify original client order id {client_order_id}; payload={payload}"
     );
 }
 

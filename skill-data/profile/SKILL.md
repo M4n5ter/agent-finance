@@ -168,18 +168,20 @@ cargo test --test binance_live_write binance_testnet_order_open_query_cancel_flo
 Live place-and-cancel smoke places a real Binance spot `LIMIT_MAKER` post-only order and then cancels it.
 The test also reads the live Binance order book and fails before submit unless buy price is below best bid or sell price is above best ask.
 Use only with a deliberately non-marketable tiny order that still satisfies Binance min-notional filters; do not fix min-notional failures by making the price marketable.
+Prefer a liquid low-notional symbol such as `DOGEUSDT` when the account only has a few USDT. Compute the smoke price from the live book and keep buy orders at least 3% below best bid, or sell orders at least 3% above best ask. After the smoke, query open orders and balances to confirm no order or locked balance remains.
+Binance cancel responses may identify the original order with `origClientOrderId`; `clientOrderId` can refer to the cancel request itself.
 Set `AGENT_FINANCE_LIVE_BINANCE_SMOKE_DATA_HOME` to a persistent local directory so audit events and daily live notional limits survive between smoke runs.
 
 ```bash
 AGENT_FINANCE_LIVE_BINANCE_PLACE_AND_CANCEL_ORDER=1 \
 AGENT_FINANCE_LIVE_BINANCE_WRITE_ACK=I_UNDERSTAND_THIS_PLACES_A_LIVE_ORDER \
 AGENT_FINANCE_LIVE_BINANCE_SMOKE_DATA_HOME=$HOME/.local/state/agent-finance-live-smoke \
-AGENT_FINANCE_LIVE_BINANCE_ORDER_SYMBOL=BTCUSDT \
+AGENT_FINANCE_LIVE_BINANCE_ORDER_SYMBOL=DOGEUSDT \
 AGENT_FINANCE_LIVE_BINANCE_ORDER_MARKET=spot \
 AGENT_FINANCE_LIVE_BINANCE_ORDER_SIDE=buy \
-AGENT_FINANCE_LIVE_BINANCE_ORDER_QUANTITY=0.0004 \
-AGENT_FINANCE_LIVE_BINANCE_ORDER_PRICE=30000 \
-AGENT_FINANCE_LIVE_BINANCE_ORDER_MAX_NOTIONAL_USDT=15 \
+AGENT_FINANCE_LIVE_BINANCE_ORDER_QUANTITY=15 \
+AGENT_FINANCE_LIVE_BINANCE_ORDER_PRICE=0.07638 \
+AGENT_FINANCE_LIVE_BINANCE_ORDER_MAX_NOTIONAL_USDT=5 \
 cargo test --test binance_live_write binance_live_order_cancel_smoke_is_usable -- --ignored --exact --nocapture
 ```
 

@@ -19,7 +19,20 @@ for (const packageName of expectedPackages) {
   }
 }
 
-for (const file of ["bin/", "npm/", "src/", "skills/", "skill-data/", "crates/", "Cargo.toml", "Cargo.lock"]) {
+for (const file of [
+  "bin/",
+  "npm/",
+  "skills/",
+  "skill-data/",
+  "crates/cli/Cargo.toml",
+  "crates/cli/src/",
+  "crates/binance/Cargo.toml",
+  "crates/binance/src/",
+  "crates/core/Cargo.toml",
+  "crates/core/src/",
+  "Cargo.toml",
+  "Cargo.lock",
+]) {
   if (!packageJson.files.includes(file)) {
     fail(`package.json files must include ${file}`);
   }

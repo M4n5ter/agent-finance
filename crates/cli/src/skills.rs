@@ -328,15 +328,15 @@ fn append_supplementary(output: &mut String, supplementary: &[SupplementaryFile]
     }
 }
 
-const CORE: &str = include_str!("../skill-data/core/SKILL.md");
-const CORE_COMMAND_MAP: &str = include_str!("../skill-data/core/references/command-map.md");
-const CRYPTO: &str = include_str!("../skill-data/crypto/SKILL.md");
-const HISTORY_INDICATORS: &str = include_str!("../skill-data/history-indicators/SKILL.md");
-const PREDICTION_MARKETS: &str = include_str!("../skill-data/prediction-markets/SKILL.md");
-const PRICE: &str = include_str!("../skill-data/price/SKILL.md");
-const PROFILE: &str = include_str!("../skill-data/profile/SKILL.md");
-const PROVIDERS: &str = include_str!("../skill-data/providers/SKILL.md");
-const RESEARCH_DATA: &str = include_str!("../skill-data/research-data/SKILL.md");
+const CORE: &str = include_str!("../../../skill-data/core/SKILL.md");
+const CORE_COMMAND_MAP: &str = include_str!("../../../skill-data/core/references/command-map.md");
+const CRYPTO: &str = include_str!("../../../skill-data/crypto/SKILL.md");
+const HISTORY_INDICATORS: &str = include_str!("../../../skill-data/history-indicators/SKILL.md");
+const PREDICTION_MARKETS: &str = include_str!("../../../skill-data/prediction-markets/SKILL.md");
+const PRICE: &str = include_str!("../../../skill-data/price/SKILL.md");
+const PROFILE: &str = include_str!("../../../skill-data/profile/SKILL.md");
+const PROVIDERS: &str = include_str!("../../../skill-data/providers/SKILL.md");
+const RESEARCH_DATA: &str = include_str!("../../../skill-data/research-data/SKILL.md");
 
 #[cfg(test)]
 mod tests {

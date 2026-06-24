@@ -26,12 +26,13 @@ If no prebuilt package is available for the current platform, npm falls back to 
 From GitHub:
 
 ```bash
-cargo install --git https://github.com/M4n5ter/agent-finance-cli
+cargo install --git https://github.com/M4n5ter/agent-finance-cli agent-finance-cli
 ```
 
 From a checkout:
 
 ```bash
+cargo install --path crates/cli --locked
 cargo run --bin agent-finance -- skills get core
 cargo run --bin agent-finance -- market price CRDO
 ```
