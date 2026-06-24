@@ -5,20 +5,40 @@ description: Entry guide for agent-finance market price, sessions, crypto, histo
 
 # agent-finance core skill
 
-This skill is printed by the `agent-finance` CLI. It is the first thing an AI Agent should read before using the tool.
+This is the runtime entry guide for using `agent-finance`.
 
-## Start Here
+## CLI Availability
+
+The npm package name is `agent-finance-cli`; the installed command is `agent-finance`.
+If `agent-finance` is not available on `PATH`, install it with:
+
+```bash
+npm install -g agent-finance-cli
+```
+
+## Start
 
 ```bash
 agent-finance skills list
-agent-finance skills get core --full
 agent-finance market providers
 agent-finance capabilities
+```
+
+## Task Router
+
+```bash
+agent-finance skills get price
+agent-finance skills get history-indicators
+agent-finance skills get research-data
 agent-finance skills get crypto
+agent-finance skills get prediction-markets
+agent-finance skills get providers
 agent-finance skills get profile
 ```
 
-## Default Workflow
+Load a narrow skill before task-specific commands. Use `skills get core --full` when you need the extended command map.
+
+## Default Evidence Flow
 
 1. Current observable price:
 
@@ -41,7 +61,7 @@ agent-finance market history LITE --interval 1d --range 1mo --adjustment auto --
 agent-finance market history LITE --interval 1m --range 5d --session extended --adjustment raw --no-actions --limit 120
 ```
 
-4. Research data:
+4. Research and source context:
 
 ```bash
 agent-finance market fundamentals CRDO
@@ -76,7 +96,7 @@ agent-finance market crypto book BTC/USDT --provider okx --limit 20
 agent-finance market crypto discover --provider coingecko --kind trending
 ```
 
-7. Signed trading profile and audit workflows:
+7. Signed Binance workflows:
 
 ```bash
 agent-finance skills get profile
@@ -94,25 +114,16 @@ agent-finance state submit INTENT_ID --profile default
 agent-finance audit export --json
 ```
 
-## Rules
+## Decision Rules
 
 - Use `market price` for the default "what is the current price?" answer.
 - Use `market sessions` when premarket, postmarket, overnight, BOATS, provider differences, or proxy prices matter.
 - Use both daily and minute history before judging fills, limit-order quality, stop placement, or intraday action.
 - Use `market providers --json` when an Agent needs a machine-readable capability matrix.
 - Use `capabilities --json` for the unified terminal surface, including account/order/transfer/futures-state safety boundaries.
-- Use `skills get profile` before touching signed account, order, transfer, futures state, risk, or audit commands.
-- Signed read commands return a typed `SignedReadSnapshot` envelope with `profile`, `provider`, `environment`, `kind`, typed `request` scope, and raw provider data under `payload`.
-- Signed read snapshot kinds are command discriminators: `account permissions` -> `api-permissions`, `account balances` -> `spot-balances`, `account positions` -> `usds-futures-positions`, `order query` -> `order-query`, `order open` -> `open-orders`, `transfer history` -> `transfer-history`.
-- Signed submit commands return a typed `SubmitSnapshot` envelope with `profile`, `provider`, `environment`, `intent_id`, `intent_kind`, `mode`, `risk`, `execution.kind`, and execution data under `execution.payload`.
-- Run `profile doctor` before live writes; it checks `[permissions]` against the risk policy, reports Binance API permission checks when HMAC env vars are set, and live submit rechecks exchange permissions before claiming the intent.
-- Signed order test/live submit checks locally checkable Binance exchangeInfo filters before sending an order; dry-run remains offline.
-- Live market orders are blocked until risk notional can be derived from fresh exchange data instead of user-supplied `valuation_price`.
-- USD-M futures leverage, margin type, and Binance futures account position mode changes use separate `state` intents; order submit never changes account state implicitly.
-- Position mode changes every symbol; Binance UM/CM share `dualSidePosition`, and the exchange rejects the change when either side has open orders or open positions.
-- Position mode policy is not in the default profile template; add an explicit `[[risk.allowed_futures_state_changes]]` entry with `kind = "position-mode"` and the intended `mode` before creating that intent.
 - Treat crypto as 24/7 market data. Use Binance/Coinbase/OKX/CoinGecko through capability-first crypto commands, then force providers only for cross-checking.
 - Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments.
 - Treat Polymarket as quantifiable prediction-market sentiment and event-probability evidence only; it is not an equity quote or primary-source fact.
 - `market read-url` is a text extraction fallback, not a real browser. For dynamic, login-gated, screenshot-sensitive, or noisy pages, use an available browser tool such as agent-browser or opencli.
 - JSON output preserves structured fields for downstream computation. Human output is for quick inspection.
+- Use `skills get profile` before touching signed account, order, transfer, futures state, risk, or audit commands.

@@ -56,9 +56,6 @@ agent-finance market crypto stream BTCUSDT --instrument swap --kind mark-price -
 - Use capability-first crypto commands for all normal work; provider eligibility is determined by capability plus `--instrument`.
 - Binance, Coinbase, OKX, and CoinGecko are tier-1 no-key crypto providers in this CLI, but they answer different questions.
 - Binance/OKX are stronger for exchange microstructure and derivatives evidence. Coinbase is a spot exchange cross-check. CoinGecko is stronger for aggregate breadth, trending, metadata, and exchange discovery.
-- Binance integration uses self-maintained clients for official public REST and WebSocket paths; do not add the generated Binance SDK unless a future version proves cleaner than these local abstractions.
-- Spot WebSocket uses Binance's market-data-only `data-stream.binance.vision` endpoint because this CLI only needs public market data.
-- USD-M Futures WebSocket routes streams through Binance's current `/market/ws` and `/public/ws` paths; do not route futures streams through the legacy root `/ws` path.
 - Prefer `market crypto snapshot` for current observable market state.
 - Prefer `market crypto sentiment` for futures leverage, funding, open interest, long/short, taker flow, and basis.
 - Prefer `market crypto quote/book/trades/candles/funding/open-interest/discover --json` when an Agent needs provider evidence for reasoning.

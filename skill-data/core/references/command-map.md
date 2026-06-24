@@ -126,6 +126,4 @@ Transfer history reads Binance SAPI live account data and requires a reviewed li
 
 The CLI respects `--proxy`, `AGENT_FINANCE_PROXY`, and standard proxy environment variables. It does not hardcode a local proxy.
 
-Polymarket uses the official SDK by default. When `--proxy` or `--no-proxy` is explicit, it uses public REST fallback through the CLI HTTP stack so those network controls are honored.
-
 `market read-url` is a text extraction fallback. For dynamic, login-gated, screenshot-sensitive, or noisy pages, open the original page with an available real browser tool such as agent-browser or opencli.

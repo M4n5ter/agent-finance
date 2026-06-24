@@ -48,5 +48,4 @@ agent-finance market polymarket market MARKET_ID_OR_SLUG --limit 20 --refresh
 
 - This CLI is read-only for Polymarket.
 - It does not accept private keys, derive API keys, place orders, cancel orders, or manage Polymarket positions.
-- Default transport uses the official SDK. Explicit `--proxy` or `--no-proxy` uses public REST fallback through the CLI HTTP stack so those network controls are honored.
 - Holder data is reported as preview rows returned by the API limit, not as a total holder count.
