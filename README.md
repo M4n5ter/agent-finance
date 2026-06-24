@@ -1,15 +1,41 @@
-# agent-finance-cli
+# agent-finance
 
-AI Agent-first CLI for no-key financial market data and research context.
+[English](README.md) | [简体中文](README_ZH.md) | [日本語](README_JA.md) | [한국어](README_KO.md)
 
-`agent-finance` is designed for human-operated AI agents: the CLI can print its own task-specific skills, then provide current quotes, regular/pre/post/overnight session splits, capability-first crypto market data, OHLCV history, local indicators, prediction-market sentiment, no-key research payloads, URL text extraction, provider capability notes, polling, and WebSocket streams.
+Market intelligence for AI agents that need evidence, not guesswork.
 
-If you are an AI Agent, start here:
+`agent-finance` is a terminal-native finance toolkit built for AI agents and automation workflows. It gives an agent a compact command surface for prices, sessions, history, indicators, crypto market structure, prediction-market sentiment, public-company research data, URL extraction, provider capability discovery, and guarded signed trading workflows.
+
+Install once, then let agents discover the command surface from the CLI itself.
 
 ```bash
+npm install -g agent-finance-cli
 agent-finance skills get core
-agent-finance skills list
 ```
+
+## What It Helps Agents Do
+
+- Answer "what is it trading at now?" with current observable price, session, regular-market basis, and local/UTC timestamps.
+- Separate regular, premarket, postmarket, and overnight signals instead of mixing them into one stale quote.
+- Pull OHLCV history and local indicators before making order-quality or trend claims.
+- Cross-check crypto spot, swaps, futures, order books, trades, candles, funding, open interest, and market breadth across Binance, Coinbase, OKX, and CoinGecko.
+- Use Polymarket markets as quantifiable sentiment and event-probability evidence.
+- Fetch no-key research payloads from Yahoo, SEC EDGAR, Robinhood, CNBC, Stooq, and fallback URL readers.
+- Ask the CLI what each provider can actually do instead of guessing from provider names.
+- Keep signed Binance account/order/transfer workflows behind profiles, intents, risk checks, explicit live confirmation, and append-only audit logs.
+- Teach agents how to use the tool through built-in runtime skills that ship with the binary.
+
+## Why This Exists
+
+Finance research agents fail when they rely on a single quote, a search snippet, or a provider name that sounds authoritative. They need a repeatable way to collect fresh data, know which session a price came from, understand provider limits, and leave an audit trail when touching live accounts.
+
+`agent-finance` is intentionally CLI-first because AI agents are already good at shells:
+
+- commands are stable and scriptable;
+- JSON output is available where agents need structure;
+- terminal output stays readable when another agent or automation layer inspects a run;
+- provider capabilities are discoverable at runtime;
+- skills are embedded, so agent guidance can evolve with the installed version.
 
 ## Install
 
@@ -19,14 +45,20 @@ From npm:
 npm install -g agent-finance-cli
 ```
 
-The npm package installs a prebuilt binary for supported platforms. Rust is not required for the normal npm install path.
+The project is `agent-finance`. The npm package is published as `agent-finance-cli` because `agent-finance` is not available on npm.
 
-If no prebuilt package is available for the current platform, npm falls back to a local source build. That fallback requires Rust/Cargo plus the native toolchain needed by `wreq`/BoringSSL: CMake, Clang/Clang++, libclang, and binutils.
+The npm package installs a prebuilt binary on supported platforms:
+
+- macOS arm64 / x64
+- Linux arm64 / x64
+- Windows x64
+
+Rust is not required for the normal npm install path. If no prebuilt package is available, npm falls back to a local source build. That fallback requires Rust/Cargo plus the native toolchain needed by `wreq`/BoringSSL: CMake, Clang/Clang++, libclang, and binutils.
 
 From GitHub:
 
 ```bash
-cargo install --git https://github.com/M4n5ter/agent-finance-cli agent-finance-cli
+cargo install --git https://github.com/M4n5ter/agent-finance agent-finance-cli
 ```
 
 From a checkout:
@@ -34,45 +66,78 @@ From a checkout:
 ```bash
 cargo install --path crates/cli --locked
 cargo run --bin agent-finance -- skills get core
-cargo run --bin agent-finance -- market price CRDO
 ```
 
-Future distribution targets include crates.io and Homebrew.
+## The Agent Entry Point
 
-## Common Commands
+If you are wiring this into an AI agent, do not start by memorizing flags. Let the installed CLI describe itself:
 
 ```bash
-# Current observable price + regular-market basis.
+agent-finance skills list
+agent-finance skills get core --full
+```
+
+The npm package also ships a standard discovery skill at:
+
+```text
+skills/agent-finance/SKILL.md
+```
+
+That stub points agents back to the runtime skills, so command guidance stays aligned with the installed binary.
+
+You can also install the repository skill into compatible agent environments:
+
+```bash
+npx skills add https://github.com/M4n5ter/agent-finance
+```
+
+Use the installed skill as the coarse entry point, then let `agent-finance skills get ...` provide command-specific guidance from the local binary.
+
+Useful runtime skills:
+
+```bash
+agent-finance skills get price
+agent-finance skills get history-indicators
+agent-finance skills get crypto
+agent-finance skills get research-data
+agent-finance skills get providers
+agent-finance skills get prediction-markets
+agent-finance skills get profile
+```
+
+## Quick Tour
+
+Current price and session context:
+
+```bash
 agent-finance market price CRDO
 agent-finance market price CRDO MRVL --json
-
-# Precise regular/pre/post/overnight/provider split.
 agent-finance market sessions CRDO
 agent-finance market sessions LITE --proxy-symbol LITEUSDT
+```
 
-# History, indicators, crypto/proxy context, and streams.
+History and indicators:
+
+```bash
 agent-finance market history CRDO --range 1mo --interval 1d
 agent-finance market history CRDO --range 5d --interval 1m --session extended --adjustment raw --no-actions
 agent-finance market indicators CRDO MRVL --limit 120
-agent-finance market stream CRDO --messages 5
-agent-finance market watch CRDO --interval-seconds 15 --iterations 4
+```
 
-# Cross-provider crypto market data.
-agent-finance market crypto snapshot BTC/USDT
-agent-finance market crypto sentiment BTCUSDT
+Crypto market structure:
+
+```bash
 agent-finance market crypto quote BTC/USDT
 agent-finance market crypto book BTC/USDT --limit 20
 agent-finance market crypto candles BTC/USDT --interval 1h --limit 48
-agent-finance market crypto funding BTCUSDT --provider okx --limit 8
-agent-finance market crypto discover --provider coingecko --kind trending
-
 agent-finance market crypto funding BTCUSDT --instrument swap --provider auto --limit 8
 agent-finance market crypto open-interest BTCUSDT --instrument swap --provider okx
-agent-finance market crypto stream BTCUSDT --instrument swap --kind mark-price --messages 1
-agent-finance market price BTC/USDT --asset crypto
-agent-finance market history BTC/USDT --asset crypto --crypto-provider okx --instrument spot --interval 1h --limit 48
+agent-finance market crypto discover --provider coingecko --kind trending
+```
 
-# No-key research and discovery.
+Public-company research and discovery:
+
+```bash
 agent-finance market fundamentals CRDO
 agent-finance market fundamentals CRDO --provider sec-edgar
 agent-finance market analysis CRDO
@@ -80,59 +145,70 @@ agent-finance market options CRDO --provider robinhood --count 80
 agent-finance market ownership CRDO
 agent-finance market events CRDO --provider sec-edgar
 agent-finance market news CRDO
-agent-finance market read-url "https://www.sec.gov/Archives/edgar/data/0001807794/000162828026014017/crdo-20260131.htm"
 agent-finance market search "optical interconnect"
 agent-finance market screen day_gainers
-agent-finance market providers
+```
 
-# Prediction-market sentiment and event probabilities.
+Prediction-market sentiment:
+
+```bash
 agent-finance market polymarket search "spacex ipo" --limit 5
 agent-finance market polymarket market MARKET_ID_OR_SLUG --json
 ```
 
-## Agent Skills
-
-The npm package ships a standard discovery skill at `skills/agent-finance/SKILL.md`.
-That stub points agents back to the installed CLI so command guidance does not drift.
-
-The CLI discovers runtime skills from its packaged `skill-data/` directory:
+Streams, polling, and URL extraction:
 
 ```bash
-agent-finance skills list
-agent-finance skills get core --full
-agent-finance skills get price
-agent-finance skills get crypto
-agent-finance skills get research-data
-agent-finance skills get providers
-agent-finance skills get prediction-markets
-agent-finance skills get history-indicators
+agent-finance market stream CRDO --messages 5
+agent-finance market watch CRDO --interval-seconds 15 --iterations 4
+agent-finance market read-url "https://www.sec.gov/Archives/edgar/data/0001807794/000162828026014017/crdo-20260131.htm"
 ```
 
-Set `AGENT_FINANCE_SKILL_DATA_DIR` to test or override the runtime skill directory.
-The npm wrapper sets `AGENT_FINANCE_PACKAGE_ROOT` automatically for prebuilt platform binaries.
+Provider capability discovery:
 
-## Data Source Rules
+```bash
+agent-finance market providers
+agent-finance capabilities
+```
 
-- `market price SYMBOL` is the default answer to "what is it trading at now?" It returns the current observable price, session, regular-market basis, and local/UTC timestamps.
+## Signed Trading Workflows
+
+`agent-finance` includes guarded Binance Spot and USD-M workflows for account reads, order intents, internal transfer intents, futures state changes, risk checks, and audit logs.
+
+The important design choice: live writes are not exposed as casual one-liners. They go through profiles, risk policy, whitelists, intent files, explicit `--live` confirmation, provider permission checks, and append-only audit events.
+
+Start here:
+
+```bash
+agent-finance skills get profile --full
+agent-finance profile template --profile default
+agent-finance profile doctor --profile default
+```
+
+Command families:
+
+```bash
+agent-finance account balances --profile default
+agent-finance order create BTCUSDT --profile default --market spot --side buy --kind limit --quantity 0.001 --price 50000
+agent-finance risk check INTENT_ID --profile default
+agent-finance order submit INTENT_ID --profile default
+agent-finance audit tail --limit 20
+```
+
+## Provider Notes
+
+- `market price SYMBOL` is the default answer to "what is it trading at now?"
 - `market sessions SYMBOL` is for explicit regular/pre/post/overnight/provider comparisons.
 - `market history` defaults to adjusted prices and includes corporate actions unless disabled.
 - `market providers` is the source-of-truth capability matrix. Do not infer coverage from provider names.
-- Crypto commands are capability-first: use `market crypto quote/book/trades/candles/funding/open-interest/discover`, then force `--provider binance|coinbase|okx|coingecko` only when cross-checking or auditing.
-- Binance, Coinbase, OKX, and CoinGecko are tier-1 crypto no-key providers for different jobs. Binance/OKX are best for exchange and derivatives microstructure; Coinbase is a spot exchange cross-check; CoinGecko is an aggregate breadth/trending/metadata source.
-- Binance Spot and crypto spot prices are crypto spot. USD-M futures / TradFi perps are derivatives and proxy instruments, not legal equity, broker fill, or pre-IPO ownership price.
-- Binance Spot WebSocket uses the public market-data-only endpoint. USD-M Futures WebSocket streams are routed through Binance's current public/market paths.
-- Polymarket is a prediction-market sentiment source. Use it for implied probabilities, orderbook, spread, volume, liquidity, open interest, holder preview rows, and probability history. It is not an equity quote, primary-source fact, or confirmation of insider information.
+- Crypto commands are capability-first. Force `--provider binance|coinbase|okx|coingecko` only when cross-checking or auditing.
+- Binance and OKX are best for exchange and derivatives microstructure. Coinbase is a spot exchange cross-check. CoinGecko is aggregate breadth, trending, and metadata.
+- Binance USD-M futures and TradFi proxy symbols are derivatives/proxies, not legal equity, broker fills, or pre-IPO ownership prices.
+- Polymarket is useful for implied probabilities, spread, volume, liquidity, open interest, holder preview rows, and probability history. It is not a primary-source fact feed.
 - `market read-url` is an extraction fallback using direct/Jina/Defuddle readers. It is not a login-capable browser.
-- Dynamic, login-gated, screenshot-sensitive, or noisy pages should be verified with a real browser tool. `agent-browser` and `opencli` are examples, not dependencies.
+- Dynamic, login-gated, screenshot-sensitive, or noisy pages should still be verified with a real browser tool such as `agent-browser` or OpenCLI.
 
-## Network Defaults
-
-`agent-finance` respects explicit and environment proxy configuration:
-
-```bash
-agent-finance --proxy socks5h://127.0.0.1:7890 market price CRDO
-agent-finance --no-proxy market price CRDO
-```
+## Network And Local State
 
 Proxy precedence:
 
@@ -142,8 +218,25 @@ Proxy precedence:
 4. `HTTPS_PROXY`
 5. `HTTP_PROXY`
 
-No proxy is hardcoded by default.
+Examples:
+
+```bash
+agent-finance --proxy socks5h://127.0.0.1:7890 market price CRDO
+agent-finance --no-proxy market price CRDO
+```
+
+Local profile/data roots can be overridden for tests, sandboxes, and agent workspaces:
+
+```bash
+AGENT_FINANCE_CONFIG_HOME=/tmp/agent-finance/config \
+AGENT_FINANCE_DATA_HOME=/tmp/agent-finance/data \
+agent-finance profile template --profile default
+```
 
 SEC EDGAR requests use `AGENT_FINANCE_SEC_USER_AGENT` when set, otherwise a project-level user agent.
 
-Disclaimer: this tool is not investment advice; data may be delayed, incomplete, or wrong, and users must verify important facts and follow source terms.
+Set `AGENT_FINANCE_SKILL_DATA_DIR` to test or override runtime skill documents. The npm wrapper sets `AGENT_FINANCE_PACKAGE_ROOT` automatically for prebuilt platform binaries.
+
+## Safety
+
+This tool is not investment advice. Market data can be delayed, incomplete, or wrong. Provider payloads can change. Social and prediction-market signals are evidence, not truth. Verify important facts against primary sources and follow source terms.

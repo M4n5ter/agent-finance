@@ -1,12 +1,12 @@
 ---
 name: agent-finance
-description: AI Agent-first CLI for no-key financial market data and research context. Use when Codex or another AI agent needs current quotes, regular/pre/post/overnight session splits, crypto market data, OHLCV history, indicators, prediction-market sentiment, provider capability discovery, no-key research payloads, URL text extraction, polling, or WebSocket streams.
+description: agent-finance is an AI-agent-first market intelligence CLI for evidence-driven financial research. Use when Codex or another AI agent needs current quotes, regular/pre/post/overnight session splits, crypto market data, OHLCV history, indicators, prediction-market sentiment, provider capability discovery, no-key research payloads, URL text extraction, polling, or WebSocket streams.
 hidden: true
 ---
 
 # agent-finance
 
-`agent-finance` is a finance and market-data CLI built for human-operated AI agents.
+`agent-finance` is a finance and market-data CLI built for AI agents and automation workflows.
 
 This file is a discovery stub, not the full usage guide. Before running data-collection commands, load the installed version's runtime skill content:
 

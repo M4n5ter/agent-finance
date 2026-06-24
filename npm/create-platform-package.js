@@ -34,13 +34,13 @@ for (const file of ["LICENSE-MIT", "LICENSE-APACHE"]) {
 
 fs.writeFileSync(
   path.join(outDir, "README.md"),
-  `# ${packageName}\n\nPrebuilt ${os}/${cpu} binary package for \`agent-finance-cli\`.\n\nInstall the main package instead:\n\n\`\`\`bash\nnpm install -g agent-finance-cli\n\`\`\`\n`,
+  `# ${packageName}\n\nPrebuilt ${os}/${cpu} binary package for \`agent-finance\`.\n\nInstall the main npm package instead:\n\n\`\`\`bash\nnpm install -g agent-finance-cli\n\`\`\`\n`,
 );
 
 writeJson(path.join(outDir, "package.json"), {
   name: packageName,
   version: rootPackage.version,
-  description: `Prebuilt ${os}/${cpu} binary for agent-finance-cli.`,
+  description: `Prebuilt ${os}/${cpu} binary for agent-finance.`,
   license: rootPackage.license,
   repository: rootPackage.repository,
   homepage: rootPackage.homepage,

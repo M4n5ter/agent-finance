@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "AI Agent-first CLI for no-key financial market data and research context."
+description = "agent-finance: AI-agent-first market intelligence CLI for evidence-driven financial research."
 
 [[bin]]
 name = "agent-finance"

@@ -20,6 +20,10 @@ for (const packageName of expectedPackages) {
 }
 
 for (const file of [
+  "README.md",
+  "README_ZH.md",
+  "README_JA.md",
+  "README_KO.md",
   "bin/",
   "npm/",
   "skills/",

@@ -54,7 +54,7 @@ pub fn agent_finance_cache_root() -> Result<PathBuf> {
         .map(PathBuf::from)
         .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".cache")))
         .context("HOME or XDG_CACHE_HOME is required for cache")?;
-    Ok(root.join("agent-finance-cli"))
+    Ok(root.join("agent-finance"))
 }
 
 fn safe_segment(value: &str) -> String {

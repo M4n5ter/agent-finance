@@ -12,7 +12,7 @@ const SEC_SUBMISSIONS_BASE_URL: &str = "https://data.sec.gov/submissions";
 const SEC_COMPANYFACTS_BASE_URL: &str = "https://data.sec.gov/api/xbrl/companyfacts";
 const SEC_USER_AGENT_ENV: &str = "AGENT_FINANCE_SEC_USER_AGENT";
 const DEFAULT_SEC_USER_AGENT: &str =
-    "agent-finance-cli/0.1 (+https://github.com/M4n5ter/agent-finance-cli)";
+    "agent-finance/0.3.1 (+https://github.com/M4n5ter/agent-finance)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SecCompany {

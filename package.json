@@ -1,15 +1,15 @@
 {
   "name": "agent-finance-cli",
-  "version": "0.3.0",
-  "description": "AI Agent-first CLI for no-key financial market data and research context.",
+  "version": "0.3.1",
+  "description": "agent-finance: AI-agent-first market intelligence CLI for evidence-driven financial research.",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/M4n5ter/agent-finance-cli.git"
+    "url": "git+https://github.com/M4n5ter/agent-finance.git"
   },
-  "homepage": "https://github.com/M4n5ter/agent-finance-cli#readme",
+  "homepage": "https://github.com/M4n5ter/agent-finance#readme",
   "bugs": {
-    "url": "https://github.com/M4n5ter/agent-finance-cli/issues"
+    "url": "https://github.com/M4n5ter/agent-finance/issues"
   },
   "bin": {
     "agent-finance": "bin/agent-finance.js"
@@ -28,6 +28,9 @@
     "Cargo.toml",
     "Cargo.lock",
     "README.md",
+    "README_ZH.md",
+    "README_JA.md",
+    "README_KO.md",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
@@ -37,11 +40,11 @@
     "check:npm": "node npm/check-package.js"
   },
   "optionalDependencies": {
-    "agent-finance-cli-darwin-arm64": "0.3.0",
-    "agent-finance-cli-darwin-x64": "0.3.0",
-    "agent-finance-cli-linux-arm64": "0.3.0",
-    "agent-finance-cli-linux-x64": "0.3.0",
-    "agent-finance-cli-win32-x64": "0.3.0"
+    "agent-finance-cli-darwin-arm64": "0.3.1",
+    "agent-finance-cli-darwin-x64": "0.3.1",
+    "agent-finance-cli-linux-arm64": "0.3.1",
+    "agent-finance-cli-linux-x64": "0.3.1",
+    "agent-finance-cli-win32-x64": "0.3.1"
   },
   "keywords": [
     "finance",
