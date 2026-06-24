@@ -460,50 +460,70 @@ fn binance_testnet_signed_order_test_surface_is_usable() {
     let env = SignedProfileEnv::new("testnet-binance");
     env.write_profile("testnet-binance", SignedProfileEnvironment::Testnet);
 
-    let intent = env.command_json(&[
-        "order",
-        "create",
-        "BTCUSDT",
-        "--profile",
-        "testnet-binance",
-        "--market",
-        "spot",
-        "--side",
-        "buy",
-        "--kind",
-        "limit",
-        "--quantity",
-        "0.0001",
-        "--price",
-        "50000",
-        "--time-in-force",
-        "gtc",
-        "--json",
-    ]);
-    assert_eq!(intent["risk"]["allowed"], true);
-    let intent_id = intent["intent"]["id"]
-        .as_str()
-        .expect("order intent should have id");
+    for case in [
+        OrderTestCase {
+            market: "spot",
+            quantity: "0.0001",
+            price: "50000",
+        },
+        OrderTestCase {
+            market: "usds-futures",
+            quantity: "0.001",
+            price: "50000",
+        },
+    ] {
+        let intent = env.command_json(&[
+            "order",
+            "create",
+            "BTCUSDT",
+            "--profile",
+            "testnet-binance",
+            "--market",
+            case.market,
+            "--side",
+            "buy",
+            "--kind",
+            "limit",
+            "--quantity",
+            case.quantity,
+            "--price",
+            case.price,
+            "--time-in-force",
+            "gtc",
+            "--json",
+        ]);
+        assert_eq!(intent["risk"]["allowed"], true);
+        let intent_id = intent["intent"]["id"]
+            .as_str()
+            .expect("order intent should have id");
 
-    let submit = env.command_json(&[
-        "order",
-        "submit",
-        intent_id,
-        "--profile",
-        "testnet-binance",
-        "--test",
-        "--json",
-    ]);
-    assert_eq!(submit["risk"]["allowed"], true);
-    assert_eq!(submit["intent_kind"], "order");
-    assert_eq!(submit["mode"], "test");
-    assert_eq!(submit["execution"]["kind"], "order-submit");
-    assert!(
-        submit["execution"]["payload"]["exchange_rules"]["allowed"]
-            .as_bool()
-            .unwrap_or(false),
-        "exchangeInfo rule preflight should allow the order-test"
-    );
+        let submit = env.command_json(&[
+            "order",
+            "submit",
+            intent_id,
+            "--profile",
+            "testnet-binance",
+            "--test",
+            "--json",
+        ]);
+        assert_eq!(submit["risk"]["allowed"], true);
+        assert_eq!(submit["intent_kind"], "order");
+        assert_eq!(submit["mode"], "test");
+        assert_eq!(submit["execution"]["kind"], "order-submit");
+        assert!(
+            submit["execution"]["payload"]["exchange_rules"]["allowed"]
+                .as_bool()
+                .unwrap_or(false),
+            "{} exchangeInfo rule preflight should allow the order-test",
+            case.market
+        );
+    }
+}
+
+struct OrderTestCase {
+    market: &'static str,
+    quantity: &'static str,
+    price: &'static str,
 }
 
 fn command(args: &[&str]) -> serde_json::Value {
@@ -631,7 +651,7 @@ universal_transfer = false
 
 [risk]
 allow_live = false
-max_daily_order_notional_usdt = "50"
+max_daily_order_notional_usdt = "100"
 allowed_transfers = []
 
 [[risk.allowed_futures_state_changes]]
@@ -651,7 +671,7 @@ mode = "hedge"
 [risk.allowed_symbols.BTCUSDT]
 markets = ["spot", "usds-futures"]
 order_kinds = ["market", "limit", "limit-maker"]
-max_order_notional_usdt = "25"
+max_order_notional_usdt = "100"
 "#
     )
 }

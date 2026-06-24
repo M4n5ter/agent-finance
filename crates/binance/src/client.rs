@@ -355,29 +355,9 @@ impl BinanceClient {
         intent: &OrderIntent,
         mode: BinanceRequestMode,
     ) -> Result<Value> {
-        let params = order_params(intent)?;
-        match (mode, intent.market) {
-            (BinanceRequestMode::Test, Market::Spot) => {
-                self.signed_post(&self.endpoints.spot_base_url, "/api/v3/order/test", params)
-                    .await
-            }
-            (BinanceRequestMode::Test, Market::UsdsFutures) => {
-                self.signed_post(
-                    &self.endpoints.futures_base_url,
-                    "/fapi/v1/order/test",
-                    params,
-                )
-                .await
-            }
-            (BinanceRequestMode::Live, market) => {
-                self.signed_post(
-                    order_base_url(&self.endpoints, market),
-                    order_path(market, false),
-                    params,
-                )
-                .await
-            }
-        }
+        let test = matches!(mode, BinanceRequestMode::Test);
+        let request = BinancePlanner::new(self.endpoints.clone()).order_request(intent, test)?;
+        self.signed_request(request).await
     }
 
     pub async fn cancel_order(&self, intent: &CancelIntent) -> Result<Value> {
@@ -449,31 +429,14 @@ impl BinanceClient {
         .await
     }
 
-    fn signed_url(
-        &self,
-        base_url: &str,
-        path: &str,
-        mut params: Vec<(String, String)>,
-    ) -> Result<Url> {
-        params.push(("recvWindow".to_string(), self.recv_window_ms.to_string()));
-        params.push((
-            "timestamp".to_string(),
-            Utc::now().timestamp_millis().to_string(),
-        ));
-        let query = form_urlencoded(&params);
-        let signature = self.signer.sign(&query)?;
-        params.push(("signature".to_string(), signature));
-        build_url(base_url, path, &params)
-    }
-
     async fn signed_get(
         &self,
         base_url: &str,
         path: &str,
         params: Vec<(String, String)>,
     ) -> Result<Value> {
-        let url = self.signed_url(base_url, path, params)?;
-        self.send(self.http.get(url.as_str())).await
+        self.signed_request(unsigned_request("GET", base_url, path, params))
+            .await
     }
 
     async fn signed_post(
@@ -482,8 +445,35 @@ impl BinanceClient {
         path: &str,
         params: Vec<(String, String)>,
     ) -> Result<Value> {
-        let url = self.signed_url(base_url, path, params)?;
-        self.send(self.http.post(url.as_str())).await
+        self.signed_request(unsigned_request("POST", base_url, path, params))
+            .await
+    }
+
+    async fn signed_request(&self, request: SignedRequest) -> Result<Value> {
+        let method = request.method.clone();
+        let url = self.signed_request_url(request)?;
+        match method.as_str() {
+            "POST" => self.send(self.http.post(url.as_str())).await,
+            "GET" => self.send(self.http.get(url.as_str())).await,
+            "DELETE" => self.send(self.http.delete(url.as_str())).await,
+            method => Err(anyhow!(
+                "unsupported Binance signed request method {method}"
+            )),
+        }
+    }
+
+    fn signed_request_url(&self, mut request: SignedRequest) -> Result<Url> {
+        request
+            .params
+            .push(("recvWindow".to_string(), self.recv_window_ms.to_string()));
+        request.params.push((
+            "timestamp".to_string(),
+            Utc::now().timestamp_millis().to_string(),
+        ));
+        let query = form_urlencoded(&request.params);
+        let signature = self.signer.sign(&query)?;
+        request.params.push(("signature".to_string(), signature));
+        build_absolute_url(&request.url, &request.params)
     }
 
     async fn signed_delete(
@@ -492,8 +482,8 @@ impl BinanceClient {
         path: &str,
         params: Vec<(String, String)>,
     ) -> Result<Value> {
-        let url = self.signed_url(base_url, path, params)?;
-        self.send(self.http.delete(url.as_str())).await
+        self.signed_request(unsigned_request("DELETE", base_url, path, params))
+            .await
     }
 
     async fn public_get(
@@ -716,6 +706,17 @@ fn build_url(base_url: &str, path: &str, params: &[(String, String)]) -> Result<
     Ok(url)
 }
 
+fn build_absolute_url(url: &str, params: &[(String, String)]) -> Result<Url> {
+    let mut url = Url::parse(url).with_context(|| format!("invalid Binance request URL: {url}"))?;
+    {
+        let mut query = url.query_pairs_mut();
+        for (key, value) in params {
+            query.append_pair(key, value);
+        }
+    }
+    Ok(url)
+}
+
 fn unsigned_request(
     method: &str,
     base_url: &str,
@@ -768,6 +769,45 @@ mod tests {
         assert!(params.contains(&("symbol".to_string(), "BTCUSDT".to_string())));
         assert!(params.contains(&("type".to_string(), "LIMIT".to_string())));
         assert!(params.contains(&("timeInForce".to_string(), "GTC".to_string())));
+    }
+
+    #[test]
+    fn futures_order_test_request_uses_usds_futures_endpoint() {
+        let intent = OrderIntent {
+            profile: "test".to_string(),
+            provider: Provider::Binance,
+            environment: Environment::Testnet,
+            market: Market::UsdsFutures,
+            symbol: "btcusdt".to_string(),
+            side: OrderSide::Buy,
+            quantity: "0.001".parse::<DecimalValue>().unwrap(),
+            spec: OrderSpec::Limit {
+                price: "50000".parse::<DecimalValue>().unwrap(),
+                time_in_force: TimeInForce::Gtc,
+            },
+            reduce_only: false,
+            position_side: None,
+            client_order_id: "af-test".to_string(),
+        };
+        let request = BinancePlanner::new(BinanceEndpoints::new(
+            Environment::Testnet,
+            None,
+            None,
+            None,
+        ))
+        .order_request(&intent, true)
+        .expect("futures order test request");
+
+        assert_eq!(request.method, "POST");
+        assert_eq!(
+            request.url,
+            "https://testnet.binancefuture.com/fapi/v1/order/test"
+        );
+        assert!(
+            request
+                .params
+                .contains(&("symbol".to_string(), "BTCUSDT".to_string()))
+        );
     }
 
     #[test]
