@@ -86,13 +86,30 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          package_exists() {
+            npm view "$1@$2" version >/dev/null 2>&1
+          }
+          version="$(node -p 'require("./package.json").version')"
           find npm-dist -name package.json -mindepth 2 -maxdepth 3 -print0 \
             | sort -z \
             | while IFS= read -r -d '' package_json; do
             package_dir="$(dirname "$package_json")"
+            package_name="$(node -p "require('$PWD/$package_json').name")"
+            if package_exists "$package_name" "$version"; then
+              echo "$package_name@$version already exists; skipping"
+              continue
+            fi
             npm publish "$PWD/$package_dir" --access public
           done
       - name: publish main package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --ignore-scripts
+        run: |
+          set -euo pipefail
+          package_name="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "$package_name@$version" version >/dev/null 2>&1; then
+            echo "$package_name@$version already exists; skipping"
+            exit 0
+          fi
+          npm publish --access public --ignore-scripts
