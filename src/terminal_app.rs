@@ -97,12 +97,24 @@ pub(crate) async fn run_profile(args: ProfileArgs, timeout_seconds: u64) -> Resu
                     .account_permissions()
                     .await
                 {
-                    Ok(payload) => checks.push(json!({
-                        "name": "binance-permissions",
-                        "ok": true,
-                        "message": "Binance API key permission endpoint succeeded",
-                        "payload": payload,
-                    })),
+                    Ok(payload) => {
+                        let permission_checks =
+                            agent_finance_binance::profile_permission_checks(&profile, &payload);
+                        checks.push(json!({
+                            "name": "binance-permissions",
+                            "ok": true,
+                            "message": "Binance API key permission endpoint succeeded",
+                            "payload": payload,
+                        }));
+                        for check in permission_checks {
+                            checks.push(json!({
+                                "name": check.name,
+                                "ok": check.ok,
+                                "required": check.required,
+                                "message": check.message,
+                            }));
+                        }
+                    }
                     Err(error) => checks.push(json!({
                         "name": "binance-permissions",
                         "ok": false,

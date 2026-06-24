@@ -13,7 +13,7 @@ Also use it before USD-M futures `state` changes.
 - A profile is a TOML file in the user config directory.
 - The profile stores environment variable names for Binance HMAC keys, not secrets.
 - The default HMAC secret env is `BINANCE_PRIVATE_KEY`; in Binance HMAC mode this is the API Secret string, not an RSA or Ed25519 private key.
-- Live writes require all of these: profile `allow_live = true`, the relevant order/transfer/futures-state whitelist, intent id, and `--live`.
+- Live writes require all of these: profile `allow_live = true`, the relevant order/transfer/futures-state whitelist, matching Binance API permissions, intent id, and `--live`.
 - Live market orders are blocked until risk notional can be derived from fresh exchange data instead of user-supplied `valuation_price`.
 - USD-M futures leverage, margin type, and Binance futures account position mode changes require explicit `risk.allowed_futures_state_changes` policy and use separate `state` intents.
 - Binance position mode changes every symbol; UM/CM share `dualSidePosition`, and Binance rejects the change when either side has open orders or open positions.
@@ -133,6 +133,8 @@ cargo test --test binance_live_write binance_live_transfer_smoke_is_usable -- --
 - Never put API secrets in TOML, Markdown, command history, audit logs, or prompts.
 - Use Binance testnet profiles first.
 - For live profiles, keep whitelist and notional limits small.
+- `profile doctor` reads Binance API restrictions when HMAC env vars are set and reports specific permission checks for spot trading, USD-M futures, and universal transfer.
+- Live submit checks the required Binance API permissions before claiming the intent, so a permission failure does not consume the intent.
 - `max_daily_order_notional_usdt` is enforced from the local append-only audit log for `risk check --live` and live order submit. Matching live-submit events with missing notional data fail closed.
 - `order submit` without flags is an offline dry-run; `--test` calls an exchange test endpoint where available but does not consume the intent; only `--live` consumes the intent.
 - `order submit --test` and `order submit --live` fetch Binance `exchangeInfo` and block orders that violate locally checkable symbol status, price tick, lot size, or notional filters. Dry-run is offline and prints the `exchangeInfo` request that will be checked later.

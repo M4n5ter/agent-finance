@@ -172,6 +172,27 @@ pub(crate) async fn submit_intent(
     timeout_seconds: u64,
 ) -> Result<SubmitReport> {
     let store = agent_finance_core::IntentStore::from_default_dir()?;
+    submit_intent_from_store(
+        profile,
+        &store,
+        intent_id,
+        expected_kind,
+        mode,
+        LivePermissionSource::Binance { timeout_seconds },
+        timeout_seconds,
+    )
+    .await
+}
+
+async fn submit_intent_from_store(
+    profile: &agent_finance_core::Profile,
+    store: &agent_finance_core::IntentStore,
+    intent_id: &str,
+    expected_kind: ExpectedIntentKind,
+    mode: WriteMode,
+    permission_source: LivePermissionSource,
+    timeout_seconds: u64,
+) -> Result<SubmitReport> {
     let envelope = store.load_for_submit(intent_id)?;
     expected_kind.validate(&envelope.kind)?;
     if matches!(mode, WriteMode::Test)
@@ -186,6 +207,7 @@ pub(crate) async fn submit_intent(
         let error = anyhow!("risk policy blocked intent submit");
         return Err(error);
     }
+    check_live_permissions(profile, &envelope.kind, mode, permission_source).await?;
     if !mode.consumes_intent() {
         let response = execute_intent(profile, &envelope.kind, mode, timeout_seconds).await?;
         append_audit(
@@ -249,6 +271,41 @@ pub(crate) async fn submit_intent(
             Err(error)
         }
     }
+}
+
+enum LivePermissionSource {
+    Binance {
+        timeout_seconds: u64,
+    },
+    #[cfg(test)]
+    Static(serde_json::Value),
+}
+
+async fn check_live_permissions(
+    profile: &agent_finance_core::Profile,
+    intent: &agent_finance_core::IntentKind,
+    mode: WriteMode,
+    source: LivePermissionSource,
+) -> Result<()> {
+    if !matches!(mode, WriteMode::Live) {
+        return Ok(());
+    }
+    let payload;
+    let payload = match source {
+        LivePermissionSource::Binance { timeout_seconds } => {
+            payload = binance_client(profile, timeout_seconds)?
+                .account_permissions()
+                .await?;
+            &payload
+        }
+        #[cfg(test)]
+        LivePermissionSource::Static(ref payload) => payload,
+    };
+    let checks = agent_finance_binance::intent_permission_checks(intent, payload);
+    if let Some(message) = agent_finance_binance::blocking_permission_error(&checks) {
+        return Err(anyhow!("{message}"));
+    }
+    Ok(())
 }
 
 fn live_order_audit_lock(
@@ -462,4 +519,97 @@ where
         println!("{}", text());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_finance_core::intent::IntentStatus;
+    use agent_finance_core::{
+        Environment, FuturesStateChange, FuturesStateIntent, FuturesStatePolicy, MarginType,
+        Provider, ProviderConfig, RiskPolicy,
+    };
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[tokio::test]
+    async fn live_permission_failure_does_not_claim_intent() {
+        let profile = test_profile();
+        let intent = FuturesStateIntent {
+            profile: profile.name.clone(),
+            provider: Provider::Binance,
+            environment: Environment::Live,
+            change: FuturesStateChange::MarginType {
+                symbol: "BTCUSDT".to_string(),
+                margin_type: MarginType::Isolated,
+            },
+        };
+        let envelope = agent_finance_core::create_futures_state_intent(intent, 300).unwrap();
+        let intent_id = envelope.id.clone();
+        let root = temp_root("permission-preclaim");
+        let store = agent_finance_core::IntentStore::from_root(root.join("intents"));
+        store.save(&envelope).unwrap();
+
+        let result = submit_intent_from_store(
+            &profile,
+            &store,
+            &intent_id,
+            ExpectedIntentKind::State,
+            WriteMode::Live,
+            LivePermissionSource::Static(json!({
+                "enableSpotAndMarginTrading": true,
+                "enableFutures": false,
+                "permitsUniversalTransfer": true
+            })),
+            10,
+        )
+        .await;
+        let error = match result {
+            Ok(_) => panic!("permission failure should block live submit"),
+            Err(error) => error,
+        };
+
+        assert!(
+            format!("{error:#}").contains("binance-usds-futures"),
+            "error should identify the missing permission: {error:#}"
+        );
+        let saved = store.load(&intent_id).unwrap();
+        assert_eq!(saved.metadata.status, IntentStatus::Created);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn test_profile() -> agent_finance_core::Profile {
+        agent_finance_core::Profile {
+            name: "test".to_string(),
+            provider: ProviderConfig {
+                provider: Provider::Binance,
+                environment: Environment::Live,
+                api_key_env: "BINANCE_API_KEY".to_string(),
+                api_secret_env: "BINANCE_PRIVATE_KEY".to_string(),
+                spot_base_url: None,
+                usds_futures_base_url: None,
+                sapi_base_url: None,
+            },
+            risk: RiskPolicy {
+                allow_live: true,
+                max_daily_order_notional_usdt: None,
+                allowed_symbols: BTreeMap::new(),
+                allowed_transfers: Vec::new(),
+                allowed_futures_state_changes: vec![FuturesStatePolicy::MarginType {
+                    symbol: "BTCUSDT".to_string(),
+                    margin_type: MarginType::Isolated,
+                }],
+            },
+        }
+    }
+
+    fn temp_root(name: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("agent-finance-{name}-{nanos}"))
+    }
 }
