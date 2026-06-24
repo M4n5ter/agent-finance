@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
 use serde_json::json;
@@ -8,6 +8,7 @@ use crate::cli::{
     OrderCommand, ProfileArgs, ProfileCommand, RiskArgs, RiskCommand, TransferArgs,
     TransferCommand,
 };
+use crate::signed_read::run_signed_read;
 use crate::terminal_write::{
     ExpectedIntentKind, WriteMode, binance_client, check_order_with_runtime_limits, load_profile,
     print_json_or_text, print_submit_report, risk_findings_text, save_intent_with_audit,
@@ -162,60 +163,28 @@ pub(crate) async fn run_account(args: AccountArgs, timeout_seconds: u64) -> Resu
     match args.command {
         AccountCommand::Permissions(args) => {
             let profile = load_profile(&args.profile)?;
-            let payload = binance_client(&profile, timeout_seconds)?
-                .account_permissions()
-                .await?;
-            let snapshot = account_snapshot(
-                &profile,
-                agent_finance_core::AccountSnapshotKind::ApiPermissions,
-                payload,
-            );
-            print_account_snapshot(args.json, &snapshot)
+            let request = agent_finance_core::SignedReadRequest::ApiPermissions;
+            let snapshot = run_signed_read(&profile, request, timeout_seconds).await?;
+            print_signed_read_snapshot(args.json, &snapshot)
         }
         AccountCommand::Balances(args) => {
             let profile = load_profile(&args.profile)?;
-            let payload = binance_client(&profile, timeout_seconds)?
-                .spot_account()
-                .await?;
-            let snapshot = account_snapshot(
-                &profile,
-                agent_finance_core::AccountSnapshotKind::SpotBalances,
-                payload,
-            );
-            print_account_snapshot(args.json, &snapshot)
+            let request = agent_finance_core::SignedReadRequest::SpotBalances;
+            let snapshot = run_signed_read(&profile, request, timeout_seconds).await?;
+            print_signed_read_snapshot(args.json, &snapshot)
         }
         AccountCommand::Positions(args) => {
             let profile = load_profile(&args.profile)?;
-            let payload = binance_client(&profile, timeout_seconds)?
-                .futures_account()
-                .await?;
-            let snapshot = account_snapshot(
-                &profile,
-                agent_finance_core::AccountSnapshotKind::UsdsFuturesPositions,
-                payload,
-            );
-            print_account_snapshot(args.json, &snapshot)
+            let request = agent_finance_core::SignedReadRequest::UsdsFuturesPositions;
+            let snapshot = run_signed_read(&profile, request, timeout_seconds).await?;
+            print_signed_read_snapshot(args.json, &snapshot)
         }
     }
 }
 
-fn account_snapshot(
-    profile: &agent_finance_core::Profile,
-    kind: agent_finance_core::AccountSnapshotKind,
-    payload: serde_json::Value,
-) -> agent_finance_core::AccountSnapshot {
-    agent_finance_core::AccountSnapshot::new(
-        profile.name.clone(),
-        profile.provider.provider,
-        profile.provider.environment,
-        kind,
-        payload,
-    )
-}
-
-fn print_account_snapshot(
+fn print_signed_read_snapshot(
     json_output: bool,
-    snapshot: &agent_finance_core::AccountSnapshot,
+    snapshot: &agent_finance_core::SignedReadSnapshot,
 ) -> Result<()> {
     print_json_or_text(json_output, snapshot, || {
         format!(
@@ -326,21 +295,22 @@ pub(crate) async fn run_order(args: OrderArgs, timeout_seconds: u64) -> Result<(
             let profile = load_profile(&args.profile)?;
             let target =
                 agent_finance_core::OrderIdentifier::new(args.order_id, args.client_order_id)?;
-            let response = binance_client(&profile, timeout_seconds)?
-                .query_order(args.market.into(), &args.symbol, &target)
-                .await?;
-            print_json_or_text(args.json, &response, || {
-                serde_json::to_string_pretty(&response).unwrap()
-            })
+            let request = agent_finance_core::SignedReadRequest::OrderQuery {
+                market: args.market.into(),
+                symbol: args.symbol.to_ascii_uppercase(),
+                target,
+            };
+            let snapshot = run_signed_read(&profile, request, timeout_seconds).await?;
+            print_signed_read_snapshot(args.json, &snapshot)
         }
         OrderCommand::Open(args) => {
             let profile = load_profile(&args.profile)?;
-            let response = binance_client(&profile, timeout_seconds)?
-                .open_orders(args.market.into(), args.symbol.as_deref())
-                .await?;
-            print_json_or_text(args.json, &response, || {
-                serde_json::to_string_pretty(&response).unwrap()
-            })
+            let request = agent_finance_core::SignedReadRequest::OpenOrders {
+                market: args.market.into(),
+                symbol: args.symbol.map(|symbol| symbol.to_ascii_uppercase()),
+            };
+            let snapshot = run_signed_read(&profile, request, timeout_seconds).await?;
+            print_signed_read_snapshot(args.json, &snapshot)
         }
     }
 }
@@ -394,13 +364,13 @@ pub(crate) async fn run_transfer(args: TransferArgs, timeout_seconds: u64) -> Re
         }
         TransferCommand::History(args) => {
             let profile = load_profile(&args.profile)?;
-            ensure_live_sapi_profile(&profile, "transfer history")?;
-            let response = binance_client(&profile, timeout_seconds)?
-                .transfer_history(args.direction.into(), args.current, args.size)
-                .await?;
-            print_json_or_text(args.json, &response, || {
-                serde_json::to_string_pretty(&response).unwrap()
-            })
+            let request = agent_finance_core::SignedReadRequest::transfer_history(
+                args.direction.into(),
+                args.current,
+                args.size,
+            );
+            let snapshot = run_signed_read(&profile, request, timeout_seconds).await?;
+            print_signed_read_snapshot(args.json, &snapshot)
         }
     }
 }
@@ -487,15 +457,6 @@ pub(crate) fn run_audit(args: AuditArgs) -> Result<()> {
             Ok(())
         }
     }
-}
-
-fn ensure_live_sapi_profile(profile: &agent_finance_core::Profile, operation: &str) -> Result<()> {
-    if profile.provider.environment == agent_finance_core::Environment::Live {
-        return Ok(());
-    }
-    Err(anyhow!(
-        "{operation} uses Binance SAPI live account data; use a live profile after reviewing the request"
-    ))
 }
 
 fn parse_optional_decimal(

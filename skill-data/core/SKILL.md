@@ -85,7 +85,9 @@ agent-finance account balances --profile default --json
 agent-finance account positions --profile default --json
 agent-finance risk explain --profile default
 agent-finance order submit INTENT_ID --profile default
-agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
+agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID --json
+agent-finance order open --profile default --market spot --symbol BTCUSDT --json
+agent-finance transfer history --profile live --direction spot-to-usds-futures --size 20 --json
 agent-finance state create --profile default --kind leverage --symbol BTCUSDT --leverage 2
 agent-finance state create --profile default --kind position-mode --position-mode hedge
 agent-finance state submit INTENT_ID --profile default
@@ -100,8 +102,8 @@ agent-finance audit export --json
 - Use `market providers --json` when an Agent needs a machine-readable capability matrix.
 - Use `capabilities --json` for the unified terminal surface, including account/order/transfer/futures-state safety boundaries.
 - Use `skills get profile` before touching signed account, order, transfer, futures state, risk, or audit commands.
-- Signed `account` commands return a typed snapshot envelope with `profile`, `provider`, `environment`, `kind`, and raw provider data under `payload`.
-- Account snapshot kinds are command discriminators: `account permissions` -> `api-permissions` with data under `payload`; `account balances` -> `spot-balances` with balances under `payload.balances`; `account positions` -> `usds-futures-positions` with futures account data under `payload.assets` and `payload.positions`.
+- Signed read commands return a typed `SignedReadSnapshot` envelope with `profile`, `provider`, `environment`, `kind`, typed `request` scope, and raw provider data under `payload`.
+- Signed read snapshot kinds are command discriminators: `account permissions` -> `api-permissions`, `account balances` -> `spot-balances`, `account positions` -> `usds-futures-positions`, `order query` -> `order-query`, `order open` -> `open-orders`, `transfer history` -> `transfer-history`.
 - Run `profile doctor` before live writes; it checks `[permissions]` against the risk policy, reports Binance API permission checks when HMAC env vars are set, and live submit rechecks exchange permissions before claiming the intent.
 - Signed order test/live submit checks locally checkable Binance exchangeInfo filters before sending an order; dry-run remains offline.
 - Live market orders are blocked until risk notional can be derived from fresh exchange data instead of user-supplied `valuation_price`.

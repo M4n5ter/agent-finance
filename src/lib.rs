@@ -17,6 +17,7 @@ mod page_read;
 mod price;
 mod providers;
 mod research;
+mod signed_read;
 mod skills;
 mod stream;
 mod terminal_app;

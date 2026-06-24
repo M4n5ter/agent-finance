@@ -513,44 +513,108 @@ pub struct ProviderConfig {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum AccountSnapshotKind {
+pub enum SignedReadSnapshotKind {
     ApiPermissions,
     SpotBalances,
     UsdsFuturesPositions,
+    OrderQuery,
+    OpenOrders,
+    TransferHistory,
 }
 
-impl fmt::Display for AccountSnapshotKind {
+impl fmt::Display for SignedReadSnapshotKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ApiPermissions => formatter.write_str("api-permissions"),
             Self::SpotBalances => formatter.write_str("spot-balances"),
             Self::UsdsFuturesPositions => formatter.write_str("usds-futures-positions"),
+            Self::OrderQuery => formatter.write_str("order-query"),
+            Self::OpenOrders => formatter.write_str("open-orders"),
+            Self::TransferHistory => formatter.write_str("transfer-history"),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccountSnapshot {
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SignedReadRequest {
+    ApiPermissions,
+    SpotBalances,
+    UsdsFuturesPositions,
+    OrderQuery {
+        market: Market,
+        symbol: String,
+        target: OrderIdentifier,
+    },
+    OpenOrders {
+        market: Market,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        symbol: Option<String>,
+    },
+    TransferHistory {
+        direction: TransferDirection,
+        current: usize,
+        size: usize,
+    },
+}
+
+impl SignedReadRequest {
+    pub fn normalized(self) -> Self {
+        match self {
+            Self::TransferHistory {
+                direction,
+                current,
+                size,
+            } => Self::transfer_history(direction, current, size),
+            other => other,
+        }
+    }
+
+    pub fn transfer_history(direction: TransferDirection, current: usize, size: usize) -> Self {
+        Self::TransferHistory {
+            direction,
+            current: current.max(1),
+            size: size.clamp(1, 100),
+        }
+    }
+
+    pub const fn snapshot_kind(&self) -> SignedReadSnapshotKind {
+        match self {
+            Self::ApiPermissions => SignedReadSnapshotKind::ApiPermissions,
+            Self::SpotBalances => SignedReadSnapshotKind::SpotBalances,
+            Self::UsdsFuturesPositions => SignedReadSnapshotKind::UsdsFuturesPositions,
+            Self::OrderQuery { .. } => SignedReadSnapshotKind::OrderQuery,
+            Self::OpenOrders { .. } => SignedReadSnapshotKind::OpenOrders,
+            Self::TransferHistory { .. } => SignedReadSnapshotKind::TransferHistory,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedReadSnapshot {
     pub profile: String,
     pub provider: Provider,
     pub environment: Environment,
-    pub kind: AccountSnapshotKind,
+    pub kind: SignedReadSnapshotKind,
+    pub request: SignedReadRequest,
     pub payload: serde_json::Value,
 }
 
-impl AccountSnapshot {
+impl SignedReadSnapshot {
     pub fn new(
         profile: impl Into<String>,
         provider: Provider,
         environment: Environment,
-        kind: AccountSnapshotKind,
+        request: SignedReadRequest,
         payload: serde_json::Value,
     ) -> Self {
+        let kind = request.snapshot_kind();
         Self {
             profile: profile.into(),
             provider,
             environment,
             kind,
+            request,
             payload,
         }
     }
@@ -871,21 +935,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn account_snapshot_keeps_provider_payload_inside_typed_envelope() {
-        let snapshot = AccountSnapshot::new(
+    fn signed_read_snapshot_keeps_provider_payload_inside_typed_envelope() {
+        let snapshot = SignedReadSnapshot::new(
             "default",
             Provider::Binance,
             Environment::Live,
-            AccountSnapshotKind::ApiPermissions,
+            SignedReadRequest::ApiPermissions,
             json!({"enableReading": true}),
         );
 
-        let value = serde_json::to_value(snapshot).expect("account snapshot json");
+        let value = serde_json::to_value(snapshot).expect("signed read snapshot json");
 
         assert_eq!(value["profile"], "default");
         assert_eq!(value["provider"], "binance");
         assert_eq!(value["environment"], "live");
         assert_eq!(value["kind"], "api-permissions");
+        assert_eq!(value["request"]["kind"], "api-permissions");
         assert_eq!(value["payload"]["enableReading"], true);
+    }
+
+    #[test]
+    fn signed_read_snapshot_kinds_are_stable_command_discriminators() {
+        let cases = [
+            (SignedReadSnapshotKind::ApiPermissions, "api-permissions"),
+            (SignedReadSnapshotKind::SpotBalances, "spot-balances"),
+            (
+                SignedReadSnapshotKind::UsdsFuturesPositions,
+                "usds-futures-positions",
+            ),
+            (SignedReadSnapshotKind::OrderQuery, "order-query"),
+            (SignedReadSnapshotKind::OpenOrders, "open-orders"),
+            (SignedReadSnapshotKind::TransferHistory, "transfer-history"),
+        ];
+
+        for (kind, expected) in cases {
+            let value = serde_json::to_value(kind).expect("snapshot kind json");
+            assert_eq!(value, expected);
+            assert_eq!(kind.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn transfer_history_request_uses_effective_binance_page_bounds() {
+        let request = SignedReadRequest::TransferHistory {
+            direction: TransferDirection::SpotToUsdsFutures,
+            current: 0,
+            size: 250,
+        }
+        .normalized();
+        let value = serde_json::to_value(request).expect("transfer request json");
+
+        assert_eq!(value["kind"], "transfer-history");
+        assert_eq!(value["current"], 1);
+        assert_eq!(value["size"], 100);
     }
 }

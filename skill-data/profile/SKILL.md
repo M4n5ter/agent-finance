@@ -51,16 +51,20 @@ agent-finance account balances --profile default --json
 agent-finance account positions --profile default --json
 ```
 
-Signed `account` JSON output is an `AccountSnapshot` envelope:
+Signed read JSON output is a `SignedReadSnapshot` envelope:
 
 - `profile`, `provider`, `environment`, `kind`
-- `payload`: raw provider response for the requested account read
+- `request`: typed read request and scope
+- `payload`: raw provider response for the requested signed read
 
 | Command | `kind` | Common payload path |
 | --- | --- | --- |
 | `account permissions` | `api-permissions` | `payload` |
 | `account balances` | `spot-balances` | `payload.balances` |
 | `account positions` | `usds-futures-positions` | `payload.assets`, `payload.positions` |
+| `order query` | `order-query` | `payload` |
+| `order open` | `open-orders` | `payload` |
+| `transfer history` | `transfer-history` | `payload.rows` |
 
 ## Order Flow
 
@@ -72,7 +76,8 @@ agent-finance risk check INTENT_ID --profile default
 agent-finance order submit INTENT_ID --profile default
 agent-finance order submit INTENT_ID --profile default --test
 agent-finance order submit INTENT_ID --profile default --live
-agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID
+agent-finance order query BTCUSDT --profile default --market spot --client-order-id CLIENT_ORDER_ID --json
+agent-finance order open --profile default --market spot --symbol BTCUSDT --json
 ```
 
 ## Cancel Flow
@@ -112,7 +117,7 @@ agent-finance transfer create USDT --profile default --direction spot-to-usds-fu
 agent-finance risk check INTENT_ID --profile default
 agent-finance transfer submit INTENT_ID --profile default
 agent-finance transfer submit INTENT_ID --profile default --live
-agent-finance transfer history --profile live --direction spot-to-usds-futures --size 20
+agent-finance transfer history --profile live --direction spot-to-usds-futures --size 20 --json
 ```
 
 ## Audit Flow
