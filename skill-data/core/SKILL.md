@@ -15,6 +15,14 @@ agent-finance market providers
 agent-finance capabilities
 ```
 
+For an interactive human-facing cockpit, use:
+
+```bash
+agent-finance tui --symbols AAPL,CRDO,BTCUSDT
+```
+
+Prefer structured `market ... --json` commands for agent data collection. The TUI is an interactive cockpit preview, not a machine extraction surface.
+
 ## Task Router
 
 ```bash

@@ -13,7 +13,10 @@ agent-finance skills get providers
 agent-finance skills get crypto
 agent-finance skills get prediction-markets
 agent-finance skills get history-indicators
+agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
+
+Use the TUI as an interactive cockpit preview. Use structured `market ... --json` commands when an agent needs parseable data.
 
 ## Price and Sessions
 

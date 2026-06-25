@@ -171,6 +171,14 @@ agent-finance market providers
 agent-finance capabilities
 ```
 
+Interactive cockpit:
+
+```bash
+agent-finance tui --symbols AAPL,CRDO,BTCUSDT
+```
+
+The TUI is an interactive cockpit preview. Market data panels are being wired in; agents should keep using `market ... --json` commands when they need structured data.
+
 ## Signed Trading Workflows
 
 `agent-finance` includes guarded Binance Spot and USD-M workflows for account reads, order intents, internal transfer intents, futures state changes, risk checks, and audit logs.

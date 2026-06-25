@@ -171,6 +171,14 @@ agent-finance market providers
 agent-finance capabilities
 ```
 
+交互式 cockpit：
+
+```bash
+agent-finance tui --symbols AAPL,CRDO,BTCUSDT
+```
+
+TUI 目前是交互式 cockpit 预览，市场数据面板正在接入中。Agent 需要结构化数据时，应继续使用 `market ... --json`。
+
 ## 签名交易流程
 
 `agent-finance` 包含受保护的 Binance Spot 和 USD-M 流程，可用于账户读取、订单 intent、内部划转 intent、futures 状态变更、风控检查和审计日志。

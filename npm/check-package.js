@@ -36,6 +36,8 @@ for (const file of [
   "crates/core/src/",
   "crates/market/Cargo.toml",
   "crates/market/src/",
+  "crates/tui/Cargo.toml",
+  "crates/tui/src/",
   "Cargo.toml",
   "Cargo.lock",
 ]) {

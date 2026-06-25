@@ -23,6 +23,11 @@ pub async fn run() -> Result<()> {
     let timeout_seconds = cli.timeout_seconds;
     match cli.command {
         Command::Market(args) => run_market(args, proxy, no_proxy, timeout_seconds, timezone).await,
+        Command::Tui(args) => agent_finance_tui::run(agent_finance_tui::TuiLaunch::new(
+            args.symbols,
+            args.config,
+            args.no_persist,
+        )),
         Command::Capabilities(args) => crate::terminal_app::run_capabilities(args),
         Command::Profile(args) => crate::terminal_app::run_profile(args, timeout_seconds).await,
         Command::Account(args) => crate::terminal_app::run_account(args, timeout_seconds).await,

@@ -60,6 +60,8 @@ pub struct Cli {
 pub enum Command {
     /// Fetch read-only market data, research context, prediction signals, and streams.
     Market(MarketArgs),
+    /// Open the interactive public-market cockpit.
+    Tui(TuiArgs),
     /// Print capability-first terminal surface for AI agents.
     Capabilities(CapabilitiesArgs),
     /// Inspect and explain trading profiles.
@@ -84,6 +86,21 @@ pub enum Command {
 pub struct MarketArgs {
     #[command(subcommand)]
     pub command: MarketCommand,
+}
+
+#[derive(Parser, Debug)]
+pub struct TuiArgs {
+    /// Initial watchlist symbols. Accepts repeated values and comma-separated lists.
+    #[arg(long, value_delimiter = ',', num_args = 1..)]
+    pub symbols: Vec<String>,
+
+    /// Explicit TUI TOML config path.
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    /// Do not write persistent layout/config state after launch.
+    #[arg(long)]
+    pub no_persist: bool,
 }
 
 #[derive(Subcommand, Debug)]
