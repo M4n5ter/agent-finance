@@ -178,6 +178,7 @@ agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
 TUI는 watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, 마우스 포커스, docked column 드래그 리사이즈, floating corner resize, panel close/restore, 실행 가능한 command palette를 갖춘 인터랙티브 cockpit입니다. Agent가 구조화된 데이터를 필요로 할 때는 계속 `market ... --json` 명령을 사용하세요.
+`--no-persist`를 쓰지 않으면 TUI는 watchlist, docked panel 구성, 현재 focused panel, column layout, floating panes, refresh cadence, provider preference를 TOML로 저장합니다.
 
 ## 서명 거래 흐름
 

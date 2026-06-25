@@ -6,6 +6,8 @@ use agent_finance_core::paths;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::model::{DockedPanels, FloatingPane, FloatingSize, Panel};
+
 pub const MIN_LEFT_RATIO: u16 = 15;
 pub const MAX_LEFT_RATIO: u16 = 35;
 pub const MIN_MAIN_RATIO: u16 = 35;
@@ -53,7 +55,11 @@ impl TuiLaunch {
 
     pub fn load_config(&self) -> Result<TuiConfig> {
         let config = if let Some(path) = self.config_path.as_deref() {
-            TuiConfig::load_from(path)?
+            if path.exists() {
+                TuiConfig::load_from(path)?
+            } else {
+                TuiConfig::default()
+            }
         } else {
             default_config_path()
                 .filter(|path| path.exists())
@@ -95,6 +101,10 @@ pub struct TuiConfig {
     #[serde(default)]
     pub layout: LayoutConfig,
     #[serde(default)]
+    pub panels: PanelConfig,
+    #[serde(default)]
+    pub floating: FloatingConfig,
+    #[serde(default)]
     pub refresh: RefreshConfig,
     #[serde(default)]
     pub providers: ProviderConfig,
@@ -105,6 +115,8 @@ impl Default for TuiConfig {
         Self {
             watchlist: default_watchlist(),
             layout: LayoutConfig::default(),
+            panels: PanelConfig::default(),
+            floating: FloatingConfig::default(),
             refresh: RefreshConfig::default(),
             providers: ProviderConfig::default(),
         }
@@ -138,6 +150,8 @@ impl TuiConfig {
             self.watchlist = default_watchlist();
         }
         self.layout.normalize();
+        self.panels.normalize();
+        self.floating.normalize();
         self.refresh.normalize();
     }
 }
@@ -166,6 +180,60 @@ impl LayoutConfig {
         if self.left_ratio + self.main_ratio > MAX_LEFT_MAIN_RATIO {
             self.main_ratio = MAX_LEFT_MAIN_RATIO - self.left_ratio;
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct PanelConfig {
+    #[serde(default = "default_open_panels")]
+    pub open: Vec<Panel>,
+    #[serde(default = "default_focused_panel")]
+    pub focused: Panel,
+}
+
+impl Default for PanelConfig {
+    fn default() -> Self {
+        Self {
+            open: default_open_panels(),
+            focused: default_focused_panel(),
+        }
+    }
+}
+
+impl PanelConfig {
+    pub fn normalize(&mut self) {
+        let (open, focused) =
+            DockedPanels::from_open_focused(self.open.clone(), self.focused).into_parts();
+        self.open = open;
+        self.focused = focused;
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct FloatingConfig {
+    #[serde(default)]
+    pub panes: Vec<FloatingPane>,
+}
+
+impl FloatingConfig {
+    pub fn normalize(&mut self) {
+        let mut normalized = Vec::new();
+        for pane in &self.panes {
+            if !pane.kind.persistent() {
+                continue;
+            }
+            if normalized
+                .iter()
+                .any(|existing: &FloatingPane| existing.kind == pane.kind)
+            {
+                continue;
+            }
+            normalized.push(FloatingPane {
+                kind: pane.kind,
+                size: FloatingSize::resized(pane.size.width_ratio, pane.size.height_ratio),
+            });
+        }
+        self.panes = normalized;
     }
 }
 
@@ -227,6 +295,14 @@ fn normalize_symbols(symbols: &[String]) -> Vec<String> {
     normalized
 }
 
+fn default_open_panels() -> Vec<Panel> {
+    Panel::ALL.to_vec()
+}
+
+const fn default_focused_panel() -> Panel {
+    Panel::Watchlist
+}
+
 fn default_watchlist() -> Vec<String> {
     ["AAPL", "CRDO", "BTCUSDT"]
         .into_iter()
@@ -261,6 +337,8 @@ fn default_crypto_provider() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::FloatingKind;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn launch_symbols_override_and_normalize_config_watchlist() {
@@ -300,6 +378,22 @@ mod tests {
                 left_ratio: 8,
                 main_ratio: 90,
             },
+            panels: PanelConfig {
+                open: vec![Panel::Research, Panel::Watchlist, Panel::Research],
+                focused: Panel::ProviderHealth,
+            },
+            floating: FloatingConfig {
+                panes: vec![
+                    FloatingPane {
+                        kind: FloatingKind::Help,
+                        size: FloatingSize::resized(99, 5),
+                    },
+                    FloatingPane {
+                        kind: FloatingKind::Help,
+                        size: FloatingSize::resized(40, 40),
+                    },
+                ],
+            },
             refresh: RefreshConfig {
                 price_seconds: 1,
                 research_seconds: 10,
@@ -317,8 +411,90 @@ mod tests {
         assert_eq!(decoded.watchlist, ["LITE", "AAOI"]);
         assert_eq!(decoded.layout.left_ratio, 15);
         assert_eq!(decoded.layout.main_ratio, 60);
+        assert_eq!(decoded.panels.open, [Panel::Watchlist, Panel::Research]);
+        assert_eq!(decoded.panels.focused, Panel::Watchlist);
+        assert_eq!(decoded.floating.panes.len(), 1);
+        assert_eq!(
+            decoded.floating.panes[0].size,
+            FloatingSize::resized(95, 20)
+        );
         assert_eq!(decoded.refresh.price_seconds, 2);
         assert_eq!(decoded.refresh.research_seconds, 60);
         assert_eq!(decoded.providers.crypto, "binance");
+    }
+
+    #[test]
+    fn no_persist_launch_does_not_write_config_file() {
+        let path = unique_temp_config_path("no-persist");
+        let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), true);
+
+        launch
+            .persist_config(&TuiConfig::default())
+            .expect("no-persist should be a no-op");
+
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn explicit_missing_config_path_starts_from_default_config() {
+        let path = unique_temp_config_path("missing-config");
+        let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), true);
+
+        let config = launch.load_config().expect("missing config should default");
+
+        assert_eq!(config, TuiConfig::default());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn persist_then_load_roundtrips_runtime_layout_config() {
+        let path = unique_temp_config_path("persist-roundtrip");
+        let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), false);
+        let mut config = TuiConfig {
+            watchlist: vec!["crdo".to_string(), "lite".to_string()],
+            layout: LayoutConfig {
+                left_ratio: 30,
+                main_ratio: 42,
+            },
+            panels: PanelConfig {
+                open: vec![Panel::Watchlist, Panel::History],
+                focused: Panel::History,
+            },
+            floating: FloatingConfig {
+                panes: vec![
+                    FloatingPane {
+                        kind: FloatingKind::CommandPalette,
+                        size: FloatingSize::resized(70, 40),
+                    },
+                    FloatingPane {
+                        kind: FloatingKind::ProviderDetails,
+                        size: FloatingSize::resized(61, 62),
+                    },
+                ],
+            },
+            ..TuiConfig::default()
+        };
+        config.normalize();
+
+        launch.persist_config(&config).expect("persist config");
+        let loaded = launch.load_config().expect("load config");
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(loaded.watchlist, ["CRDO", "LITE"]);
+        assert_eq!(loaded.layout.left_ratio, 30);
+        assert_eq!(loaded.layout.main_ratio, 42);
+        assert_eq!(loaded.panels.open, [Panel::Watchlist, Panel::History]);
+        assert_eq!(loaded.panels.focused, Panel::History);
+        assert_eq!(loaded.floating.panes.len(), 1);
+        assert_eq!(loaded.floating.panes[0].kind, FloatingKind::ProviderDetails);
+        assert_eq!(loaded.floating.panes[0].size, FloatingSize::resized(61, 62));
+    }
+
+    fn unique_temp_config_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("agent-finance-tui-{name}-{nanos}.toml"))
     }
 }

@@ -178,6 +178,7 @@ agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
 The TUI is an interactive cockpit with watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette. Agents should keep using `market ... --json` commands when they need structured data.
+It persists the watchlist, docked panel set, focused panel, column layout, floating panes, refresh cadence, and provider preferences to TOML unless `--no-persist` is used.
 
 ## Signed Trading Workflows
 

@@ -178,6 +178,7 @@ agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
 TUI は、watchlist、quote/sessions、history、crypto evidence、research、Polymarket、provider health、task log、マウスフォーカス、docked column のドラッグリサイズ、floating corner resize、panel の close/restore、実行可能な command palette を備えたインタラクティブ cockpit です。Agent が構造化データを必要とする場合は、引き続き `market ... --json` を使ってください。
+`--no-persist` を指定しない限り、TUI は watchlist、docked panel の構成、現在 focused な panel、列レイアウト、floating panes、更新間隔、provider 設定を TOML に保存します。
 
 ## 署名付き取引フロー
 

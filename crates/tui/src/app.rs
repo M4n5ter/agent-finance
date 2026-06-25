@@ -45,9 +45,15 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
             launch: &launch,
         },
     );
+    let next_config = result
+        .as_ref()
+        .map(|()| state.export_config(&runtime_config));
     let restore_result = terminal.leave();
+    let persist_result = next_config
+        .as_ref()
+        .map_or(Ok(()), |config| launch.persist_config(config));
 
-    result.and(restore_result)
+    result.and(restore_result).and(persist_result)
 }
 
 fn run_loop(

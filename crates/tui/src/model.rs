@@ -1,4 +1,7 @@
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Panel {
     Watchlist,
     Quote,
@@ -69,12 +72,22 @@ impl DockedPanels {
         }
     }
 
+    pub fn from_open_focused(open: Vec<Panel>, focused: Panel) -> Self {
+        let mut panels = Self { open, focused };
+        panels.normalize();
+        panels
+    }
+
     pub fn focused(&self) -> Panel {
         self.focused
     }
 
     pub fn open_panels(&self) -> &[Panel] {
         &self.open
+    }
+
+    pub fn into_parts(self) -> (Vec<Panel>, Panel) {
+        (self.open, self.focused)
     }
 
     pub fn open_count(&self) -> usize {
@@ -127,9 +140,23 @@ impl DockedPanels {
     pub fn restore(&mut self) {
         self.open = Panel::ALL.to_vec();
     }
+
+    fn normalize(&mut self) {
+        self.open = Panel::ALL
+            .into_iter()
+            .filter(|panel| self.open.contains(panel))
+            .collect();
+        if self.open.is_empty() {
+            self.open = Panel::ALL.to_vec();
+        }
+        if !self.open.contains(&self.focused) {
+            self.focused = self.open[0];
+        }
+    }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum FloatingKind {
     CommandPalette,
     Help,
@@ -137,6 +164,13 @@ pub enum FloatingKind {
 }
 
 impl FloatingKind {
+    pub const fn persistent(self) -> bool {
+        match self {
+            Self::CommandPalette => false,
+            Self::Help | Self::ProviderDetails => true,
+        }
+    }
+
     pub const fn title(self) -> &'static str {
         match self {
             Self::CommandPalette => "Command Palette",
@@ -146,7 +180,7 @@ impl FloatingKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FloatingPane {
     pub kind: FloatingKind,
     pub size: FloatingSize,
@@ -161,7 +195,7 @@ impl FloatingPane {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FloatingSize {
     pub width_ratio: u16,
     pub height_ratio: u16,

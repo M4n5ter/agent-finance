@@ -8,7 +8,7 @@ use agent_finance_market::service;
 use agent_finance_market::snapshot::MarketSnapshot;
 
 use crate::command::{CommandEffect, CommandPaletteState};
-use crate::config::{LayoutConfig, TuiConfig};
+use crate::config::{FloatingConfig, LayoutConfig, PanelConfig, TuiConfig};
 use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, TaskLogEntry};
 
 #[derive(Debug, Clone)]
@@ -35,8 +35,8 @@ impl AppState {
             watchlist: config.watchlist,
             selected_symbol: 0,
             layout: config.layout,
-            panels: DockedPanels::default(),
-            floating: Vec::new(),
+            panels: DockedPanels::from_open_focused(config.panels.open, config.panels.focused),
+            floating: config.floating.panes,
             command_palette: CommandPaletteState::default(),
             task_log: VecDeque::new(),
             provider_profiles: service::provider_profiles(),
@@ -47,6 +47,26 @@ impl AppState {
             research: SelectedSymbolLoad::new(),
             scheduler_error: None,
         }
+    }
+
+    pub fn export_config(&self, base: &TuiConfig) -> TuiConfig {
+        let mut config = base.clone();
+        config.watchlist = self.watchlist.clone();
+        config.layout = self.layout.clone();
+        config.panels = PanelConfig {
+            open: self.panels.open_panels().to_vec(),
+            focused: self.panels.focused(),
+        };
+        config.floating = FloatingConfig {
+            panes: self
+                .floating
+                .iter()
+                .copied()
+                .filter(|pane| pane.kind.persistent())
+                .collect(),
+        };
+        config.normalize();
+        config
     }
 
     pub fn selected_symbol(&self) -> Option<&str> {
@@ -664,6 +684,34 @@ mod tests {
         )));
         assert_eq!(state.panels.open_count(), 1);
         assert!(state.panels.contains(Panel::History));
+    }
+
+    #[test]
+    fn state_exports_user_layout_preferences_to_config() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::Focus(Panel::Research));
+        state.reduce(Action::CloseFocusedPanel);
+        state.reduce(Action::ResizeDockedColumns {
+            left_ratio: 31,
+            main_ratio: 42,
+        });
+        state.reduce(Action::ToggleFloating(FloatingKind::Help));
+        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::ResizeFloating {
+            kind: FloatingKind::Help,
+            size: FloatingSize::resized(82, 63),
+        });
+
+        let config = state.export_config(&TuiConfig::default());
+
+        assert_eq!(config.layout.left_ratio, 31);
+        assert_eq!(config.layout.main_ratio, 42);
+        assert!(!config.panels.open.contains(&Panel::Research));
+        assert!(config.panels.open.contains(&Panel::Watchlist));
+        assert_ne!(config.panels.focused, Panel::Research);
+        assert_eq!(config.floating.panes.len(), 1);
+        assert_eq!(config.floating.panes[0].kind, FloatingKind::Help);
+        assert_eq!(config.floating.panes[0].size, FloatingSize::resized(82, 63));
     }
 
     #[test]

@@ -17,6 +17,7 @@ agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
 Use the TUI as an interactive cockpit for quote, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette. Use structured `market ... --json` commands when an agent needs parseable data.
+It persists watchlist and layout state to TOML by default; add `--no-persist` for disposable sessions.
 
 ## Price and Sessions
 
