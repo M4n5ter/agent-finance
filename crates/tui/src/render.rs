@@ -7,12 +7,11 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Sparkline, Wrap};
 
-use crate::config::LayoutConfig;
 use crate::layout::{self, CockpitLayout};
 use crate::state::{AppState, FloatingKind, Panel, TaskLevel};
 
-pub fn render(frame: &mut Frame<'_>, state: &AppState, layout_config: &LayoutConfig) {
-    let layout = layout::build(frame.area(), layout_config, &state.floating);
+pub fn render(frame: &mut Frame<'_>, state: &AppState) {
+    let layout = layout::build(frame.area(), &state.layout, &state.floating);
     render_docked(frame, state, &layout);
     render_status(frame, state, layout.status);
     for floating in &layout.floating {

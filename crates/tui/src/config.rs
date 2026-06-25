@@ -6,6 +6,13 @@ use agent_finance_core::paths;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+pub const MIN_LEFT_RATIO: u16 = 15;
+pub const MAX_LEFT_RATIO: u16 = 35;
+pub const MIN_MAIN_RATIO: u16 = 35;
+pub const MAX_MAIN_RATIO: u16 = 60;
+pub const MIN_RIGHT_RATIO: u16 = 20;
+pub const MAX_LEFT_MAIN_RATIO: u16 = 100 - MIN_RIGHT_RATIO;
+
 #[derive(Debug, Clone)]
 pub struct TuiLaunch {
     pub symbols: Vec<String>,
@@ -153,11 +160,11 @@ impl Default for LayoutConfig {
 }
 
 impl LayoutConfig {
-    fn normalize(&mut self) {
-        self.left_ratio = self.left_ratio.clamp(15, 35);
-        self.main_ratio = self.main_ratio.clamp(35, 60);
-        if self.left_ratio + self.main_ratio > 85 {
-            self.main_ratio = 85 - self.left_ratio;
+    pub fn normalize(&mut self) {
+        self.left_ratio = self.left_ratio.clamp(MIN_LEFT_RATIO, MAX_LEFT_RATIO);
+        self.main_ratio = self.main_ratio.clamp(MIN_MAIN_RATIO, MAX_MAIN_RATIO);
+        if self.left_ratio + self.main_ratio > MAX_LEFT_MAIN_RATIO {
+            self.main_ratio = MAX_LEFT_MAIN_RATIO - self.left_ratio;
         }
     }
 }

@@ -177,7 +177,7 @@ Interactive cockpit:
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
-The TUI is an interactive cockpit preview. Market data panels are being wired in; agents should keep using `market ... --json` commands when they need structured data.
+The TUI is an interactive cockpit with watchlist, quote/sessions, history, crypto evidence, research/Polymarket context, provider health, task log, mouse focus, and docked-column drag resize. Agents should keep using `market ... --json` commands when they need structured data.
 
 ## Signed Trading Workflows
 

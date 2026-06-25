@@ -7,12 +7,13 @@ use agent_finance_market::research_snapshot::ResearchContextSnapshot;
 use agent_finance_market::service;
 use agent_finance_market::snapshot::MarketSnapshot;
 
-use crate::config::TuiConfig;
+use crate::config::{LayoutConfig, TuiConfig};
 
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub watchlist: Vec<String>,
     pub selected_symbol: usize,
+    pub layout: LayoutConfig,
     pub focused_panel: Panel,
     pub open_panels: Vec<Panel>,
     pub floating: Vec<FloatingPane>,
@@ -40,6 +41,7 @@ impl AppState {
         Self {
             watchlist: config.watchlist,
             selected_symbol: 0,
+            layout: config.layout,
             focused_panel: Panel::Watchlist,
             open_panels,
             floating: Vec::new(),
@@ -73,7 +75,16 @@ impl AppState {
             }
             Action::ResetLayout => {
                 self.floating.clear();
+                self.layout = LayoutConfig::default();
                 self.focused_panel = Panel::Watchlist;
+            }
+            Action::ResizeDockedColumns {
+                left_ratio,
+                main_ratio,
+            } => {
+                self.layout.left_ratio = left_ratio;
+                self.layout.main_ratio = main_ratio;
+                self.layout.normalize();
             }
             Action::RefreshStarted(generation) => {
                 self.refresh.start(generation, ());
@@ -432,6 +443,10 @@ pub enum Action {
     ToggleFloating(FloatingKind),
     CloseFocusedFloating,
     ResetLayout,
+    ResizeDockedColumns {
+        left_ratio: u16,
+        main_ratio: u16,
+    },
     RefreshStarted(u64),
     SnapshotLoaded {
         generation: u64,
@@ -510,6 +525,7 @@ impl TaskLogEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MAX_LEFT_MAIN_RATIO;
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::research_snapshot::ResearchContextSnapshot;
@@ -545,6 +561,22 @@ mod tests {
 
         assert_eq!(state.floating.len(), 1);
         assert_eq!(state.floating[0].kind, FloatingKind::Help);
+    }
+
+    #[test]
+    fn reducer_resizes_and_resets_docked_layout() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::ResizeDockedColumns {
+            left_ratio: 8,
+            main_ratio: 80,
+        });
+        assert_eq!(state.layout.left_ratio, 15);
+        assert_eq!(state.layout.main_ratio, 60);
+        assert!(state.layout.left_ratio + state.layout.main_ratio <= MAX_LEFT_MAIN_RATIO);
+
+        state.reduce(Action::ResetLayout);
+        assert_eq!(state.layout, LayoutConfig::default());
     }
 
     #[test]

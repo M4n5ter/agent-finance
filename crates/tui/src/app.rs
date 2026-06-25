@@ -2,7 +2,10 @@ use std::io::{self, Stdout};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -13,6 +16,7 @@ use ratatui::backend::CrosstermBackend;
 use agent_finance_market::is_likely_crypto_pair;
 
 use crate::config::TuiLaunch;
+use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::render;
 use crate::scheduler::{Scheduler, SchedulerEvent, SymbolTaskKind};
 use crate::state::{Action, AppState, FloatingKind, Panel, SelectedSymbolLoad, SymbolSnapshot};
@@ -36,7 +40,6 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
         terminal.terminal_mut()?,
         &mut state,
         LoopContext {
-            layout: &runtime_config.layout,
             refresh_seconds: runtime_config.refresh.price_seconds,
             history_refresh_seconds: runtime_config.refresh.research_seconds,
             scheduler: &scheduler,
@@ -57,10 +60,11 @@ fn run_loop(
 ) -> Result<()> {
     let mut last_tick = Instant::now();
     let mut last_refresh = Instant::now();
+    let mut mouse_drag = MouseDrag::default();
     let refresh_interval = context.refresh_seconds.max(2);
     let history_refresh_interval = context.history_refresh_seconds.max(60);
     loop {
-        terminal.draw(|frame| render::render(frame, state, context.layout))?;
+        terminal.draw(|frame| render::render(frame, state))?;
 
         while let Some(event) = context.scheduler.try_recv() {
             match event {
@@ -132,6 +136,9 @@ fn run_loop(
                         request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
                     }
                 }
+                Event::Mouse(mouse) => {
+                    handle_mouse_event(terminal.size()?.into(), state, &mut mouse_drag, mouse);
+                }
                 _ => {}
             }
         }
@@ -156,13 +163,17 @@ fn run_loop(
 }
 
 struct LoopContext<'a> {
-    layout: &'a crate::config::LayoutConfig,
     refresh_seconds: u64,
     history_refresh_seconds: u64,
     scheduler: &'a Scheduler,
     next_refresh_generation: &'a mut u64,
     symbol_loads: &'a mut SymbolLoadRuntimes,
     launch: &'a TuiLaunch,
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+struct MouseDrag {
+    split: Option<DockedColumnSplit>,
 }
 
 fn request_refresh(scheduler: &Scheduler, state: &mut AppState, next_generation: &mut u64) {
@@ -382,10 +393,48 @@ fn should_quit(key: KeyEvent) -> bool {
         || (matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL))
 }
 
+fn handle_mouse_event(
+    terminal_area: ratatui::layout::Rect,
+    state: &mut AppState,
+    drag: &mut MouseDrag,
+    mouse: MouseEvent,
+) {
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            let layout = layout::build(terminal_area, &state.layout, &state.floating);
+            drag.split = None;
+            match layout.hit_test(mouse.column, mouse.row) {
+                Some(LayoutHit::Panel(panel)) => state.reduce(Action::Focus(panel)),
+                Some(LayoutHit::DockedSplit(split)) => drag.split = Some(split),
+                Some(LayoutHit::Floating(_)) | Some(LayoutHit::Status) | None => {}
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if let Some(split) = drag.split {
+                let next = layout::resize_docked_columns(
+                    terminal_area,
+                    split,
+                    mouse.column,
+                    &state.layout,
+                );
+                state.reduce(Action::ResizeDockedColumns {
+                    left_ratio: next.left_ratio,
+                    main_ratio: next.main_ratio,
+                });
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            drag.split = None;
+        }
+        _ => {}
+    }
+}
+
 struct TerminalGuard {
     terminal: Option<TuiTerminal>,
     raw_mode: bool,
     alternate_screen: bool,
+    mouse_capture: bool,
 }
 
 impl TerminalGuard {
@@ -394,6 +443,7 @@ impl TerminalGuard {
             terminal: None,
             raw_mode: false,
             alternate_screen: false,
+            mouse_capture: false,
         };
 
         enable_raw_mode()?;
@@ -404,6 +454,12 @@ impl TerminalGuard {
             return Err(error.into());
         }
         guard.alternate_screen = true;
+
+        if let Err(error) = execute!(io::stdout(), EnableMouseCapture) {
+            let _ = guard.cleanup();
+            return Err(error.into());
+        }
+        guard.mouse_capture = true;
 
         let backend = CrosstermBackend::new(io::stdout());
         match Terminal::new(backend) {
@@ -430,6 +486,18 @@ impl TerminalGuard {
 
     fn cleanup(&mut self) -> Result<()> {
         let mut first_error = None;
+
+        if self.mouse_capture {
+            let result = if let Some(terminal) = self.terminal.as_mut() {
+                execute!(terminal.backend_mut(), DisableMouseCapture)
+            } else {
+                execute!(io::stdout(), DisableMouseCapture)
+            };
+            if let Err(error) = result {
+                first_error.get_or_insert_with(|| anyhow::Error::from(error));
+            }
+            self.mouse_capture = false;
+        }
 
         if self.alternate_screen {
             let result = if let Some(terminal) = self.terminal.as_mut() {
@@ -501,6 +569,51 @@ mod tests {
             KeyModifiers::CONTROL
         )));
         assert!(!should_quit(KeyEvent::from(KeyCode::Char('c'))));
+    }
+
+    #[test]
+    fn mouse_down_focuses_panel_and_drag_resizes_columns() {
+        let area = ratatui::layout::Rect::new(0, 0, 160, 48);
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        let mut drag = MouseDrag::default();
+        let layout = layout::build(area, &state.layout, &state.floating);
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(MouseEventKind::Down(MouseButton::Left), 2, 2),
+        );
+        assert_eq!(state.focused_panel, Panel::Watchlist);
+        assert_eq!(drag.split, None);
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                layout.watchlist.x + layout.watchlist.width,
+                2,
+            ),
+        );
+        assert_eq!(drag.split, Some(DockedColumnSplit::LeftMain));
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(MouseEventKind::Drag(MouseButton::Left), 50, 2),
+        );
+        assert!(state.layout.left_ratio > crate::config::LayoutConfig::default().left_ratio);
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(MouseEventKind::Up(MouseButton::Left), 50, 2),
+        );
+        assert_eq!(drag.split, None);
     }
 
     #[test]
@@ -815,6 +928,15 @@ mod tests {
             news: Vec::new(),
             prediction_markets: Vec::new(),
             errors: Vec::new(),
+        }
+    }
+
+    fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::empty(),
         }
     }
 }
