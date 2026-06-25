@@ -2,6 +2,7 @@ pub mod args;
 mod cache;
 mod crypto_capabilities;
 mod crypto_capability;
+pub mod crypto_evidence_snapshot;
 mod crypto_market_data;
 mod crypto_runtime;
 mod history;
@@ -21,3 +22,4 @@ pub mod time;
 mod websocket;
 
 pub use args::*;
+pub use market_symbol::is_likely_crypto_pair;

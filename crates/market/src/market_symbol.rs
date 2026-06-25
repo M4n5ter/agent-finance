@@ -44,6 +44,10 @@ pub(crate) fn canonical_lookup_key(symbol: &str) -> String {
     })
 }
 
+pub fn is_likely_crypto_pair(symbol: &str) -> bool {
+    is_crypto_pair(symbol, &canonical_lookup_key(symbol))
+}
+
 fn is_crypto_pair(input: &str, canonical_key: &str) -> bool {
     let has_explicit_pair_separator = input
         .trim()

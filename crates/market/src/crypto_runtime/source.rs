@@ -1,8 +1,5 @@
-use anyhow::Result;
-
 use crate::args::{CryptoDiscoverKind, CryptoInstrument, CryptoProvider};
 use crate::crypto_capability::binance_market;
-use crate::http::http_client;
 use crate::providers::{binance, coinbase, coingecko, okx};
 
 use super::evidence::{
@@ -17,11 +14,8 @@ pub struct CryptoEvidenceSources {
 }
 
 impl CryptoEvidenceSources {
-    pub fn new(proxy: Option<&str>, no_proxy: bool, timeout_seconds: u64) -> Result<Self> {
-        Ok(Self {
-            client: http_client(timeout_seconds, proxy, no_proxy)?,
-            binance: binance::BinanceConfig::from_env(timeout_seconds, proxy, no_proxy),
-        })
+    pub fn new(client: wreq::Client, binance: binance::BinanceConfig) -> Self {
+        Self { client, binance }
     }
 
     pub async fn quote(

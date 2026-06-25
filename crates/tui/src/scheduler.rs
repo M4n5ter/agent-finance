@@ -3,6 +3,10 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use agent_finance_market::{
+    args::{CryptoInstrument, CryptoProvider},
+    crypto_evidence_snapshot::{
+        self, CryptoQuoteEvidenceSnapshot, CryptoQuoteEvidenceSnapshotRequest,
+    },
     history_snapshot::{self, HistorySnapshot, HistorySnapshotRequest},
     service::MarketRuntime,
     snapshot::{self, MarketSnapshot, PublicQuoteSnapshotRequest},
@@ -15,6 +19,7 @@ use crate::config::TuiLaunch;
 pub struct Scheduler {
     refresh_commands: Sender<RefreshCommand>,
     history_commands: Sender<HistoryCommand>,
+    evidence_commands: Sender<EvidenceCommand>,
     events: Receiver<SchedulerEvent>,
     disconnected_reported: Cell<bool>,
 }
@@ -23,6 +28,7 @@ impl Scheduler {
     pub fn start(launch: &TuiLaunch) -> Self {
         let (refresh_commands, refresh_command_rx) = mpsc::channel();
         let (history_commands, history_command_rx) = mpsc::channel();
+        let (evidence_commands, evidence_command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let runtime = MarketRuntime::new(
             launch.proxy.as_deref(),
@@ -31,23 +37,32 @@ impl Scheduler {
             &launch.timezone,
         );
 
-        thread::Builder::new()
-            .name("agent-finance-tui-refresh".to_string())
-            .spawn({
-                let runtime = runtime.clone();
-                let event_tx = event_tx.clone();
-                move || run_refresh_worker(runtime, refresh_command_rx, event_tx)
-            })
-            .expect("failed to spawn TUI refresh scheduler thread");
-
-        thread::Builder::new()
-            .name("agent-finance-tui-history".to_string())
-            .spawn(move || run_history_worker(runtime, history_command_rx, event_tx))
-            .expect("failed to spawn TUI history scheduler thread");
+        spawn_scheduler_worker(
+            "refresh",
+            runtime.clone(),
+            refresh_command_rx,
+            event_tx.clone(),
+            handle_refresh_command,
+        );
+        spawn_scheduler_worker(
+            "history",
+            runtime.clone(),
+            history_command_rx,
+            event_tx.clone(),
+            handle_history_command,
+        );
+        spawn_scheduler_worker(
+            "evidence",
+            runtime,
+            evidence_command_rx,
+            event_tx,
+            handle_evidence_command,
+        );
 
         Self {
             refresh_commands,
             history_commands,
+            evidence_commands,
             events,
             disconnected_reported: Cell::new(false),
         }
@@ -66,6 +81,12 @@ impl Scheduler {
         self.history_commands
             .send(HistoryCommand { generation, symbol })
             .map_err(|error| anyhow!("failed to request TUI history: {error}"))
+    }
+
+    pub fn request_evidence(&self, generation: u64, symbol: String) -> Result<()> {
+        self.evidence_commands
+            .send(EvidenceCommand { generation, symbol })
+            .map_err(|error| anyhow!("failed to request TUI evidence: {error}"))
     }
 
     pub fn try_recv(&self) -> Option<SchedulerEvent> {
@@ -92,6 +113,12 @@ struct HistoryCommand {
     symbol: String,
 }
 
+#[derive(Debug)]
+struct EvidenceCommand {
+    generation: u64,
+    symbol: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SchedulerEvent {
     Snapshot {
@@ -111,66 +138,100 @@ pub enum SchedulerEvent {
         symbol: String,
         error: String,
     },
+    Evidence {
+        generation: u64,
+        snapshot: CryptoQuoteEvidenceSnapshot,
+    },
+    EvidenceFailed {
+        generation: u64,
+        symbol: String,
+        error: String,
+    },
     Fatal(String),
 }
 
-fn run_refresh_worker(
+fn spawn_scheduler_worker<C, F>(
+    name: &'static str,
     runtime: MarketRuntime,
-    commands: Receiver<RefreshCommand>,
+    commands: Receiver<C>,
     events: Sender<SchedulerEvent>,
-) {
-    let Some(tokio) = scheduler_runtime("refresh", &events) else {
-        return;
-    };
+    handle: F,
+) where
+    C: Send + 'static,
+    F: Fn(&tokio::runtime::Runtime, &MarketRuntime, C) -> SchedulerEvent + Send + 'static,
+{
+    thread::Builder::new()
+        .name(format!("agent-finance-tui-{name}"))
+        .spawn(move || {
+            let Some(tokio) = scheduler_runtime(name, &events) else {
+                return;
+            };
 
-    while let Ok(command) = commands.recv() {
-        let RefreshCommand {
+            while let Ok(command) = commands.recv() {
+                if events.send(handle(&tokio, &runtime, command)).is_err() {
+                    break;
+                }
+            }
+        })
+        .unwrap_or_else(|error| panic!("failed to spawn TUI {name} scheduler thread: {error}"));
+}
+
+fn handle_refresh_command(
+    tokio: &tokio::runtime::Runtime,
+    runtime: &MarketRuntime,
+    command: RefreshCommand,
+) -> SchedulerEvent {
+    let RefreshCommand {
+        generation,
+        symbols,
+    } = command;
+    match tokio.block_on(fetch_snapshot(runtime, symbols)) {
+        Ok(snapshot) => SchedulerEvent::Snapshot {
             generation,
-            symbols,
-        } = command;
-        let result = tokio.block_on(fetch_snapshot(&runtime, symbols));
-        let event = match result {
-            Ok(snapshot) => SchedulerEvent::Snapshot {
-                generation,
-                snapshot,
-            },
-            Err(error) => SchedulerEvent::RefreshFailed {
-                generation,
-                error: error.to_string(),
-            },
-        };
-        if events.send(event).is_err() {
-            break;
-        }
+            snapshot,
+        },
+        Err(error) => SchedulerEvent::RefreshFailed {
+            generation,
+            error: error.to_string(),
+        },
     }
 }
 
-fn run_history_worker(
-    runtime: MarketRuntime,
-    commands: Receiver<HistoryCommand>,
-    events: Sender<SchedulerEvent>,
-) {
-    let Some(tokio) = scheduler_runtime("history", &events) else {
-        return;
-    };
+fn handle_history_command(
+    tokio: &tokio::runtime::Runtime,
+    runtime: &MarketRuntime,
+    command: HistoryCommand,
+) -> SchedulerEvent {
+    let HistoryCommand { generation, symbol } = command;
+    match tokio.block_on(fetch_history(runtime, symbol.clone())) {
+        Ok(snapshot) => SchedulerEvent::History {
+            generation,
+            snapshot,
+        },
+        Err(error) => SchedulerEvent::HistoryFailed {
+            generation,
+            symbol,
+            error: error.to_string(),
+        },
+    }
+}
 
-    while let Ok(command) = commands.recv() {
-        let HistoryCommand { generation, symbol } = command;
-        let result = tokio.block_on(fetch_history(&runtime, symbol.clone()));
-        let event = match result {
-            Ok(snapshot) => SchedulerEvent::History {
-                generation,
-                snapshot,
-            },
-            Err(error) => SchedulerEvent::HistoryFailed {
-                generation,
-                symbol,
-                error: error.to_string(),
-            },
-        };
-        if events.send(event).is_err() {
-            break;
-        }
+fn handle_evidence_command(
+    tokio: &tokio::runtime::Runtime,
+    runtime: &MarketRuntime,
+    command: EvidenceCommand,
+) -> SchedulerEvent {
+    let EvidenceCommand { generation, symbol } = command;
+    match tokio.block_on(fetch_evidence(runtime, symbol.clone())) {
+        Ok(snapshot) => SchedulerEvent::Evidence {
+            generation,
+            snapshot,
+        },
+        Err(error) => SchedulerEvent::EvidenceFailed {
+            generation,
+            symbol,
+            error: error.to_string(),
+        },
     }
 }
 
@@ -204,6 +265,21 @@ async fn fetch_history(runtime: &MarketRuntime, symbol: String) -> Result<Histor
             interval: "1d".to_string(),
             range: "6mo".to_string(),
             limit: 90,
+        },
+    )
+    .await
+}
+
+async fn fetch_evidence(
+    runtime: &MarketRuntime,
+    symbol: String,
+) -> Result<CryptoQuoteEvidenceSnapshot> {
+    crypto_evidence_snapshot::fetch_crypto_quote_evidence_snapshot(
+        runtime,
+        CryptoQuoteEvidenceSnapshotRequest {
+            symbol,
+            provider: CryptoProvider::Auto,
+            instrument: CryptoInstrument::Auto,
         },
     )
     .await

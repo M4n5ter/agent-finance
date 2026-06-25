@@ -1,3 +1,4 @@
+use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::snapshot::QuoteSnapshot;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -23,7 +24,7 @@ fn render_docked(frame: &mut Frame<'_>, state: &AppState, layout: &CockpitLayout
     render_watchlist(frame, state, layout.panel_rect(Panel::Watchlist));
     render_quote(frame, state, layout.panel_rect(Panel::Quote));
     render_history(frame, state, layout.panel_rect(Panel::History));
-    render_evidence(frame, layout.panel_rect(Panel::Evidence));
+    render_evidence(frame, state, layout.panel_rect(Panel::Evidence));
     render_research(frame, layout.panel_rect(Panel::Research));
     render_provider_health(frame, state, layout.panel_rect(Panel::ProviderHealth));
     render_task_log(frame, state, layout.panel_rect(Panel::TaskLog));
@@ -126,10 +127,7 @@ fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         .split(inner);
 
     let symbol = state.selected_symbol().unwrap_or("N/A");
-    let snapshot = state
-        .history_snapshot
-        .as_ref()
-        .filter(|snapshot| snapshot.requested_symbol == symbol || snapshot.symbol == symbol);
+    let snapshot = state.history.selected_snapshot(symbol);
     let mut lines = vec![Line::from(vec![
         Span::styled(
             symbol,
@@ -137,7 +135,7 @@ fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(if state.history.loading {
+        Span::raw(if state.history.loading() {
             " history loading..."
         } else {
             " history"
@@ -205,10 +203,33 @@ fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     );
 }
 
-fn render_evidence(frame: &mut Frame<'_>, area: Rect) {
+fn render_evidence(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let symbol = state.selected_symbol().unwrap_or("N/A");
+    let snapshot = state.evidence.selected_snapshot(symbol);
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            symbol,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(if state.evidence.loading() {
+            " evidence loading..."
+        } else {
+            " evidence"
+        }),
+    ])];
+
+    match snapshot {
+        Some(snapshot) => lines.extend(evidence_lines(snapshot)),
+        None => lines.push(Line::from(
+            "No crypto evidence loaded yet. Waiting for the selected symbol.",
+        )),
+    }
+
     frame.render_widget(
-        Paragraph::new("Crypto evidence placeholder\nQuote/book/trades/candles/funding panels share market service data.")
-            .block(simple_block(Panel::Evidence.title()))
+        Paragraph::new(lines)
+            .block(panel_block(Panel::Evidence, state))
             .wrap(Wrap { trim: true }),
         area,
     );
@@ -311,6 +332,51 @@ fn quote_lines(quote: &QuoteSnapshot) -> Vec<Line<'static>> {
                 .unwrap_or_else(|| "-".to_string())
         )),
     ]
+}
+
+fn evidence_lines(snapshot: &CryptoQuoteEvidenceSnapshot) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(format!(
+            "quote / {}  providers={}/{}",
+            snapshot.instrument, snapshot.ok_providers, snapshot.total_providers
+        )),
+        Line::from(format!(
+            "freshness: {}",
+            snapshot.fetched_at_local.as_deref().unwrap_or("-")
+        )),
+    ];
+
+    if snapshot.total_providers == 0 {
+        for error in snapshot.errors.iter().take(2) {
+            lines.push(Line::from(Span::styled(
+                error.clone(),
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+        return lines;
+    }
+
+    for provider in snapshot.providers.iter().take(4) {
+        let style = if provider.ok {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Yellow)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(provider.provider.clone(), style),
+            Span::raw(format!(
+                " endpoints={}/{} required_failed={}",
+                provider.ok_endpoints, provider.total_endpoints, provider.required_failed
+            )),
+        ]));
+        if let Some(error) = provider.first_error.as_ref() {
+            lines.push(Line::from(Span::styled(
+                format!("  {error}"),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+    lines
 }
 
 fn format_price(value: f64) -> String {

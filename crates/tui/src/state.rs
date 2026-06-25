@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::model::ProviderProfile;
 use agent_finance_market::service;
@@ -18,8 +19,8 @@ pub struct AppState {
     pub provider_profiles: Vec<ProviderProfile>,
     pub market_snapshot: Option<MarketSnapshot>,
     pub refresh: LoadSlot<()>,
-    pub history_snapshot: Option<HistorySnapshot>,
-    pub history: LoadSlot<String>,
+    pub history: SelectedSymbolLoad<HistorySnapshot>,
+    pub evidence: SelectedSymbolLoad<CryptoQuoteEvidenceSnapshot>,
     pub scheduler_error: Option<String>,
 }
 
@@ -44,8 +45,8 @@ impl AppState {
             provider_profiles: service::provider_profiles(),
             market_snapshot: None,
             refresh: LoadSlot::new(),
-            history_snapshot: None,
-            history: LoadSlot::new(),
+            history: SelectedSymbolLoad::new(),
+            evidence: SelectedSymbolLoad::new(),
             scheduler_error: None,
         }
     }
@@ -120,7 +121,7 @@ impl AppState {
                             snapshot.symbol
                         )));
                     }
-                    self.history_snapshot = Some(snapshot);
+                    self.history.set_snapshot(snapshot);
                 } else {
                     self.push_log(TaskLogEntry::warning(format!(
                         "ignored stale history generation {generation}",
@@ -138,9 +139,47 @@ impl AppState {
                     )));
                 }
             }
+            Action::EvidenceStarted { generation, symbol } => {
+                self.evidence.start(generation, symbol);
+            }
+            Action::EvidenceLoaded {
+                generation,
+                snapshot,
+            } => {
+                if self.evidence.finish(generation) {
+                    if !snapshot.errors.is_empty() {
+                        self.push_log(TaskLogEntry::warning(format!(
+                            "crypto evidence loaded with {} warnings",
+                            snapshot.errors.len()
+                        )));
+                    } else {
+                        self.push_log(TaskLogEntry::info(format!(
+                            "{} crypto evidence loaded",
+                            snapshot.symbol
+                        )));
+                    }
+                    self.evidence.set_snapshot(snapshot);
+                } else {
+                    self.push_log(TaskLogEntry::warning(format!(
+                        "ignored stale crypto evidence generation {generation}",
+                    )));
+                }
+            }
+            Action::EvidenceFailed {
+                generation,
+                symbol,
+                error,
+            } => {
+                if self.evidence.finish(generation) {
+                    self.push_log(TaskLogEntry::warning(format!(
+                        "{symbol} crypto evidence failed: {error}"
+                    )));
+                }
+            }
             Action::SchedulerFailed(error) => {
                 self.refresh.stop();
                 self.history.stop();
+                self.evidence.stop();
                 self.scheduler_error = Some(error.clone());
                 self.push_log(TaskLogEntry::warning(format!("scheduler failed: {error}")));
             }
@@ -225,6 +264,78 @@ impl<K> LoadSlot<K> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectedSymbolLoad<T> {
+    snapshot: Option<T>,
+    request: LoadSlot<String>,
+}
+
+impl<T> SelectedSymbolLoad<T> {
+    fn new() -> Self {
+        Self {
+            snapshot: None,
+            request: LoadSlot::new(),
+        }
+    }
+
+    pub fn loading(&self) -> bool {
+        self.request.loading
+    }
+
+    fn start(&mut self, generation: u64, symbol: String) {
+        self.request.start(generation, symbol);
+    }
+
+    fn finish(&mut self, generation: u64) -> bool {
+        self.request.finish(generation)
+    }
+
+    fn set_snapshot(&mut self, snapshot: T) {
+        self.snapshot = Some(snapshot);
+    }
+
+    fn stop(&mut self) {
+        self.request.stop();
+    }
+}
+
+pub trait SymbolSnapshot {
+    fn requested_symbol(&self) -> &str;
+    fn symbol(&self) -> &str;
+}
+
+impl SymbolSnapshot for HistorySnapshot {
+    fn requested_symbol(&self) -> &str {
+        &self.requested_symbol
+    }
+
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+}
+
+impl SymbolSnapshot for CryptoQuoteEvidenceSnapshot {
+    fn requested_symbol(&self) -> &str {
+        &self.requested_symbol
+    }
+
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+}
+
+impl<T: SymbolSnapshot> SelectedSymbolLoad<T> {
+    pub fn has_selected_snapshot(&self, selected: &str) -> bool {
+        self.selected_snapshot(selected).is_some()
+    }
+
+    pub fn selected_snapshot(&self, selected: &str) -> Option<&T> {
+        self.snapshot.as_ref().filter(|snapshot| {
+            snapshot.requested_symbol() == selected || snapshot.symbol() == selected
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Panel {
     Watchlist,
@@ -303,6 +414,19 @@ pub enum Action {
         symbol: String,
         error: String,
     },
+    EvidenceStarted {
+        generation: u64,
+        symbol: String,
+    },
+    EvidenceLoaded {
+        generation: u64,
+        snapshot: CryptoQuoteEvidenceSnapshot,
+    },
+    EvidenceFailed {
+        generation: u64,
+        symbol: String,
+        error: String,
+    },
     SchedulerFailed(String),
     Log(String),
 }
@@ -338,6 +462,7 @@ impl TaskLogEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::snapshot::{QuoteSnapshot, RegularBasisSnapshot};
 
@@ -411,12 +536,17 @@ mod tests {
             generation: 1,
             symbol: "CRDO".to_string(),
         });
+        state.reduce(Action::EvidenceStarted {
+            generation: 1,
+            symbol: "BTCUSDT".to_string(),
+        });
         state.reduce(Action::SchedulerFailed(
             "scheduler runtime failed".to_string(),
         ));
 
         assert!(!state.refresh.loading);
-        assert!(!state.history.loading);
+        assert!(!state.history.loading());
+        assert!(!state.evidence.loading());
         assert_eq!(
             state.scheduler_error.as_deref(),
             Some("scheduler runtime failed")
@@ -435,8 +565,8 @@ mod tests {
             generation: 1,
             snapshot: history_snapshot("AAPL", 100.0),
         });
-        assert!(state.history_snapshot.is_none());
-        assert!(state.history.loading);
+        assert!(state.history.selected_snapshot("AAPL").is_none());
+        assert!(state.history.loading());
 
         state.reduce(Action::HistoryLoaded {
             generation: 2,
@@ -444,12 +574,41 @@ mod tests {
         });
         assert_eq!(
             state
-                .history_snapshot
-                .as_ref()
+                .history
+                .selected_snapshot("CRDO")
                 .and_then(|snapshot| snapshot.latest_close),
             Some(250.0)
         );
-        assert!(!state.history.loading);
+        assert!(!state.history.loading());
+    }
+
+    #[test]
+    fn reducer_accepts_current_evidence_and_ignores_stale_evidence() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::EvidenceStarted {
+            generation: 2,
+            symbol: "BTCUSDT".to_string(),
+        });
+        state.reduce(Action::EvidenceLoaded {
+            generation: 1,
+            snapshot: evidence_snapshot("ETHUSDT", 1, 2),
+        });
+        assert!(state.evidence.selected_snapshot("ETHUSDT").is_none());
+        assert!(state.evidence.loading());
+
+        state.reduce(Action::EvidenceLoaded {
+            generation: 2,
+            snapshot: evidence_snapshot("BTCUSDT", 2, 3),
+        });
+        assert_eq!(
+            state
+                .evidence
+                .selected_snapshot("BTCUSDT")
+                .map(|snapshot| (snapshot.ok_providers, snapshot.total_providers)),
+            Some((2, 3))
+        );
+        assert!(!state.evidence.loading());
     }
 
     fn snapshot(_generation: u64, symbol: &str) -> MarketSnapshot {
@@ -488,6 +647,23 @@ mod tests {
             return_pct: Some(1.0),
             volume: Some(10_000.0),
             bars: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    fn evidence_snapshot(
+        symbol: &str,
+        ok_providers: usize,
+        total_providers: usize,
+    ) -> CryptoQuoteEvidenceSnapshot {
+        CryptoQuoteEvidenceSnapshot {
+            requested_symbol: symbol.to_string(),
+            symbol: symbol.to_string(),
+            instrument: "spot".to_string(),
+            fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+            ok_providers,
+            total_providers,
+            providers: Vec::new(),
             errors: Vec::new(),
         }
     }

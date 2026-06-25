@@ -139,7 +139,7 @@ pub async fn price(runtime: &MarketRuntime, request: PriceRequest) -> Result<Pri
     }
 
     let client = runtime.client()?;
-    let binance_config = runtime.binance_config();
+    let binance_config = runtime.public_binance_config();
     let summaries = futures_util::stream::iter(request.symbols)
         .map(|symbol| {
             let client = &client;
@@ -171,7 +171,7 @@ pub struct SessionsRequest {
 
 pub async fn sessions(runtime: &MarketRuntime, request: SessionsRequest) -> Result<PriceSummary> {
     let client = runtime.client()?;
-    let binance_config = runtime.binance_config();
+    let binance_config = runtime.public_binance_config();
     Ok(price::fetch_price_summary(
         &client,
         &request.symbol,
@@ -528,7 +528,7 @@ where
     F: FnMut(WatchResponse) -> Result<()>,
 {
     let client = runtime.client()?;
-    let config = runtime.binance_config();
+    let config = runtime.public_binance_config();
     let mut iteration = 0usize;
     loop {
         iteration += 1;
@@ -627,7 +627,7 @@ pub async fn crypto_snapshot(
     runtime: &MarketRuntime,
     request: CryptoSymbolRequest,
 ) -> CryptoSnapshotReport {
-    let config = runtime.binance_config();
+    let config = runtime.public_binance_config();
     binance::snapshot(&config, &request.symbol).await
 }
 
@@ -635,7 +635,7 @@ pub async fn crypto_sentiment(
     runtime: &MarketRuntime,
     request: CryptoSymbolRequest,
 ) -> CryptoSentimentReport {
-    let config = runtime.binance_config();
+    let config = runtime.public_binance_config();
     binance::sentiment(&config, &request.symbol).await
 }
 
@@ -652,7 +652,7 @@ pub async fn crypto_stream(
     runtime: &MarketRuntime,
     request: CryptoStreamRequest,
 ) -> Result<CryptoStreamReport> {
-    let config = runtime.binance_config();
+    let config = runtime.public_binance_config();
     binance::stream_messages(
         &config,
         request.market,
@@ -710,8 +710,7 @@ pub async fn crypto_evidence_quote(
     runtime: &MarketRuntime,
     request: CryptoEvidenceSymbolRequest,
 ) -> Result<CryptoEvidenceReport> {
-    let sources =
-        CryptoEvidenceSources::new(runtime.proxy(), runtime.no_proxy, runtime.timeout_seconds)?;
+    let sources = crypto_evidence_sources(runtime)?;
     let capability = CryptoCapability::Quote;
     let instrument = resolve_instrument(request.instrument, capability);
     let evidence_request = EvidenceRequest::new(request.provider, instrument, capability);
@@ -734,8 +733,7 @@ pub async fn crypto_evidence_book(
     runtime: &MarketRuntime,
     request: CryptoEvidenceLimitRequest,
 ) -> Result<CryptoEvidenceReport> {
-    let sources =
-        CryptoEvidenceSources::new(runtime.proxy(), runtime.no_proxy, runtime.timeout_seconds)?;
+    let sources = crypto_evidence_sources(runtime)?;
     let capability = CryptoCapability::Book;
     let instrument = resolve_instrument(request.instrument, capability);
     let evidence_request = EvidenceRequest::new(request.provider, instrument, capability);
@@ -759,8 +757,7 @@ pub async fn crypto_evidence_trades(
     runtime: &MarketRuntime,
     request: CryptoEvidenceTradesRequest,
 ) -> Result<CryptoEvidenceReport> {
-    let sources =
-        CryptoEvidenceSources::new(runtime.proxy(), runtime.no_proxy, runtime.timeout_seconds)?;
+    let sources = crypto_evidence_sources(runtime)?;
     let capability = CryptoCapability::Trades;
     let instrument = resolve_instrument(request.instrument, capability);
     let evidence_request = EvidenceRequest::new(request.provider, instrument, capability);
@@ -789,8 +786,7 @@ pub async fn crypto_evidence_candles(
     runtime: &MarketRuntime,
     request: CryptoEvidenceCandlesRequest,
 ) -> Result<CryptoEvidenceReport> {
-    let sources =
-        CryptoEvidenceSources::new(runtime.proxy(), runtime.no_proxy, runtime.timeout_seconds)?;
+    let sources = crypto_evidence_sources(runtime)?;
     let capability = CryptoCapability::Candles;
     let instrument = resolve_instrument(request.instrument, capability);
     let evidence_request = EvidenceRequest::new(request.provider, instrument, capability);
@@ -820,8 +816,7 @@ pub async fn crypto_evidence_funding(
     runtime: &MarketRuntime,
     request: CryptoEvidenceLimitRequest,
 ) -> Result<CryptoEvidenceReport> {
-    let sources =
-        CryptoEvidenceSources::new(runtime.proxy(), runtime.no_proxy, runtime.timeout_seconds)?;
+    let sources = crypto_evidence_sources(runtime)?;
     let capability = CryptoCapability::Funding;
     let instrument = resolve_instrument(request.instrument, capability);
     let evidence_request = EvidenceRequest::new(request.provider, instrument, capability);
@@ -845,8 +840,7 @@ pub async fn crypto_evidence_open_interest(
     runtime: &MarketRuntime,
     request: CryptoEvidenceSymbolRequest,
 ) -> Result<CryptoEvidenceReport> {
-    let sources =
-        CryptoEvidenceSources::new(runtime.proxy(), runtime.no_proxy, runtime.timeout_seconds)?;
+    let sources = crypto_evidence_sources(runtime)?;
     let capability = CryptoCapability::OpenInterest;
     let instrument = resolve_instrument(request.instrument, capability);
     let evidence_request = EvidenceRequest::new(request.provider, instrument, capability);
@@ -869,8 +863,7 @@ pub async fn crypto_evidence_discover(
     runtime: &MarketRuntime,
     request: CryptoEvidenceDiscoverRequest,
 ) -> Result<CryptoEvidenceReport> {
-    let sources =
-        CryptoEvidenceSources::new(runtime.proxy(), runtime.no_proxy, runtime.timeout_seconds)?;
+    let sources = crypto_evidence_sources(runtime)?;
     let capability = CryptoCapability::Discover(request.kind);
     let instrument = resolve_instrument(request.instrument, capability);
     let evidence_request = EvidenceRequest::new(request.provider, instrument, capability);
@@ -888,6 +881,13 @@ pub async fn crypto_evidence_discover(
     })
     .await;
     Ok(evidence_report(capability, instrument, None, results))
+}
+
+fn crypto_evidence_sources(runtime: &MarketRuntime) -> Result<CryptoEvidenceSources> {
+    Ok(CryptoEvidenceSources::new(
+        runtime.client()?,
+        runtime.public_binance_config(),
+    ))
 }
 
 #[derive(Debug, Clone)]
