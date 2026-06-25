@@ -6,6 +6,8 @@ Market intelligence for AI agents that need evidence, not guesswork.
 
 `agent-finance` is a terminal-native finance toolkit built for AI agents and automation workflows. It gives an agent a compact command surface for prices, sessions, history, indicators, crypto market structure, prediction-market sentiment, public-company research data, URL extraction, provider capability discovery, and guarded signed trading workflows.
 
+It also includes `agent-finance tui`, a live market cockpit for watching symbols, provider health, research context, crypto evidence, and prediction-market signals in one terminal.
+
 Install once, then let agents discover the command surface from the CLI itself.
 
 ```bash
@@ -22,6 +24,7 @@ agent-finance skills get core
 - Use Polymarket markets as quantifiable sentiment and event-probability evidence.
 - Fetch no-key research payloads from Yahoo, SEC EDGAR, Robinhood, CNBC, Stooq, and fallback URL readers.
 - Ask the CLI what each provider can actually do instead of guessing from provider names.
+- Open a live terminal cockpit when the work is monitoring, comparing, or steering an investigation rather than extracting one parseable payload.
 - Keep signed Binance account/order/transfer workflows behind profiles, intents, risk checks, explicit live confirmation, and append-only audit logs.
 - Teach agents how to use the tool through built-in runtime skills that ship with the binary.
 
@@ -177,7 +180,7 @@ Interactive cockpit:
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
-The TUI is an interactive cockpit with watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette. Agents should keep using `market ... --json` commands when they need structured data.
+The TUI is an interactive cockpit with watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette. Use it for live monitoring and guided exploration; keep using `market ... --json` commands when you need structured data.
 It persists the watchlist, docked panel set, focused panel, column layout, floating panes, refresh cadence, and provider preferences to TOML unless `--no-persist` is used.
 
 ## Signed Trading Workflows

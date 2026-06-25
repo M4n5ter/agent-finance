@@ -6,6 +6,8 @@
 
 `agent-finance` 是面向 AI Agent 和自动化流程的终端工具。它把报价、盘前/盘后/隔夜 session、历史 K 线、指标、加密市场结构、预测市场情绪、上市公司公开数据、URL 正文抽取、provider 能力矩阵，以及带风控的签名交易流程，整理成一组可脚本化的 CLI 命令。
 
+它也提供 `agent-finance tui`，可以在一个终端里同时观察标的、provider health、研究上下文、crypto evidence 和预测市场信号。
+
 安装后，Agent 可以直接从 CLI 读取自己的使用说明。
 
 ```bash
@@ -22,6 +24,7 @@ agent-finance skills get core
 - 把 Polymarket 作为可量化的情绪和事件概率信号，而不是只看社媒热度。
 - 从 Yahoo、SEC EDGAR、Robinhood、CNBC、Stooq 以及 URL 读取 fallback 中获取 no-key 研究数据。
 - 通过 CLI 查询每个 provider 真实支持什么能力，而不是凭 provider 名字猜。
+- 当任务是监控、比较或推进调查，而不是抽取单个可解析 payload 时，打开实时终端 cockpit。
 - 把 Binance 账户、订单、划转等写操作放在 profile、intent、risk check、显式 live 确认和 append-only audit log 后面。
 - 通过内置 runtime skills 教 Agent 使用当前版本的命令面。
 
@@ -177,7 +180,7 @@ agent-finance capabilities
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
-TUI 是交互式 cockpit，包含 watchlist、quote/sessions、history、crypto evidence、research、Polymarket、provider health、task log、鼠标聚焦、docked column 拖拽调整、floating 右下角调整、关闭/恢复 panel 控制和可执行 command palette。Agent 需要结构化数据时，应继续使用 `market ... --json`。
+TUI 是交互式 cockpit，包含 watchlist、quote/sessions、history、crypto evidence、research、Polymarket、provider health、task log、鼠标聚焦、docked column 拖拽调整、floating 右下角调整、关闭/恢复 panel 控制和可执行 command palette。它适合实时监控和引导式探索；需要结构化数据时，应继续使用 `market ... --json`。
 除非使用 `--no-persist`，TUI 会把 watchlist、docked panel 集合、当前 focused panel、列布局、floating panes、刷新频率和 provider 偏好持久化到 TOML。
 
 ## 签名交易流程

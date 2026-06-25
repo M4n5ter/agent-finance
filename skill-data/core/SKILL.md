@@ -15,13 +15,13 @@ agent-finance market providers
 agent-finance capabilities
 ```
 
-For an interactive human-facing cockpit, use:
+For an interactive live cockpit, use:
 
 ```bash
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
-Prefer structured `market ... --json` commands for agent data collection. The TUI is an interactive cockpit with quote, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette; it is not a machine extraction surface.
+Prefer structured `market ... --json` commands for agent data collection. The TUI is an interactive cockpit for live monitoring and guided exploration, with quote, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette; it is not a machine extraction surface.
 The TUI persists watchlist and layout state to TOML by default; use `--no-persist` for one-off sessions.
 
 ## Task Router
