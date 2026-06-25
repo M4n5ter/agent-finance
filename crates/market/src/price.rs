@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use wreq::Client;
 
-use crate::args::SessionMode;
+use crate::args::{Provider, SessionMode};
 use crate::http::{change_pct, utc_now};
 use crate::model::{
     PricePoint, PriceSummary, Quote, RegularBasis, SESSION_EXTENDED, SESSION_OVERNIGHT,
@@ -16,6 +16,7 @@ pub async fn fetch_price_summary(
     client: &Client,
     symbol: &str,
     timezone: &str,
+    provider: Provider,
     mode: SessionMode,
     binance_config: Option<&binance::BinanceConfig>,
     proxy_symbol: Option<&str>,
@@ -26,25 +27,47 @@ pub async fn fetch_price_summary(
     let mut errors = BTreeMap::new();
     let mut sessions = Vec::new();
 
-    match yahoo::fetch_session_points(client, &normalized, timezone).await {
-        Ok(points) => sessions.extend(points),
-        Err(error) => {
-            errors.insert("yahoo-boats".to_string(), format!("{error:#}"));
-        }
-    }
+    match provider {
+        Provider::Auto | Provider::YahooBoats => {
+            match yahoo::fetch_session_points(client, &normalized, timezone).await {
+                Ok(points) => sessions.extend(points),
+                Err(error) => {
+                    errors.insert("yahoo-boats".to_string(), format!("{error:#}"));
+                }
+            }
 
-    if sessions.is_empty() {
-        match providers::fetch_quote_without_boats(client, &normalized, "fallback").await {
+            if sessions.is_empty() {
+                match providers::fetch_quote_without_boats(client, &normalized, "fallback").await {
+                    Ok(quote) => sessions.push(quote_to_point(
+                        quote,
+                        "Current price",
+                        timezone,
+                        Some("Yahoo/Stooq fallback".to_string()),
+                    )),
+                    Err(error) => {
+                        errors.insert("auto".to_string(), format!("{error:#}"));
+                    }
+                }
+            }
+        }
+        Provider::BinanceSpot | Provider::BinanceUsdsFutures => {
+            errors.insert(
+                provider.label().to_string(),
+                "Binance equity price requires a proxy symbol; use --proxy-symbol for context"
+                    .to_string(),
+            );
+        }
+        _ => match providers::fetch_quote(client, provider, &normalized).await {
             Ok(quote) => sessions.push(quote_to_point(
                 quote,
                 "Current price",
                 timezone,
-                Some("Yahoo/Stooq fallback".to_string()),
+                Some(format!("Forced {} quote provider", provider.label())),
             )),
             Err(error) => {
-                errors.insert("auto".to_string(), format!("{error:#}"));
+                errors.insert(provider.label().to_string(), format!("{error:#}"));
             }
-        }
+        },
     }
 
     if matches!(mode, SessionMode::All) {

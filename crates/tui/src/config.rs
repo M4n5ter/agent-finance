@@ -1,10 +1,13 @@
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
 
 use agent_finance_core::paths;
+use agent_finance_market::args::{CryptoProvider, Provider};
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::model::{DockedPanels, FloatingPane, FloatingSize, Panel};
 
@@ -263,10 +266,18 @@ impl RefreshConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ProviderConfig {
-    #[serde(default = "default_equity_provider")]
-    pub equity: String,
-    #[serde(default = "default_crypto_provider")]
-    pub crypto: String,
+    #[serde(
+        default = "default_equity_provider",
+        serialize_with = "serialize_equity_provider",
+        deserialize_with = "deserialize_equity_provider"
+    )]
+    pub equity: EquityProvider,
+    #[serde(
+        default = "default_crypto_provider",
+        serialize_with = "serialize_crypto_provider",
+        deserialize_with = "deserialize_crypto_provider"
+    )]
+    pub crypto: CryptoProvider,
 }
 
 impl Default for ProviderConfig {
@@ -326,12 +337,115 @@ const fn default_research_seconds() -> u64 {
     900
 }
 
-fn default_equity_provider() -> String {
-    "auto".to_string()
+fn default_crypto_provider() -> CryptoProvider {
+    CryptoProvider::Auto
 }
 
-fn default_crypto_provider() -> String {
-    "auto".to_string()
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub enum EquityProvider {
+    #[default]
+    Auto,
+    Yahoo,
+    YahooExtended,
+    Stooq,
+    Robinhood,
+}
+
+impl EquityProvider {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Yahoo => "yahoo",
+            Self::YahooExtended => "yahoo-extended",
+            Self::Stooq => "stooq",
+            Self::Robinhood => "robinhood",
+        }
+    }
+
+    const fn labels() -> &'static [&'static str] {
+        &["auto", "yahoo", "yahoo-extended", "stooq", "robinhood"]
+    }
+
+    pub const fn provider(self) -> Provider {
+        match self {
+            Self::Auto => Provider::Auto,
+            Self::Yahoo => Provider::Yahoo,
+            Self::YahooExtended => Provider::YahooExtended,
+            Self::Stooq => Provider::Stooq,
+            Self::Robinhood => Provider::Robinhood,
+        }
+    }
+}
+
+impl fmt::Display for EquityProvider {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
+    }
+}
+
+impl FromStr for EquityProvider {
+    type Err = String;
+
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        match input.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "yahoo" => Ok(Self::Yahoo),
+            "yahoo-extended" => Ok(Self::YahooExtended),
+            "stooq" => Ok(Self::Stooq),
+            "robinhood" => Ok(Self::Robinhood),
+            _ => Err(format!(
+                "invalid TUI equity provider '{}'; expected one of: {}",
+                input,
+                Self::labels().join(", ")
+            )),
+        }
+    }
+}
+
+fn default_equity_provider() -> EquityProvider {
+    EquityProvider::Auto
+}
+
+fn serialize_equity_provider<S>(
+    provider: &EquityProvider,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(provider.label())
+}
+
+fn deserialize_equity_provider<'de, D>(
+    deserializer: D,
+) -> std::result::Result<EquityProvider, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(serde::de::Error::custom)
+}
+
+fn serialize_crypto_provider<S>(
+    provider: &CryptoProvider,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(provider.label())
+}
+
+fn deserialize_crypto_provider<'de, D>(
+    deserializer: D,
+) -> std::result::Result<CryptoProvider, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(serde::de::Error::custom)
 }
 
 #[cfg(test)]
@@ -399,8 +513,8 @@ mod tests {
                 research_seconds: 10,
             },
             providers: ProviderConfig {
-                equity: "yahoo".to_string(),
-                crypto: "binance".to_string(),
+                equity: EquityProvider::Yahoo,
+                crypto: CryptoProvider::Binance,
             },
         };
         config.normalize();
@@ -420,7 +534,24 @@ mod tests {
         );
         assert_eq!(decoded.refresh.price_seconds, 2);
         assert_eq!(decoded.refresh.research_seconds, 60);
-        assert_eq!(decoded.providers.crypto, "binance");
+        assert_eq!(decoded.providers.equity, EquityProvider::Yahoo);
+        assert_eq!(decoded.providers.crypto, CryptoProvider::Binance);
+        assert!(encoded.contains("equity = \"yahoo\""));
+        assert!(encoded.contains("crypto = \"binance\""));
+    }
+
+    #[test]
+    fn config_rejects_equity_providers_that_do_not_support_tui_quote_and_history() {
+        let error = toml::from_str::<TuiConfig>(
+            r#"
+            [providers]
+            equity = "cnbc-extended"
+            crypto = "binance"
+            "#,
+        )
+        .expect_err("quote-only provider should not be a valid TUI equity preference");
+
+        assert!(error.to_string().contains("invalid TUI equity provider"));
     }
 
     #[test]

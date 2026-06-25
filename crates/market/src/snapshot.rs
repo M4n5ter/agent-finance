@@ -1,21 +1,21 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use futures_util::StreamExt;
 use serde::Serialize;
 
-use crate::args::{CryptoInstrument, CryptoProvider, SessionMode};
+use crate::args::{AssetClass, CryptoInstrument, CryptoProvider, Provider, SessionMode};
 use crate::crypto_capability::{CryptoCapability, resolve_instrument};
 use crate::crypto_market_data::fetch_price_batch;
 use crate::market_symbol::{MarketSymbol, canonical_lookup_key};
 use crate::model::{PricePoint, PriceSummary, RegularBasis};
-use crate::price;
-use crate::service::MarketRuntime;
+use crate::service::{self, MarketRuntime, PriceRequest, PriceResponse};
 use crate::time;
 
 #[derive(Debug, Clone)]
 pub struct PublicQuoteSnapshotRequest {
     pub symbols: Vec<String>,
+    pub equity_provider: Provider,
+    pub crypto_provider: CryptoProvider,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -66,8 +66,8 @@ pub async fn fetch_public_quote_snapshot(
         .partition(MarketSymbol::is_crypto);
 
     let (equity_result, crypto_result) = tokio::join!(
-        fetch_equity_quotes(runtime, equity_symbols),
-        fetch_crypto_quotes(runtime, crypto_symbols)
+        fetch_equity_quotes(runtime, equity_symbols, request.equity_provider),
+        fetch_crypto_quotes(runtime, crypto_symbols, request.crypto_provider)
     );
 
     let mut quotes = Vec::new();
@@ -109,44 +109,40 @@ impl QuoteFetchResult {
 async fn fetch_equity_quotes(
     runtime: &MarketRuntime,
     symbols: Vec<MarketSymbol>,
+    provider: Provider,
 ) -> QuoteFetchResult {
     if symbols.is_empty() {
         return QuoteFetchResult::default();
     }
 
-    let client = match runtime.client() {
-        Ok(client) => client,
-        Err(error) => {
-            return QuoteFetchResult {
-                quotes: Vec::new(),
-                errors: vec![format!("equity price refresh failed: {error}")],
-            };
-        }
-    };
-    let config = runtime.public_binance_config();
-    let summaries = futures_util::stream::iter(symbols)
-        .map(|symbol| {
-            let client = &client;
-            let config = &config;
-            async move {
-                price::fetch_price_summary(
-                    client,
-                    &symbol.input,
-                    runtime.timezone(),
-                    SessionMode::Smart,
-                    Some(config),
-                    None,
-                )
-                .await
-            }
-        })
-        .buffered(4)
-        .collect::<Vec<_>>()
-        .await;
-
+    let response = service::price(
+        runtime,
+        PriceRequest {
+            symbols: symbols.into_iter().map(|symbol| symbol.input).collect(),
+            asset: AssetClass::Equity,
+            instrument: CryptoInstrument::Auto,
+            crypto_provider: CryptoProvider::Auto,
+            provider,
+            session: SessionMode::Smart,
+            proxy_symbol: None,
+        },
+    )
+    .await;
     let mut fetch = QuoteFetchResult::default();
-    for summary in summaries {
-        append_equity_summary(&mut fetch.quotes, &mut fetch.errors, summary);
+    match response {
+        Ok(PriceResponse::Equity(summaries)) => {
+            for summary in summaries {
+                append_equity_summary(&mut fetch.quotes, &mut fetch.errors, summary);
+            }
+        }
+        Ok(PriceResponse::Crypto(_)) => {
+            fetch
+                .errors
+                .push("equity price refresh returned crypto data".to_string());
+        }
+        Err(error) => fetch
+            .errors
+            .push(format!("equity price refresh failed: {error}")),
     }
     fetch
 }
@@ -154,6 +150,7 @@ async fn fetch_equity_quotes(
 async fn fetch_crypto_quotes(
     runtime: &MarketRuntime,
     symbols: Vec<MarketSymbol>,
+    provider: CryptoProvider,
 ) -> QuoteFetchResult {
     if symbols.is_empty() {
         return QuoteFetchResult::default();
@@ -173,7 +170,7 @@ async fn fetch_crypto_quotes(
     let batch = fetch_price_batch(
         &client,
         &config,
-        CryptoProvider::Auto,
+        provider,
         resolve_instrument(CryptoInstrument::Auto, CryptoCapability::Quote),
         symbols.into_iter().map(|symbol| symbol.input).collect(),
         runtime.timezone(),

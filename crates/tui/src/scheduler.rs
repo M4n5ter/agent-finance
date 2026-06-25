@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 
 use agent_finance_market::{
-    args::{CryptoInstrument, CryptoProvider},
+    args::CryptoInstrument,
     crypto_evidence_snapshot::{
         self, CryptoQuoteEvidenceSnapshot, CryptoQuoteEvidenceSnapshotRequest,
     },
@@ -14,7 +14,7 @@ use agent_finance_market::{
 };
 use anyhow::{Result, anyhow};
 
-use crate::config::TuiLaunch;
+use crate::config::{EquityProvider, ProviderConfig, TuiLaunch};
 
 #[derive(Debug)]
 pub struct Scheduler {
@@ -27,7 +27,7 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn start(launch: &TuiLaunch) -> Self {
+    pub fn start(launch: &TuiLaunch, providers: ProviderConfig) -> Self {
         let (refresh_commands, refresh_command_rx) = mpsc::channel();
         let (history_commands, history_command_rx) = mpsc::channel();
         let (evidence_commands, evidence_command_rx) = mpsc::channel();
@@ -39,27 +39,37 @@ impl Scheduler {
             launch.timeout_seconds,
             &launch.timezone,
         );
+        let policy = TuiProviderPolicy::from(providers);
 
+        let refresh_policy = policy.clone();
         spawn_scheduler_worker(
             "refresh",
             runtime.clone(),
             refresh_command_rx,
             event_tx.clone(),
-            handle_refresh_command,
+            move |tokio, runtime, command| {
+                handle_refresh_command(tokio, runtime, command, &refresh_policy)
+            },
         );
+        let history_policy = policy.clone();
         spawn_scheduler_worker(
             "history",
             runtime.clone(),
             history_command_rx,
             event_tx.clone(),
-            handle_history_command,
+            move |tokio, runtime, command| {
+                handle_history_command(tokio, runtime, command, &history_policy)
+            },
         );
+        let evidence_policy = policy;
         spawn_scheduler_worker(
             "evidence",
             runtime.clone(),
             evidence_command_rx,
             event_tx.clone(),
-            handle_evidence_command,
+            move |tokio, runtime, command| {
+                handle_evidence_command(tokio, runtime, command, &evidence_policy)
+            },
         );
         spawn_scheduler_worker(
             "research",
@@ -232,12 +242,13 @@ fn handle_refresh_command(
     tokio: &tokio::runtime::Runtime,
     runtime: &MarketRuntime,
     command: RefreshCommand,
+    policy: &TuiProviderPolicy,
 ) -> SchedulerEvent {
     let RefreshCommand {
         generation,
         symbols,
     } = command;
-    match tokio.block_on(fetch_snapshot(runtime, symbols)) {
+    match tokio.block_on(fetch_snapshot(runtime, symbols, policy)) {
         Ok(snapshot) => SchedulerEvent::Snapshot {
             generation,
             snapshot,
@@ -253,9 +264,10 @@ fn handle_history_command(
     tokio: &tokio::runtime::Runtime,
     runtime: &MarketRuntime,
     command: HistoryCommand,
+    policy: &TuiProviderPolicy,
 ) -> SchedulerEvent {
     let HistoryCommand { generation, symbol } = command;
-    match tokio.block_on(fetch_history(runtime, symbol.clone())) {
+    match tokio.block_on(fetch_history(runtime, symbol.clone(), policy)) {
         Ok(snapshot) => SchedulerEvent::History {
             generation,
             snapshot,
@@ -272,9 +284,10 @@ fn handle_evidence_command(
     tokio: &tokio::runtime::Runtime,
     runtime: &MarketRuntime,
     command: EvidenceCommand,
+    policy: &TuiProviderPolicy,
 ) -> SchedulerEvent {
     let EvidenceCommand { generation, symbol } = command;
-    match tokio.block_on(fetch_evidence(runtime, symbol.clone())) {
+    match tokio.block_on(fetch_evidence(runtime, symbol.clone(), policy)) {
         Ok(snapshot) => SchedulerEvent::Evidence {
             generation,
             snapshot,
@@ -317,34 +330,30 @@ fn scheduler_runtime(
     }
 }
 
-async fn fetch_snapshot(runtime: &MarketRuntime, symbols: Vec<String>) -> Result<MarketSnapshot> {
-    snapshot::fetch_public_quote_snapshot(runtime, PublicQuoteSnapshotRequest { symbols }).await
+async fn fetch_snapshot(
+    runtime: &MarketRuntime,
+    symbols: Vec<String>,
+    policy: &TuiProviderPolicy,
+) -> Result<MarketSnapshot> {
+    snapshot::fetch_public_quote_snapshot(runtime, policy.public_quote_request(symbols)).await
 }
 
-async fn fetch_history(runtime: &MarketRuntime, symbol: String) -> Result<HistorySnapshot> {
-    history_snapshot::fetch_history_snapshot(
-        runtime,
-        HistorySnapshotRequest {
-            symbol,
-            interval: "1d".to_string(),
-            range: "6mo".to_string(),
-            limit: 90,
-        },
-    )
-    .await
+async fn fetch_history(
+    runtime: &MarketRuntime,
+    symbol: String,
+    policy: &TuiProviderPolicy,
+) -> Result<HistorySnapshot> {
+    history_snapshot::fetch_history_snapshot(runtime, policy.history_request(symbol)).await
 }
 
 async fn fetch_evidence(
     runtime: &MarketRuntime,
     symbol: String,
+    policy: &TuiProviderPolicy,
 ) -> Result<CryptoQuoteEvidenceSnapshot> {
     crypto_evidence_snapshot::fetch_crypto_quote_evidence_snapshot(
         runtime,
-        CryptoQuoteEvidenceSnapshotRequest {
-            symbol,
-            provider: CryptoProvider::Auto,
-            instrument: CryptoInstrument::Auto,
-        },
+        policy.crypto_evidence_request(symbol),
     )
     .await
 }
@@ -361,4 +370,72 @@ async fn fetch_research(runtime: &MarketRuntime, symbol: String) -> ResearchCont
         },
     )
     .await
+}
+
+#[derive(Debug, Clone)]
+struct TuiProviderPolicy {
+    equity: EquityProvider,
+    crypto: agent_finance_market::args::CryptoProvider,
+}
+
+impl From<ProviderConfig> for TuiProviderPolicy {
+    fn from(config: ProviderConfig) -> Self {
+        Self {
+            equity: config.equity,
+            crypto: config.crypto,
+        }
+    }
+}
+
+impl TuiProviderPolicy {
+    fn public_quote_request(&self, symbols: Vec<String>) -> PublicQuoteSnapshotRequest {
+        PublicQuoteSnapshotRequest {
+            symbols,
+            equity_provider: self.equity.provider(),
+            crypto_provider: self.crypto,
+        }
+    }
+
+    fn history_request(&self, symbol: String) -> HistorySnapshotRequest {
+        HistorySnapshotRequest {
+            symbol,
+            provider: self.equity.provider(),
+            crypto_provider: self.crypto,
+            interval: "1d".to_string(),
+            range: "6mo".to_string(),
+            limit: 90,
+        }
+    }
+
+    fn crypto_evidence_request(&self, symbol: String) -> CryptoQuoteEvidenceSnapshotRequest {
+        CryptoQuoteEvidenceSnapshotRequest {
+            symbol,
+            provider: self.crypto,
+            instrument: CryptoInstrument::Auto,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_finance_market::args::{CryptoProvider, Provider};
+
+    #[test]
+    fn request_builders_carry_tui_provider_preferences_into_market_requests() {
+        let policy = TuiProviderPolicy::from(ProviderConfig {
+            equity: EquityProvider::Robinhood,
+            crypto: CryptoProvider::Okx,
+        });
+
+        let quote = policy.public_quote_request(vec!["CRDO".to_string(), "BTCUSDT".to_string()]);
+        let history = policy.history_request("CRDO".to_string());
+        let evidence = policy.crypto_evidence_request("BTCUSDT".to_string());
+
+        assert_eq!(quote.equity_provider, Provider::Robinhood);
+        assert_eq!(quote.crypto_provider, CryptoProvider::Okx);
+        assert_eq!(history.provider, Provider::Robinhood);
+        assert_eq!(history.crypto_provider, CryptoProvider::Okx);
+        assert_eq!(evidence.provider, CryptoProvider::Okx);
+    }
 }

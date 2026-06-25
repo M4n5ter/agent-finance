@@ -181,6 +181,7 @@ async fn run_price(runtime: &MarketRuntime, args: crate::cli::PriceArgs) -> Resu
             asset: args.asset,
             instrument: args.instrument,
             crypto_provider: args.crypto_provider,
+            provider: crate::cli::Provider::Auto,
             session: args.session,
             proxy_symbol: args.proxy_symbol,
         },

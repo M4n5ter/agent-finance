@@ -55,6 +55,24 @@ pub async fn fetch_quote_without_boats(
     }
 }
 
+pub async fn fetch_quote(client: &Client, provider: Provider, symbol: &str) -> Result<Quote> {
+    match provider {
+        Provider::Auto => fetch_quote_without_boats(client, symbol, "auto").await,
+        Provider::Yahoo => yahoo::fetch_quote(client, symbol).await,
+        Provider::YahooExtended => yahoo::fetch_extended_quote(client, symbol).await,
+        Provider::YahooBoats => Err(anyhow!(
+            "yahoo-boats returns session rows; use auto/yahoo-boats through price summary"
+        )),
+        Provider::Stooq => stooq::fetch_quote(client, symbol).await,
+        Provider::CnbcExtended => cnbc::fetch_quote(client, symbol).await,
+        Provider::Robinhood => robinhood::fetch_quote(client, symbol).await,
+        Provider::BinanceSpot | Provider::BinanceUsdsFutures => Err(anyhow!(
+            "{} does not provide direct equity quotes",
+            provider.label()
+        )),
+    }
+}
+
 pub async fn fetch_history(
     client: &Client,
     provider: Provider,

@@ -13,6 +13,8 @@ use crate::time;
 #[derive(Debug, Clone)]
 pub struct HistorySnapshotRequest {
     pub symbol: String,
+    pub provider: Provider,
+    pub crypto_provider: CryptoProvider,
     pub interval: String,
     pub range: String,
     pub limit: usize,
@@ -56,8 +58,8 @@ pub async fn fetch_history_snapshot(
             symbol: request.symbol.clone(),
             asset,
             instrument: CryptoInstrument::Auto,
-            crypto_provider: CryptoProvider::Auto,
-            provider: Provider::Auto,
+            crypto_provider: request.crypto_provider,
+            provider: request.provider,
             session: HistorySession::Regular,
             adjustment: HistoryAdjustment::Auto,
             no_actions: false,

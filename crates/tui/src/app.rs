@@ -27,7 +27,7 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
     state.reduce(Action::Log("cockpit initialized".to_string()));
 
     let mut terminal = TerminalGuard::enter().context("failed to initialize terminal UI")?;
-    let scheduler = Scheduler::start(&launch);
+    let scheduler = Scheduler::start(&launch, runtime_config.providers.clone());
     let mut next_refresh_generation = 1;
     let mut symbol_loads = SymbolLoadRuntimes::new();
     request_refresh(&scheduler, &mut state, &mut next_refresh_generation);
