@@ -82,6 +82,10 @@ impl MarketRuntime {
     pub(crate) fn binance_config(&self) -> binance::BinanceConfig {
         binance::BinanceConfig::from_env(self.timeout_seconds, self.proxy(), self.no_proxy)
     }
+
+    pub(crate) fn public_binance_config(&self) -> binance::BinanceConfig {
+        self.binance_config().without_api_key()
+    }
 }
 
 #[derive(Debug, Clone)]

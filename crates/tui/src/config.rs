@@ -12,15 +12,35 @@ pub struct TuiLaunch {
     pub config_path: Option<PathBuf>,
     pub no_persist: bool,
     pub tick_rate: Duration,
+    pub proxy: Option<String>,
+    pub no_proxy: bool,
+    pub timeout_seconds: u64,
+    pub timezone: String,
 }
 
 impl TuiLaunch {
     pub fn new(symbols: Vec<String>, config_path: Option<PathBuf>, no_persist: bool) -> Self {
+        Self::with_market_runtime(symbols, config_path, no_persist, None, false, 10, "UTC")
+    }
+
+    pub fn with_market_runtime(
+        symbols: Vec<String>,
+        config_path: Option<PathBuf>,
+        no_persist: bool,
+        proxy: Option<&str>,
+        no_proxy: bool,
+        timeout_seconds: u64,
+        timezone: &str,
+    ) -> Self {
         Self {
             symbols,
             config_path,
             no_persist,
             tick_rate: Duration::from_millis(250),
+            proxy: proxy.map(ToString::to_string),
+            no_proxy,
+            timeout_seconds,
+            timezone: timezone.to_string(),
         }
     }
 

@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use agent_finance_market::model::ProviderProfile;
 use agent_finance_market::service;
+use agent_finance_market::snapshot::MarketSnapshot;
 
 use crate::config::TuiConfig;
 
@@ -14,6 +15,10 @@ pub struct AppState {
     pub floating: Vec<FloatingPane>,
     pub task_log: VecDeque<TaskLogEntry>,
     pub provider_profiles: Vec<ProviderProfile>,
+    pub market_snapshot: Option<MarketSnapshot>,
+    pub refresh_generation: u64,
+    pub refreshing: bool,
+    pub scheduler_error: Option<String>,
 }
 
 impl AppState {
@@ -35,6 +40,10 @@ impl AppState {
             floating: Vec::new(),
             task_log: VecDeque::new(),
             provider_profiles: service::provider_profiles(),
+            market_snapshot: None,
+            refresh_generation: 0,
+            refreshing: false,
+            scheduler_error: None,
         }
     }
 
@@ -58,6 +67,44 @@ impl AppState {
             Action::ResetLayout => {
                 self.floating.clear();
                 self.focused_panel = Panel::Watchlist;
+            }
+            Action::RefreshStarted(generation) => {
+                self.refresh_generation = generation;
+                self.refreshing = true;
+            }
+            Action::SnapshotLoaded {
+                generation,
+                snapshot,
+            } => {
+                if generation == self.refresh_generation {
+                    self.refreshing = false;
+                    if !snapshot.errors.is_empty() {
+                        self.push_log(TaskLogEntry::warning(format!(
+                            "refresh completed with {} provider errors",
+                            snapshot.errors.len()
+                        )));
+                    } else {
+                        self.push_log(TaskLogEntry::info("market snapshot refreshed".to_string()));
+                    }
+                    self.market_snapshot = Some(snapshot);
+                } else {
+                    self.push_log(TaskLogEntry::warning(format!(
+                        "ignored stale market snapshot generation {generation}",
+                    )));
+                }
+            }
+            Action::RefreshFailed { generation, error } => {
+                if generation == self.refresh_generation {
+                    self.refreshing = false;
+                    self.push_log(TaskLogEntry::warning(format!(
+                        "market refresh failed: {error}"
+                    )));
+                }
+            }
+            Action::SchedulerFailed(error) => {
+                self.refreshing = false;
+                self.scheduler_error = Some(error.clone());
+                self.push_log(TaskLogEntry::warning(format!("scheduler failed: {error}")));
             }
             Action::Log(message) => self.push_log(TaskLogEntry::info(message)),
         }
@@ -153,7 +200,7 @@ pub struct FloatingPane {
     pub z_index: u16,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Focus(Panel),
     SelectNextSymbol,
@@ -161,12 +208,23 @@ pub enum Action {
     ToggleFloating(FloatingKind),
     CloseFocusedFloating,
     ResetLayout,
+    RefreshStarted(u64),
+    SnapshotLoaded {
+        generation: u64,
+        snapshot: MarketSnapshot,
+    },
+    RefreshFailed {
+        generation: u64,
+        error: String,
+    },
+    SchedulerFailed(String),
     Log(String),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum TaskLevel {
     Info,
+    Warning,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -182,11 +240,19 @@ impl TaskLogEntry {
             message,
         }
     }
+
+    fn warning(message: String) -> Self {
+        Self {
+            level: TaskLevel::Warning,
+            message,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_finance_market::snapshot::{QuoteSnapshot, RegularBasisSnapshot};
 
     #[test]
     fn reducer_wraps_symbol_focus_across_watchlist_boundaries() {
@@ -218,5 +284,74 @@ mod tests {
 
         assert_eq!(state.floating.len(), 1);
         assert_eq!(state.floating[0].kind, FloatingKind::Help);
+    }
+
+    #[test]
+    fn reducer_accepts_current_snapshot_and_ignores_stale_snapshot() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        let current = snapshot(2, "CRDO");
+        let stale = snapshot(1, "AAPL");
+
+        state.reduce(Action::RefreshStarted(2));
+        state.reduce(Action::SnapshotLoaded {
+            generation: 1,
+            snapshot: stale,
+        });
+        assert!(state.market_snapshot.is_none());
+        assert!(state.refreshing);
+
+        state.reduce(Action::SnapshotLoaded {
+            generation: 2,
+            snapshot: current,
+        });
+        assert_eq!(
+            state
+                .market_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.quote_for("CRDO"))
+                .and_then(|quote| quote.price),
+            Some(250.0)
+        );
+        assert!(!state.refreshing);
+    }
+
+    #[test]
+    fn reducer_clears_in_flight_refresh_on_scheduler_fatal_failure() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::RefreshStarted(1));
+        state.reduce(Action::SchedulerFailed(
+            "scheduler runtime failed".to_string(),
+        ));
+
+        assert!(!state.refreshing);
+        assert_eq!(
+            state.scheduler_error.as_deref(),
+            Some("scheduler runtime failed")
+        );
+    }
+
+    fn snapshot(_generation: u64, symbol: &str) -> MarketSnapshot {
+        MarketSnapshot {
+            fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+            quotes: vec![QuoteSnapshot {
+                symbol: symbol.to_string(),
+                price: Some(250.0),
+                currency: Some("USD".to_string()),
+                provider: "test".to_string(),
+                session: Some("regular".to_string()),
+                market_time_local: None,
+                change_pct: Some(1.0),
+                aliases: Vec::new(),
+                regular_basis: RegularBasisSnapshot {
+                    previous_close: Some(247.0),
+                    open: None,
+                    high: None,
+                    low: None,
+                    volume: None,
+                },
+            }],
+            errors: Vec::new(),
+        }
     }
 }

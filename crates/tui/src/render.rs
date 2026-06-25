@@ -1,3 +1,4 @@
+use agent_finance_market::snapshot::QuoteSnapshot;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -50,6 +51,17 @@ fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 Span::styled(marker, style),
                 Span::raw(" "),
                 Span::styled(symbol.clone(), style),
+                Span::raw(" "),
+                Span::styled(
+                    state
+                        .market_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.quote_for(symbol))
+                        .and_then(|quote| quote.price)
+                        .map(format_price)
+                        .unwrap_or_else(|| "-".to_string()),
+                    style,
+                ),
             ]))
         })
         .collect::<Vec<_>>();
@@ -61,19 +73,40 @@ fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
 
 fn render_quote(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let symbol = state.selected_symbol().unwrap_or("N/A");
-    let text = vec![
-        Line::from(vec![
-            Span::styled(
-                symbol,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" public market snapshot"),
-        ]),
-        Line::from("Price/session data tasks will attach here."),
-        Line::from("Freshness, provider, partial errors, and proxy evidence stay visible."),
-    ];
+    let quote = state
+        .market_snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.quote_for(symbol));
+    let mut text = vec![Line::from(vec![
+        Span::styled(
+            symbol,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(if state.refreshing {
+            " refreshing..."
+        } else {
+            " market snapshot"
+        }),
+    ])];
+    match quote {
+        Some(quote) => text.extend(quote_lines(quote)),
+        None => text.push(Line::from(
+            "No quote loaded yet. Waiting for the next refresh.",
+        )),
+    }
+    if let Some(snapshot) = state.market_snapshot.as_ref() {
+        if let Some(fetched_at) = snapshot.fetched_at_local.as_ref() {
+            text.push(Line::from(format!("freshness: {fetched_at}")));
+        }
+        for error in snapshot.errors.iter().take(2) {
+            text.push(Line::from(Span::styled(
+                format!("provider error: {error}"),
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+    }
     frame.render_widget(
         Paragraph::new(text)
             .block(panel_block(Panel::Quote, state))
@@ -137,6 +170,7 @@ fn render_task_log(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         .map(|entry| {
             let style = match entry.level {
                 TaskLevel::Info => Style::default().fg(Color::Gray),
+                TaskLevel::Warning => Style::default().fg(Color::Yellow),
             };
             ListItem::new(Line::from(Span::styled(entry.message.clone(), style)))
         })
@@ -147,12 +181,84 @@ fn render_task_log(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     );
 }
 
+fn quote_lines(quote: &QuoteSnapshot) -> Vec<Line<'static>> {
+    vec![
+        Line::from(format!(
+            "current: {} {}  chg={}  session={}",
+            quote.currency.as_deref().unwrap_or(""),
+            quote
+                .price
+                .map(format_price)
+                .unwrap_or_else(|| "-".to_string()),
+            quote
+                .change_pct
+                .map(|value| format!("{value:.2}%"))
+                .unwrap_or_else(|| "-".to_string()),
+            quote.session.as_deref().unwrap_or("-")
+        )),
+        Line::from(format!(
+            "provider: {}  time={}",
+            quote.provider,
+            quote.market_time_local.as_deref().unwrap_or("-")
+        )),
+        Line::from(format!(
+            "regular: prev={} open={} high={} low={} volume={}",
+            quote
+                .regular_basis
+                .previous_close
+                .map(format_price)
+                .unwrap_or_else(|| "-".to_string()),
+            quote
+                .regular_basis
+                .open
+                .map(format_price)
+                .unwrap_or_else(|| "-".to_string()),
+            quote
+                .regular_basis
+                .high
+                .map(format_price)
+                .unwrap_or_else(|| "-".to_string()),
+            quote
+                .regular_basis
+                .low
+                .map(format_price)
+                .unwrap_or_else(|| "-".to_string()),
+            quote
+                .regular_basis
+                .volume
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        )),
+    ]
+}
+
+fn format_price(value: f64) -> String {
+    if value.abs() >= 100.0 {
+        format!("{value:.2}")
+    } else {
+        format!("{value:.4}")
+    }
+}
+
 fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let symbol = state.selected_symbol().unwrap_or("N/A");
+    let errors = state
+        .market_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.errors.len())
+        .unwrap_or(0);
     let text = format!(
-        " {} | focus: {} | j/k symbol | h help | : command | p providers | q quit ",
+        " {} | focus: {} | {} | errors: {} | j/k symbol | h help | : command | p providers | q quit ",
         symbol,
-        state.focused_panel.title()
+        state.focused_panel.title(),
+        if state.scheduler_error.is_some() {
+            "scheduler error"
+        } else if state.refreshing {
+            "refreshing"
+        } else {
+            "ready"
+        },
+        errors
     );
     frame.render_widget(
         Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White)),

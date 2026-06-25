@@ -91,6 +91,11 @@ impl BinanceConfig {
             path.trim_start_matches('/')
         )
     }
+
+    pub(crate) fn without_api_key(mut self) -> Self {
+        self.api_key = None;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -99,7 +104,27 @@ mod tests {
 
     #[test]
     fn debug_redacts_credentials_and_proxy() {
-        let config = BinanceConfig {
+        let config = config_with_api_key();
+
+        let debug = format!("{config:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("live-api-key"));
+        assert!(!debug.contains("user:secret"));
+    }
+
+    #[test]
+    fn public_config_removes_api_key_without_changing_public_endpoints() {
+        let config = config_with_api_key();
+        let public = config.clone().without_api_key();
+
+        assert_eq!(public.api_key, None);
+        assert_eq!(public.spot_base_url, config.spot_base_url);
+        assert_eq!(public.futures_base_url, config.futures_base_url);
+        assert_eq!(public.proxy, config.proxy);
+    }
+
+    fn config_with_api_key() -> BinanceConfig {
+        BinanceConfig {
             timeout_seconds: 10,
             proxy: Some("http://user:secret@127.0.0.1:7890".to_string()),
             no_proxy: false,
@@ -109,11 +134,6 @@ mod tests {
             spot_ws_url: "wss://data-stream.binance.vision/ws".to_string(),
             futures_ws_url: "wss://fstream.binance.com".to_string(),
             api_key: Some("live-api-key".to_string()),
-        };
-
-        let debug = format!("{config:?}");
-        assert!(debug.contains("<redacted>"));
-        assert!(!debug.contains("live-api-key"));
-        assert!(!debug.contains("user:secret"));
+        }
     }
 }

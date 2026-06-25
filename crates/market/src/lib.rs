@@ -13,6 +13,7 @@ mod price;
 mod providers;
 mod research;
 pub mod service;
+pub mod snapshot;
 mod stream;
 pub mod time;
 mod websocket;

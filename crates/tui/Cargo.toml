@@ -13,4 +13,5 @@ anyhow.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 toml.workspace = true
