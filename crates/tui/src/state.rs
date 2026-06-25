@@ -7,6 +7,7 @@ use agent_finance_market::research_snapshot::ResearchContextSnapshot;
 use agent_finance_market::service;
 use agent_finance_market::snapshot::MarketSnapshot;
 
+use crate::command::{CommandEffect, CommandPaletteState};
 use crate::config::{LayoutConfig, TuiConfig};
 
 #[derive(Debug, Clone)]
@@ -17,6 +18,7 @@ pub struct AppState {
     pub focused_panel: Panel,
     pub open_panels: Vec<Panel>,
     pub floating: Vec<FloatingPane>,
+    pub command_palette: CommandPaletteState,
     pub task_log: VecDeque<TaskLogEntry>,
     pub provider_profiles: Vec<ProviderProfile>,
     pub market_snapshot: Option<MarketSnapshot>,
@@ -45,6 +47,7 @@ impl AppState {
             focused_panel: Panel::Watchlist,
             open_panels,
             floating: Vec::new(),
+            command_palette: CommandPaletteState::default(),
             task_log: VecDeque::new(),
             provider_profiles: service::provider_profiles(),
             market_snapshot: None,
@@ -70,6 +73,10 @@ impl AppState {
             Action::SelectNextSymbol => self.shift_symbol(1),
             Action::SelectPreviousSymbol => self.shift_symbol(-1),
             Action::ToggleFloating(kind) => self.toggle_floating(kind),
+            Action::MoveCommandSelection(direction) => {
+                self.command_palette.shift(direction);
+            }
+            Action::ApplyCommand(effect) => self.apply_command(effect),
             Action::CloseFocusedFloating => {
                 self.floating.pop();
             }
@@ -249,17 +256,48 @@ impl AppState {
             return;
         }
 
-        let next_z = self
-            .floating
-            .iter()
-            .map(|pane| pane.z_index)
-            .max()
-            .unwrap_or(0)
-            + 1;
+        self.open_floating(kind);
+    }
+
+    fn close_floating(&mut self, kind: FloatingKind) {
+        self.floating.retain(|pane| pane.kind != kind);
+    }
+
+    fn open_floating(&mut self, kind: FloatingKind) {
+        self.close_floating(kind);
+        let next_z = self.next_floating_z_index();
         self.floating.push(FloatingPane {
             kind,
             z_index: next_z,
         });
+    }
+
+    fn next_floating_z_index(&self) -> u16 {
+        self.floating
+            .iter()
+            .map(|pane| pane.z_index)
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
+
+    fn apply_command(&mut self, effect: CommandEffect) {
+        match effect {
+            CommandEffect::OpenFloating(kind) => {
+                self.close_floating(FloatingKind::CommandPalette);
+                self.open_floating(kind);
+            }
+            CommandEffect::ResetLayout => {
+                self.reduce(Action::ResetLayout);
+            }
+            CommandEffect::FocusPanel(panel) => {
+                self.close_floating(FloatingKind::CommandPalette);
+                self.reduce(Action::Focus(panel));
+            }
+            CommandEffect::CloseCommandPalette => {
+                self.close_floating(FloatingKind::CommandPalette);
+            }
+        }
     }
 
     fn push_log(&mut self, entry: TaskLogEntry) {
@@ -441,6 +479,8 @@ pub enum Action {
     SelectNextSymbol,
     SelectPreviousSymbol,
     ToggleFloating(FloatingKind),
+    MoveCommandSelection(isize),
+    ApplyCommand(CommandEffect),
     CloseFocusedFloating,
     ResetLayout,
     ResizeDockedColumns {
@@ -525,6 +565,7 @@ impl TaskLogEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command::CommandEffect;
     use crate::config::MAX_LEFT_MAIN_RATIO;
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
@@ -558,6 +599,56 @@ mod tests {
         assert_eq!(state.floating[1].z_index, 2);
 
         state.reduce(Action::CloseFocusedFloating);
+
+        assert_eq!(state.floating.len(), 1);
+        assert_eq!(state.floating[0].kind, FloatingKind::Help);
+    }
+
+    #[test]
+    fn command_palette_wraps_selection_and_executes_overlay_commands() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::MoveCommandSelection(-1));
+        assert_eq!(
+            state.command_palette.selected_effect(),
+            CommandEffect::CloseCommandPalette
+        );
+
+        state.reduce(Action::MoveCommandSelection(1));
+        assert_eq!(
+            state.command_palette.selected_effect(),
+            CommandEffect::OpenFloating(FloatingKind::Help)
+        );
+
+        state.reduce(Action::ApplyCommand(CommandEffect::OpenFloating(
+            FloatingKind::Help,
+        )));
+
+        assert_eq!(state.floating.len(), 1);
+        assert_eq!(state.floating[0].kind, FloatingKind::Help);
+    }
+
+    #[test]
+    fn command_palette_executes_panel_focus_commands() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::ApplyCommand(CommandEffect::FocusPanel(
+            Panel::Research,
+        )));
+
+        assert_eq!(state.focused_panel, Panel::Research);
+        assert!(state.floating.is_empty());
+    }
+
+    #[test]
+    fn command_palette_close_preserves_underlying_overlay() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::ToggleFloating(FloatingKind::Help));
+        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::ApplyCommand(CommandEffect::CloseCommandPalette));
 
         assert_eq!(state.floating.len(), 1);
         assert_eq!(state.floating[0].kind, FloatingKind::Help);

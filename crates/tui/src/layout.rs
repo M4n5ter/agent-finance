@@ -306,16 +306,25 @@ fn floating_rect(area: Rect, kind: FloatingKind) -> Rect {
         FloatingKind::Help => (64, 70),
         FloatingKind::ProviderDetails => (58, 58),
     };
-    let width = ((area.width as u32 * width_ratio) / 100)
-        .clamp(MIN_PANEL_WIDTH as u32, area.width.max(1) as u32) as u16;
-    let height = ((area.height as u32 * height_ratio) / 100)
-        .clamp(MIN_PANEL_HEIGHT as u32, area.height.max(1) as u32) as u16;
+    let width = floating_dimension(area.width, width_ratio, MIN_PANEL_WIDTH);
+    let height = floating_dimension(area.height, height_ratio, MIN_PANEL_HEIGHT);
     Rect {
         x: area.x + area.width.saturating_sub(width) / 2,
         y: area.y + area.height.saturating_sub(height) / 2,
         width,
         height,
     }
+}
+
+fn floating_dimension(total: u16, ratio: u32, minimum: u16) -> u16 {
+    let maximum = total.max(1) as u32;
+    if maximum < minimum as u32 {
+        return maximum as u16;
+    }
+
+    ((total as u32 * ratio) / 100)
+        .max(1)
+        .clamp(minimum as u32, maximum) as u16
 }
 
 fn split_horizontal<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
@@ -416,6 +425,20 @@ mod tests {
             assert!(floating.rect.width >= MIN_PANEL_WIDTH);
             assert!(floating.rect.height >= MIN_PANEL_HEIGHT);
         }
+    }
+
+    #[test]
+    fn floating_rects_fit_tiny_terminals() {
+        let layout = build(
+            Rect::new(0, 0, 1, 1),
+            &LayoutConfig::default(),
+            &[FloatingPane {
+                kind: FloatingKind::CommandPalette,
+                z_index: 1,
+            }],
+        );
+
+        assert_eq!(layout.floating[0].rect, Rect::new(0, 0, 1, 1));
     }
 
     #[test]

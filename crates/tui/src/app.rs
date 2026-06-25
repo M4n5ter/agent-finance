@@ -2,10 +2,7 @@ use std::io::{self, Stdout};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
-};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -16,10 +13,10 @@ use ratatui::backend::CrosstermBackend;
 use agent_finance_market::is_likely_crypto_pair;
 
 use crate::config::TuiLaunch;
-use crate::layout::{self, DockedColumnSplit, LayoutHit};
+use crate::input::{self, MouseDrag};
 use crate::render;
 use crate::scheduler::{Scheduler, SchedulerEvent, SymbolTaskKind};
-use crate::state::{Action, AppState, FloatingKind, Panel, SelectedSymbolLoad, SymbolSnapshot};
+use crate::state::{Action, AppState, SelectedSymbolLoad, SymbolSnapshot};
 
 type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
@@ -129,15 +126,20 @@ fn run_loop(
             .unwrap_or_default();
         if event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key) if should_quit(key) => break,
+                Event::Key(key) if input::should_quit(key) => break,
                 Event::Key(key) => {
-                    if let Some(action) = key_action(key) {
+                    if let Some(action) = input::key_action(state, key) {
                         state.reduce(action);
                         request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
                     }
                 }
                 Event::Mouse(mouse) => {
-                    handle_mouse_event(terminal.size()?.into(), state, &mut mouse_drag, mouse);
+                    input::handle_mouse_event(
+                        terminal.size()?.into(),
+                        state,
+                        &mut mouse_drag,
+                        mouse,
+                    );
                 }
                 _ => {}
             }
@@ -169,11 +171,6 @@ struct LoopContext<'a> {
     next_refresh_generation: &'a mut u64,
     symbol_loads: &'a mut SymbolLoadRuntimes,
     launch: &'a TuiLaunch,
-}
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
-struct MouseDrag {
-    split: Option<DockedColumnSplit>,
 }
 
 fn request_refresh(scheduler: &Scheduler, state: &mut AppState, next_generation: &mut u64) {
@@ -372,64 +369,6 @@ where
     Some(SymbolLoadRequest { generation, symbol })
 }
 
-fn key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => Some(Action::SelectNextSymbol),
-        KeyCode::Char('k') | KeyCode::Up => Some(Action::SelectPreviousSymbol),
-        KeyCode::Char('h') | KeyCode::F(1) => Some(Action::ToggleFloating(FloatingKind::Help)),
-        KeyCode::Char(':') => Some(Action::ToggleFloating(FloatingKind::CommandPalette)),
-        KeyCode::Char('p') => Some(Action::ToggleFloating(FloatingKind::ProviderDetails)),
-        KeyCode::Char('r') => Some(Action::ResetLayout),
-        KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        KeyCode::Char('1') => Some(Action::Focus(Panel::Watchlist)),
-        KeyCode::Char('2') => Some(Action::Focus(Panel::Quote)),
-        KeyCode::Char('3') => Some(Action::Focus(Panel::History)),
-        _ => None,
-    }
-}
-
-fn should_quit(key: KeyEvent) -> bool {
-    matches!(key.code, KeyCode::Char('q'))
-        || (matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL))
-}
-
-fn handle_mouse_event(
-    terminal_area: ratatui::layout::Rect,
-    state: &mut AppState,
-    drag: &mut MouseDrag,
-    mouse: MouseEvent,
-) {
-    match mouse.kind {
-        MouseEventKind::Down(MouseButton::Left) => {
-            let layout = layout::build(terminal_area, &state.layout, &state.floating);
-            drag.split = None;
-            match layout.hit_test(mouse.column, mouse.row) {
-                Some(LayoutHit::Panel(panel)) => state.reduce(Action::Focus(panel)),
-                Some(LayoutHit::DockedSplit(split)) => drag.split = Some(split),
-                Some(LayoutHit::Floating(_)) | Some(LayoutHit::Status) | None => {}
-            }
-        }
-        MouseEventKind::Drag(MouseButton::Left) => {
-            if let Some(split) = drag.split {
-                let next = layout::resize_docked_columns(
-                    terminal_area,
-                    split,
-                    mouse.column,
-                    &state.layout,
-                );
-                state.reduce(Action::ResizeDockedColumns {
-                    left_ratio: next.left_ratio,
-                    main_ratio: next.main_ratio,
-                });
-            }
-        }
-        MouseEventKind::Up(MouseButton::Left) => {
-            drag.split = None;
-        }
-        _ => {}
-    }
-}
-
 struct TerminalGuard {
     terminal: Option<TuiTerminal>,
     raw_mode: bool,
@@ -544,77 +483,6 @@ mod tests {
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::research_snapshot::ResearchContextSnapshot;
-
-    #[test]
-    fn key_router_maps_navigation_and_overlays_to_actions() {
-        assert_eq!(
-            key_action(KeyEvent::from(KeyCode::Char('j'))),
-            Some(Action::SelectNextSymbol)
-        );
-        assert_eq!(
-            key_action(KeyEvent::from(KeyCode::Char(':'))),
-            Some(Action::ToggleFloating(FloatingKind::CommandPalette))
-        );
-        assert_eq!(
-            key_action(KeyEvent::from(KeyCode::Esc)),
-            Some(Action::CloseFocusedFloating)
-        );
-    }
-
-    #[test]
-    fn quit_router_accepts_q_and_control_c_only() {
-        assert!(should_quit(KeyEvent::from(KeyCode::Char('q'))));
-        assert!(should_quit(KeyEvent::new(
-            KeyCode::Char('c'),
-            KeyModifiers::CONTROL
-        )));
-        assert!(!should_quit(KeyEvent::from(KeyCode::Char('c'))));
-    }
-
-    #[test]
-    fn mouse_down_focuses_panel_and_drag_resizes_columns() {
-        let area = ratatui::layout::Rect::new(0, 0, 160, 48);
-        let mut state = AppState::from_config(crate::config::TuiConfig::default());
-        let mut drag = MouseDrag::default();
-        let layout = layout::build(area, &state.layout, &state.floating);
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 2, 2),
-        );
-        assert_eq!(state.focused_panel, Panel::Watchlist);
-        assert_eq!(drag.split, None);
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(
-                MouseEventKind::Down(MouseButton::Left),
-                layout.watchlist.x + layout.watchlist.width,
-                2,
-            ),
-        );
-        assert_eq!(drag.split, Some(DockedColumnSplit::LeftMain));
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::Drag(MouseButton::Left), 50, 2),
-        );
-        assert!(state.layout.left_ratio > crate::config::LayoutConfig::default().left_ratio);
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::Up(MouseButton::Left), 50, 2),
-        );
-        assert_eq!(drag.split, None);
-    }
 
     #[test]
     fn refresh_request_does_not_enqueue_while_previous_refresh_is_in_flight() {
@@ -928,15 +796,6 @@ mod tests {
             news: Vec::new(),
             prediction_markets: Vec::new(),
             errors: Vec::new(),
-        }
-    }
-
-    fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
-        MouseEvent {
-            kind,
-            column,
-            row,
-            modifiers: KeyModifiers::empty(),
         }
     }
 }

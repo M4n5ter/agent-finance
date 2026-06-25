@@ -1,12 +1,15 @@
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::research_snapshot::ResearchContextSnapshot;
 use agent_finance_market::snapshot::QuoteSnapshot;
+use std::ops::Range;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Sparkline, Wrap};
 
+use crate::command::COMMANDS;
 use crate::layout::{self, CockpitLayout};
 use crate::state::{AppState, FloatingKind, Panel, TaskLevel};
 
@@ -522,17 +525,21 @@ fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
 }
 
 fn render_floating(frame: &mut Frame<'_>, state: &AppState, kind: FloatingKind, area: Rect) {
+    if kind == FloatingKind::CommandPalette {
+        render_command_palette(frame, state, area);
+        return;
+    }
+
     let text = match kind {
-        FloatingKind::CommandPalette => vec![
-            Line::from("Type-to-filter commands will land here."),
-            Line::from("Current actions: h help, p providers, Esc close, q quit."),
-        ],
+        FloatingKind::CommandPalette => unreachable!("command palette is rendered separately"),
         FloatingKind::Help => vec![
             Line::from("agent-finance cockpit"),
             Line::from("j/k or arrows: switch selected symbol"),
             Line::from(": open command palette"),
+            Line::from("Enter: execute selected command in command palette"),
             Line::from("p inspect provider details"),
             Line::from("r reset layout"),
+            Line::from("mouse: focus panels and drag docked column borders"),
             Line::from("q quit"),
         ],
         FloatingKind::ProviderDetails => state
@@ -562,6 +569,59 @@ fn render_floating(frame: &mut Frame<'_>, state: &AppState, kind: FloatingKind, 
     );
 }
 
+fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let selected = state.command_palette.selected;
+    let visible = command_window(
+        COMMANDS.len(),
+        selected,
+        area.height.saturating_sub(2) as usize,
+    );
+    let hidden_before = visible.start > 0;
+    let hidden_after = visible.end < COMMANDS.len();
+    let items = COMMANDS[visible.clone()]
+        .iter()
+        .enumerate()
+        .map(|(offset, command)| {
+            let index = visible.start + offset;
+            let is_selected = index == selected;
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(if is_selected { "> " } else { "  " }, style),
+                Span::styled(command.title, style),
+                Span::styled(" - ", style),
+                Span::styled(command.description, style),
+            ]))
+        })
+        .collect::<Vec<_>>();
+
+    let title = match (hidden_before, hidden_after) {
+        (true, true) => "Command Palette  Enter run  Esc close  more above/below",
+        (true, false) => "Command Palette  Enter run  Esc close  more above",
+        (false, true) => "Command Palette  Enter run  Esc close  more below",
+        (false, false) => "Command Palette  Enter run  Esc close",
+    };
+    frame.render_widget(List::new(items).block(simple_block(title)), area);
+}
+
+fn command_window(total: usize, selected: usize, capacity: usize) -> Range<usize> {
+    if total == 0 || capacity == 0 {
+        return 0..0;
+    }
+
+    let selected = selected.min(total - 1);
+    let capacity = capacity.min(total);
+    let start = selected.saturating_add(1).saturating_sub(capacity);
+    let end = (start + capacity).min(total);
+    start..end
+}
+
 fn panel_block(panel: Panel, state: &AppState) -> Block<'static> {
     let style = if state.focused_panel == panel {
         Style::default().fg(Color::Cyan)
@@ -583,5 +643,13 @@ mod tests {
     fn sparkline_values_preserve_flat_and_range_shape() {
         assert_eq!(sparkline_values(&[10.0, 10.0, 10.0]), vec![50, 50, 50]);
         assert_eq!(sparkline_values(&[10.0, 15.0, 20.0]), vec![0, 50, 100]);
+    }
+
+    #[test]
+    fn command_window_keeps_selected_command_visible() {
+        assert_eq!(command_window(11, 0, 7), 0..7);
+        assert_eq!(command_window(11, 6, 7), 0..7);
+        assert_eq!(command_window(11, 10, 7), 4..11);
+        assert_eq!(command_window(11, 10, 0), 0..0);
     }
 }

@@ -1,5 +1,7 @@
 mod app;
+mod command;
 mod config;
+mod input;
 mod layout;
 mod render;
 mod scheduler;
