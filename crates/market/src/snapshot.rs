@@ -7,9 +7,9 @@ use serde::Serialize;
 use crate::args::{CryptoInstrument, CryptoProvider, SessionMode};
 use crate::crypto_capability::{CryptoCapability, resolve_instrument};
 use crate::crypto_market_data::fetch_price_batch;
+use crate::market_symbol::{MarketSymbol, canonical_lookup_key};
 use crate::model::{PricePoint, PriceSummary, RegularBasis};
 use crate::price;
-use crate::providers::binance;
 use crate::service::MarketRuntime;
 use crate::time;
 
@@ -103,39 +103,6 @@ impl QuoteFetchResult {
                 .collect();
         }
         self
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-enum MarketSymbolKind {
-    Equity,
-    Crypto,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-struct MarketSymbol {
-    input: String,
-    canonical_key: String,
-    kind: MarketSymbolKind,
-}
-
-impl MarketSymbol {
-    fn new(input: String) -> Self {
-        let canonical_key = canonical_lookup_key(&input);
-        let kind = if crypto_pair_parts(&canonical_key).is_some() {
-            MarketSymbolKind::Crypto
-        } else {
-            MarketSymbolKind::Equity
-        };
-        Self {
-            input,
-            canonical_key,
-            kind,
-        }
-    }
-
-    fn is_crypto(&self) -> bool {
-        self.kind == MarketSymbolKind::Crypto
     }
 }
 
@@ -306,29 +273,6 @@ fn aliases_by_canonical_key(symbols: &[MarketSymbol]) -> BTreeMap<String, Vec<St
     aliases
 }
 
-fn canonical_lookup_key(symbol: &str) -> String {
-    binance::normalize_symbol(symbol).unwrap_or_else(|_| {
-        symbol
-            .trim()
-            .chars()
-            .filter(|ch| ch.is_ascii_alphanumeric())
-            .collect::<String>()
-            .to_uppercase()
-    })
-}
-
-fn crypto_pair_parts(canonical_key: &str) -> Option<(&str, &str)> {
-    for quote in ["USDT", "USDC", "USD", "EUR", "GBP", "BTC", "ETH"] {
-        if let Some(base) = canonical_key
-            .strip_suffix(quote)
-            .filter(|base| !base.is_empty())
-        {
-            return Some((base, quote));
-        }
-    }
-    None
-}
-
 impl From<RegularBasis> for RegularBasisSnapshot {
     fn from(value: RegularBasis) -> Self {
         Self {
@@ -354,17 +298,6 @@ fn empty_regular_basis() -> RegularBasis {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn common_crypto_pair_spellings_route_to_crypto_snapshot_path() {
-        assert!(MarketSymbol::new("BTC/USDT".to_string()).is_crypto());
-        assert!(MarketSymbol::new("eth-usdc".to_string()).is_crypto());
-        assert!(MarketSymbol::new("SOLUSD".to_string()).is_crypto());
-        assert!(MarketSymbol::new("BTC_EUR".to_string()).is_crypto());
-        assert!(MarketSymbol::new("ETH:BTC".to_string()).is_crypto());
-        assert!(!MarketSymbol::new("AAPL".to_string()).is_crypto());
-        assert!(!MarketSymbol::new("USD".to_string()).is_crypto());
-    }
 
     #[test]
     fn quote_snapshot_preserves_symbol_lookup_contract() {

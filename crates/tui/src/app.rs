@@ -26,16 +26,22 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
     let mut terminal = TerminalGuard::enter().context("failed to initialize terminal UI")?;
     let scheduler = Scheduler::start(&launch);
     let mut next_refresh_generation = 1;
+    let mut next_history_generation = 1;
     request_refresh(&scheduler, &mut state, &mut next_refresh_generation);
+    request_history(&scheduler, &mut state, &mut next_history_generation, false);
 
     let result = run_loop(
         terminal.terminal_mut()?,
         &mut state,
-        &runtime_config.layout,
-        runtime_config.refresh.price_seconds,
-        &scheduler,
-        &mut next_refresh_generation,
-        &launch,
+        LoopContext {
+            layout: &runtime_config.layout,
+            refresh_seconds: runtime_config.refresh.price_seconds,
+            history_refresh_seconds: runtime_config.refresh.research_seconds,
+            scheduler: &scheduler,
+            next_refresh_generation: &mut next_refresh_generation,
+            next_history_generation: &mut next_history_generation,
+            launch: &launch,
+        },
     );
     let restore_result = terminal.leave();
 
@@ -45,19 +51,17 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
 fn run_loop(
     terminal: &mut TuiTerminal,
     state: &mut AppState,
-    layout: &crate::config::LayoutConfig,
-    refresh_seconds: u64,
-    scheduler: &Scheduler,
-    next_refresh_generation: &mut u64,
-    launch: &TuiLaunch,
+    context: LoopContext<'_>,
 ) -> Result<()> {
     let mut last_tick = Instant::now();
     let mut last_refresh = Instant::now();
-    let refresh_interval = refresh_seconds.max(2);
+    let mut last_history_refresh = Instant::now();
+    let refresh_interval = context.refresh_seconds.max(2);
+    let history_refresh_interval = context.history_refresh_seconds.max(60);
     loop {
-        terminal.draw(|frame| render::render(frame, state, layout))?;
+        terminal.draw(|frame| render::render(frame, state, context.layout))?;
 
-        while let Some(event) = scheduler.try_recv() {
+        while let Some(event) = context.scheduler.try_recv() {
             match event {
                 SchedulerEvent::Snapshot {
                     generation,
@@ -69,11 +73,34 @@ fn run_loop(
                 SchedulerEvent::RefreshFailed { generation, error } => {
                     state.reduce(Action::RefreshFailed { generation, error })
                 }
+                SchedulerEvent::History {
+                    generation,
+                    snapshot,
+                } => state.reduce(Action::HistoryLoaded {
+                    generation,
+                    snapshot,
+                }),
+                SchedulerEvent::HistoryFailed {
+                    generation,
+                    symbol,
+                    error,
+                } => state.reduce(Action::HistoryFailed {
+                    generation,
+                    symbol,
+                    error,
+                }),
                 SchedulerEvent::Fatal(error) => state.reduce(Action::SchedulerFailed(error)),
             }
         }
+        request_history(
+            context.scheduler,
+            state,
+            context.next_history_generation,
+            false,
+        );
 
-        let timeout = launch
+        let timeout = context
+            .launch
             .tick_rate
             .checked_sub(last_tick.elapsed())
             .unwrap_or_default();
@@ -83,22 +110,48 @@ fn run_loop(
                 Event::Key(key) => {
                     if let Some(action) = key_action(key) {
                         state.reduce(action);
+                        request_history(
+                            context.scheduler,
+                            state,
+                            context.next_history_generation,
+                            false,
+                        );
                     }
                 }
                 _ => {}
             }
         }
 
-        if last_tick.elapsed() >= launch.tick_rate {
+        if last_tick.elapsed() >= context.launch.tick_rate {
             last_tick = Instant::now();
         }
 
         if last_refresh.elapsed().as_secs() >= refresh_interval {
-            request_refresh(scheduler, state, next_refresh_generation);
+            request_refresh(context.scheduler, state, context.next_refresh_generation);
             last_refresh = Instant::now();
+        }
+
+        if last_history_refresh.elapsed().as_secs() >= history_refresh_interval {
+            request_history(
+                context.scheduler,
+                state,
+                context.next_history_generation,
+                true,
+            );
+            last_history_refresh = Instant::now();
         }
     }
     Ok(())
+}
+
+struct LoopContext<'a> {
+    layout: &'a crate::config::LayoutConfig,
+    refresh_seconds: u64,
+    history_refresh_seconds: u64,
+    scheduler: &'a Scheduler,
+    next_refresh_generation: &'a mut u64,
+    next_history_generation: &'a mut u64,
+    launch: &'a TuiLaunch,
 }
 
 fn request_refresh(scheduler: &Scheduler, state: &mut AppState, next_generation: &mut u64) {
@@ -111,17 +164,38 @@ fn request_refresh(scheduler: &Scheduler, state: &mut AppState, next_generation:
     }
 }
 
+fn request_history(
+    scheduler: &Scheduler,
+    state: &mut AppState,
+    next_generation: &mut u64,
+    force: bool,
+) {
+    let Some(request) = prepare_history_request(state, next_generation, force) else {
+        return;
+    };
+
+    if let Err(error) = scheduler.request_history(request.generation, request.symbol) {
+        state.reduce(Action::SchedulerFailed(error.to_string()));
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct RefreshRequest {
     generation: u64,
     symbols: Vec<String>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct HistoryRequest {
+    generation: u64,
+    symbol: String,
+}
+
 fn prepare_refresh_request(
     state: &mut AppState,
     next_generation: &mut u64,
 ) -> Option<RefreshRequest> {
-    if state.refreshing || state.scheduler_error.is_some() {
+    if state.refresh.loading || state.scheduler_error.is_some() {
         return None;
     }
 
@@ -132,6 +206,33 @@ fn prepare_refresh_request(
         generation,
         symbols: state.watchlist.clone(),
     })
+}
+
+fn prepare_history_request(
+    state: &mut AppState,
+    next_generation: &mut u64,
+    force: bool,
+) -> Option<HistoryRequest> {
+    if state.history.loading || state.scheduler_error.is_some() {
+        return None;
+    }
+
+    let symbol = state.selected_symbol()?.to_string();
+    let already_loaded = state
+        .history_snapshot
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.requested_symbol == symbol || snapshot.symbol == symbol);
+    if already_loaded && !force {
+        return None;
+    }
+
+    let generation = *next_generation;
+    *next_generation = next_generation.saturating_add(1);
+    state.reduce(Action::HistoryStarted {
+        generation,
+        symbol: symbol.clone(),
+    });
+    Some(HistoryRequest { generation, symbol })
 }
 
 fn key_action(key: KeyEvent) -> Option<Action> {
@@ -246,6 +347,7 @@ impl Drop for TerminalGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_finance_market::history_snapshot::HistorySnapshot;
 
     #[test]
     fn key_router_maps_navigation_and_overlays_to_actions() {
@@ -286,12 +388,12 @@ mod tests {
                 symbols: state.watchlist.clone(),
             })
         );
-        assert!(state.refreshing);
+        assert!(state.refresh.loading);
         assert_eq!(next_generation, 2);
 
         let second = prepare_refresh_request(&mut state, &mut next_generation);
         assert_eq!(second, None);
-        assert_eq!(state.refresh_generation, 1);
+        assert_eq!(state.refresh.generation, 1);
         assert_eq!(next_generation, 2);
     }
 
@@ -307,5 +409,135 @@ mod tests {
             None
         );
         assert_eq!(next_generation, 1);
+    }
+
+    #[test]
+    fn history_request_enqueues_on_symbol_change_and_skips_same_symbol() {
+        let mut state = AppState::from_config(crate::config::TuiConfig {
+            watchlist: vec!["AAPL".to_string(), "CRDO".to_string()],
+            ..crate::config::TuiConfig::default()
+        });
+        let mut next_generation = 1;
+
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            Some(HistoryRequest {
+                generation: 1,
+                symbol: "AAPL".to_string(),
+            })
+        );
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            None
+        );
+
+        state.reduce(Action::HistoryLoaded {
+            generation: 1,
+            snapshot: history_snapshot("AAPL"),
+        });
+        state.reduce(Action::SelectNextSymbol);
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            Some(HistoryRequest {
+                generation: 2,
+                symbol: "CRDO".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn history_request_does_not_enqueue_while_in_flight_or_after_scheduler_failure() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        let mut next_generation = 1;
+
+        assert!(prepare_history_request(&mut state, &mut next_generation, false).is_some());
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, true),
+            None
+        );
+        assert_eq!(next_generation, 2);
+
+        state.reduce(Action::SchedulerFailed("scheduler failed".to_string()));
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, true),
+            None
+        );
+    }
+
+    #[test]
+    fn failed_history_request_does_not_count_as_loaded() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        let mut next_generation = 1;
+
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            Some(HistoryRequest {
+                generation: 1,
+                symbol: "AAPL".to_string(),
+            })
+        );
+        state.reduce(Action::HistoryFailed {
+            generation: 1,
+            symbol: "AAPL".to_string(),
+            error: "network".to_string(),
+        });
+
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            Some(HistoryRequest {
+                generation: 2,
+                symbol: "AAPL".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn history_request_follows_selected_symbol_after_previous_in_flight_request_finishes() {
+        let mut state = AppState::from_config(crate::config::TuiConfig {
+            watchlist: vec!["AAPL".to_string(), "CRDO".to_string()],
+            ..crate::config::TuiConfig::default()
+        });
+        let mut next_generation = 1;
+
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            Some(HistoryRequest {
+                generation: 1,
+                symbol: "AAPL".to_string(),
+            })
+        );
+        state.reduce(Action::SelectNextSymbol);
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            None
+        );
+
+        state.reduce(Action::HistoryLoaded {
+            generation: 1,
+            snapshot: history_snapshot("AAPL"),
+        });
+        assert_eq!(
+            prepare_history_request(&mut state, &mut next_generation, false),
+            Some(HistoryRequest {
+                generation: 2,
+                symbol: "CRDO".to_string(),
+            })
+        );
+    }
+
+    fn history_snapshot(symbol: &str) -> HistorySnapshot {
+        HistorySnapshot {
+            requested_symbol: symbol.to_string(),
+            symbol: symbol.to_string(),
+            provider: "test".to_string(),
+            interval: "1d".to_string(),
+            fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+            latest_close: Some(100.0),
+            latest_time: Some("2026-06-25".to_string()),
+            return_pct: Some(1.0),
+            volume: Some(10_000.0),
+            bars: Vec::new(),
+            errors: Vec::new(),
+        }
     }
 }

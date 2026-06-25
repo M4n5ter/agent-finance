@@ -1,9 +1,9 @@
 use agent_finance_market::snapshot::QuoteSnapshot;
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Sparkline, Wrap};
 
 use crate::config::LayoutConfig;
 use crate::layout::{self, CockpitLayout};
@@ -22,7 +22,7 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState, layout_config: &LayoutCon
 fn render_docked(frame: &mut Frame<'_>, state: &AppState, layout: &CockpitLayout) {
     render_watchlist(frame, state, layout.panel_rect(Panel::Watchlist));
     render_quote(frame, state, layout.panel_rect(Panel::Quote));
-    render_history(frame, layout.panel_rect(Panel::History));
+    render_history(frame, state, layout.panel_rect(Panel::History));
     render_evidence(frame, layout.panel_rect(Panel::Evidence));
     render_research(frame, layout.panel_rect(Panel::Research));
     render_provider_health(frame, state, layout.panel_rect(Panel::ProviderHealth));
@@ -84,7 +84,7 @@ fn render_quote(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(if state.refreshing {
+        Span::raw(if state.refresh.loading {
             " refreshing..."
         } else {
             " market snapshot"
@@ -115,12 +115,93 @@ fn render_quote(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     );
 }
 
-fn render_history(frame: &mut Frame<'_>, area: Rect) {
+fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let block = panel_block(Panel::History, state);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(5), Constraint::Min(1)])
+        .split(inner);
+
+    let symbol = state.selected_symbol().unwrap_or("N/A");
+    let snapshot = state
+        .history_snapshot
+        .as_ref()
+        .filter(|snapshot| snapshot.requested_symbol == symbol || snapshot.symbol == symbol);
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            symbol,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(if state.history.loading {
+            " history loading..."
+        } else {
+            " history"
+        }),
+    ])];
+
+    match snapshot {
+        Some(snapshot) => {
+            lines.push(Line::from(format!(
+                "provider: {}  interval={}  bars={}",
+                snapshot.provider,
+                snapshot.interval,
+                snapshot.bars.len()
+            )));
+            lines.push(Line::from(format!(
+                "latest: {} at {}  return={}",
+                snapshot
+                    .latest_close
+                    .map(format_price)
+                    .unwrap_or_else(|| "-".to_string()),
+                snapshot.latest_time.as_deref().unwrap_or("-"),
+                snapshot
+                    .return_pct
+                    .map(|value| format!("{value:.2}%"))
+                    .unwrap_or_else(|| "-".to_string())
+            )));
+            lines.push(Line::from(format!(
+                "volume: {}  freshness: {}",
+                snapshot
+                    .volume
+                    .map(format_volume)
+                    .unwrap_or_else(|| "-".to_string()),
+                snapshot.fetched_at_local.as_deref().unwrap_or("-")
+            )));
+            for error in snapshot.errors.iter().take(1) {
+                lines.push(Line::from(Span::styled(
+                    format!("history warning: {error}"),
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+        }
+        None => lines.push(Line::from(
+            "No history loaded yet. Waiting for the selected symbol.",
+        )),
+    }
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
+
+    let sparkline = snapshot
+        .map(|snapshot| {
+            let closes = snapshot
+                .bars
+                .iter()
+                .map(|bar| bar.close)
+                .collect::<Vec<_>>();
+            sparkline_values(&closes)
+        })
+        .unwrap_or_default();
     frame.render_widget(
-        Paragraph::new("History chart placeholder\nDaily and intraday OHLCV will render here.")
-            .block(simple_block(Panel::History.title()))
-            .wrap(Wrap { trim: true }),
-        area,
+        Sparkline::default()
+            .data(&sparkline)
+            .max(100)
+            .style(Style::default().fg(Color::Green)),
+        chunks[1],
     );
 }
 
@@ -240,6 +321,46 @@ fn format_price(value: f64) -> String {
     }
 }
 
+fn format_volume(value: f64) -> String {
+    if value.abs() >= 1_000_000_000.0 {
+        format!("{:.2}B", value / 1_000_000_000.0)
+    } else if value.abs() >= 1_000_000.0 {
+        format!("{:.2}M", value / 1_000_000.0)
+    } else if value.abs() >= 1_000.0 {
+        format!("{:.2}K", value / 1_000.0)
+    } else {
+        format!("{value:.0}")
+    }
+}
+
+fn sparkline_values(values: &[f64]) -> Vec<u64> {
+    let finite = values
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+        .collect::<Vec<_>>();
+    if finite.is_empty() {
+        return Vec::new();
+    }
+
+    let min = finite.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    if (max - min).abs() < f64::EPSILON {
+        return values.iter().map(|_| 50).collect();
+    }
+
+    values
+        .iter()
+        .map(|value| {
+            if !value.is_finite() {
+                0
+            } else {
+                (((value - min) / (max - min)) * 100.0).round() as u64
+            }
+        })
+        .collect()
+}
+
 fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let symbol = state.selected_symbol().unwrap_or("N/A");
     let errors = state
@@ -253,7 +374,7 @@ fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         state.focused_panel.title(),
         if state.scheduler_error.is_some() {
             "scheduler error"
-        } else if state.refreshing {
+        } else if state.refresh.loading {
             "refreshing"
         } else {
             "ready"
@@ -318,4 +439,15 @@ fn panel_block(panel: Panel, state: &AppState) -> Block<'static> {
 
 fn simple_block(title: &'static str) -> Block<'static> {
     Block::default().title(title).borders(Borders::ALL)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sparkline_values_preserve_flat_and_range_shape() {
+        assert_eq!(sparkline_values(&[10.0, 10.0, 10.0]), vec![50, 50, 50]);
+        assert_eq!(sparkline_values(&[10.0, 15.0, 20.0]), vec![0, 50, 100]);
+    }
 }

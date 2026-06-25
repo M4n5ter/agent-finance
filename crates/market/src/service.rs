@@ -125,7 +125,7 @@ impl PriceResponse {
 pub async fn price(runtime: &MarketRuntime, request: PriceRequest) -> Result<PriceResponse> {
     if request.asset == AssetClass::Crypto {
         let client = runtime.client()?;
-        let config = runtime.binance_config();
+        let config = runtime.public_binance_config();
         let batch = fetch_price_batch(
             &client,
             &config,
@@ -209,7 +209,7 @@ pub async fn history(runtime: &MarketRuntime, request: HistoryRequest) -> Result
         )
     {
         let client = runtime.client()?;
-        let config = runtime.binance_config();
+        let config = runtime.public_binance_config();
         return fetch_crypto_history(
             &client,
             &config,
@@ -267,7 +267,7 @@ pub async fn indicators(
         )
     {
         let client = runtime.client()?;
-        let config = runtime.binance_config();
+        let config = runtime.public_binance_config();
         let options = CryptoIndicatorOptions {
             symbols: request.symbols,
             provider: request.provider,

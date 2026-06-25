@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::model::ProviderProfile;
 use agent_finance_market::service;
 use agent_finance_market::snapshot::MarketSnapshot;
@@ -16,8 +17,9 @@ pub struct AppState {
     pub task_log: VecDeque<TaskLogEntry>,
     pub provider_profiles: Vec<ProviderProfile>,
     pub market_snapshot: Option<MarketSnapshot>,
-    pub refresh_generation: u64,
-    pub refreshing: bool,
+    pub refresh: LoadSlot<()>,
+    pub history_snapshot: Option<HistorySnapshot>,
+    pub history: LoadSlot<String>,
     pub scheduler_error: Option<String>,
 }
 
@@ -41,8 +43,9 @@ impl AppState {
             task_log: VecDeque::new(),
             provider_profiles: service::provider_profiles(),
             market_snapshot: None,
-            refresh_generation: 0,
-            refreshing: false,
+            refresh: LoadSlot::new(),
+            history_snapshot: None,
+            history: LoadSlot::new(),
             scheduler_error: None,
         }
     }
@@ -69,15 +72,13 @@ impl AppState {
                 self.focused_panel = Panel::Watchlist;
             }
             Action::RefreshStarted(generation) => {
-                self.refresh_generation = generation;
-                self.refreshing = true;
+                self.refresh.start(generation, ());
             }
             Action::SnapshotLoaded {
                 generation,
                 snapshot,
             } => {
-                if generation == self.refresh_generation {
-                    self.refreshing = false;
+                if self.refresh.finish(generation) {
                     if !snapshot.errors.is_empty() {
                         self.push_log(TaskLogEntry::warning(format!(
                             "refresh completed with {} provider errors",
@@ -94,15 +95,52 @@ impl AppState {
                 }
             }
             Action::RefreshFailed { generation, error } => {
-                if generation == self.refresh_generation {
-                    self.refreshing = false;
+                if self.refresh.finish(generation) {
                     self.push_log(TaskLogEntry::warning(format!(
                         "market refresh failed: {error}"
                     )));
                 }
             }
+            Action::HistoryStarted { generation, symbol } => {
+                self.history.start(generation, symbol);
+            }
+            Action::HistoryLoaded {
+                generation,
+                snapshot,
+            } => {
+                if self.history.finish(generation) {
+                    if !snapshot.errors.is_empty() {
+                        self.push_log(TaskLogEntry::warning(format!(
+                            "history loaded with {} warnings",
+                            snapshot.errors.len()
+                        )));
+                    } else {
+                        self.push_log(TaskLogEntry::info(format!(
+                            "{} history loaded",
+                            snapshot.symbol
+                        )));
+                    }
+                    self.history_snapshot = Some(snapshot);
+                } else {
+                    self.push_log(TaskLogEntry::warning(format!(
+                        "ignored stale history generation {generation}",
+                    )));
+                }
+            }
+            Action::HistoryFailed {
+                generation,
+                symbol,
+                error,
+            } => {
+                if self.history.finish(generation) {
+                    self.push_log(TaskLogEntry::warning(format!(
+                        "{symbol} history failed: {error}"
+                    )));
+                }
+            }
             Action::SchedulerFailed(error) => {
-                self.refreshing = false;
+                self.refresh.stop();
+                self.history.stop();
                 self.scheduler_error = Some(error.clone());
                 self.push_log(TaskLogEntry::warning(format!("scheduler failed: {error}")));
             }
@@ -149,6 +187,41 @@ impl AppState {
         while self.task_log.len() > 200 {
             self.task_log.pop_front();
         }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LoadSlot<K> {
+    pub generation: u64,
+    pub loading: bool,
+    pub key: Option<K>,
+}
+
+impl<K> LoadSlot<K> {
+    fn new() -> Self {
+        Self {
+            generation: 0,
+            loading: false,
+            key: None,
+        }
+    }
+
+    fn start(&mut self, generation: u64, key: K) {
+        self.generation = generation;
+        self.loading = true;
+        self.key = Some(key);
+    }
+
+    fn finish(&mut self, generation: u64) -> bool {
+        if generation != self.generation {
+            return false;
+        }
+        self.loading = false;
+        true
+    }
+
+    fn stop(&mut self) {
+        self.loading = false;
     }
 }
 
@@ -217,6 +290,19 @@ pub enum Action {
         generation: u64,
         error: String,
     },
+    HistoryStarted {
+        generation: u64,
+        symbol: String,
+    },
+    HistoryLoaded {
+        generation: u64,
+        snapshot: HistorySnapshot,
+    },
+    HistoryFailed {
+        generation: u64,
+        symbol: String,
+        error: String,
+    },
     SchedulerFailed(String),
     Log(String),
 }
@@ -252,6 +338,7 @@ impl TaskLogEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::snapshot::{QuoteSnapshot, RegularBasisSnapshot};
 
     #[test]
@@ -298,7 +385,7 @@ mod tests {
             snapshot: stale,
         });
         assert!(state.market_snapshot.is_none());
-        assert!(state.refreshing);
+        assert!(state.refresh.loading);
 
         state.reduce(Action::SnapshotLoaded {
             generation: 2,
@@ -312,7 +399,7 @@ mod tests {
                 .and_then(|quote| quote.price),
             Some(250.0)
         );
-        assert!(!state.refreshing);
+        assert!(!state.refresh.loading);
     }
 
     #[test]
@@ -320,15 +407,49 @@ mod tests {
         let mut state = AppState::from_config(TuiConfig::default());
 
         state.reduce(Action::RefreshStarted(1));
+        state.reduce(Action::HistoryStarted {
+            generation: 1,
+            symbol: "CRDO".to_string(),
+        });
         state.reduce(Action::SchedulerFailed(
             "scheduler runtime failed".to_string(),
         ));
 
-        assert!(!state.refreshing);
+        assert!(!state.refresh.loading);
+        assert!(!state.history.loading);
         assert_eq!(
             state.scheduler_error.as_deref(),
             Some("scheduler runtime failed")
         );
+    }
+
+    #[test]
+    fn reducer_accepts_current_history_and_ignores_stale_history() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::HistoryStarted {
+            generation: 2,
+            symbol: "CRDO".to_string(),
+        });
+        state.reduce(Action::HistoryLoaded {
+            generation: 1,
+            snapshot: history_snapshot("AAPL", 100.0),
+        });
+        assert!(state.history_snapshot.is_none());
+        assert!(state.history.loading);
+
+        state.reduce(Action::HistoryLoaded {
+            generation: 2,
+            snapshot: history_snapshot("CRDO", 250.0),
+        });
+        assert_eq!(
+            state
+                .history_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.latest_close),
+            Some(250.0)
+        );
+        assert!(!state.history.loading);
     }
 
     fn snapshot(_generation: u64, symbol: &str) -> MarketSnapshot {
@@ -351,6 +472,22 @@ mod tests {
                     volume: None,
                 },
             }],
+            errors: Vec::new(),
+        }
+    }
+
+    fn history_snapshot(symbol: &str, latest_close: f64) -> HistorySnapshot {
+        HistorySnapshot {
+            requested_symbol: symbol.to_string(),
+            symbol: symbol.to_string(),
+            provider: "test".to_string(),
+            interval: "1d".to_string(),
+            fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+            latest_close: Some(latest_close),
+            latest_time: Some("2026-06-25".to_string()),
+            return_pct: Some(1.0),
+            volume: Some(10_000.0),
+            bars: Vec::new(),
             errors: Vec::new(),
         }
     }
