@@ -39,7 +39,7 @@ pub enum CommandEffect {
     CloseCommandPalette,
 }
 
-pub const COMMANDS: [CommandSpec; 20] = [
+pub const COMMANDS: [CommandSpec; 22] = [
     CommandSpec {
         title: "Open help",
         description: "Show cockpit shortcuts and interaction model",
@@ -86,8 +86,13 @@ pub const COMMANDS: [CommandSpec; 20] = [
         effect: CommandEffect::FocusPanel(Panel::Evidence),
     },
     CommandSpec {
+        title: "Focus Polymarket",
+        description: "Move keyboard focus to prediction market signals",
+        effect: CommandEffect::FocusPanel(Panel::Polymarket),
+    },
+    CommandSpec {
         title: "Focus research",
-        description: "Move keyboard focus to news and prediction markets",
+        description: "Move keyboard focus to news and research highlights",
         effect: CommandEffect::FocusPanel(Panel::Research),
     },
     CommandSpec {
@@ -121,8 +126,13 @@ pub const COMMANDS: [CommandSpec; 20] = [
         effect: CommandEffect::TogglePanel(Panel::Evidence),
     },
     CommandSpec {
+        title: "Toggle Polymarket",
+        description: "Show or hide prediction market signals",
+        effect: CommandEffect::TogglePanel(Panel::Polymarket),
+    },
+    CommandSpec {
         title: "Toggle research",
-        description: "Show or hide news and prediction markets",
+        description: "Show or hide news and research highlights",
         effect: CommandEffect::TogglePanel(Panel::Research),
     },
     CommandSpec {

@@ -1,5 +1,5 @@
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
-use agent_finance_market::research_snapshot::ResearchContextSnapshot;
+use agent_finance_market::research_snapshot::{PredictionMarketSnapshot, ResearchContextSnapshot};
 use agent_finance_market::snapshot::QuoteSnapshot;
 use std::ops::Range;
 
@@ -39,6 +39,7 @@ fn render_docked(frame: &mut Frame<'_>, state: &AppState, layout: &CockpitLayout
             Panel::Quote => render_quote(frame, state, area),
             Panel::History => render_history(frame, state, area),
             Panel::Evidence => render_evidence(frame, state, area),
+            Panel::Polymarket => render_polymarket(frame, state, area),
             Panel::Research => render_research(frame, state, area),
             Panel::ProviderHealth => render_provider_health(frame, state, area),
             Panel::TaskLog => render_task_log(frame, state, area),
@@ -283,6 +284,38 @@ fn render_research(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     );
 }
 
+fn render_polymarket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let symbol = state.selected_symbol().unwrap_or("N/A");
+    let snapshot = state.research.selected_snapshot(symbol);
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            symbol,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(if state.research.loading() {
+            " prediction signals loading..."
+        } else {
+            " prediction signals"
+        }),
+    ])];
+
+    match snapshot {
+        Some(snapshot) => lines.extend(prediction_market_lines(snapshot)),
+        None => lines.push(Line::from(
+            "No prediction market context loaded yet. Waiting for research refresh.",
+        )),
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block(Panel::Polymarket, state))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
 fn render_provider_health(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let items = state
         .provider_profiles
@@ -420,10 +453,9 @@ fn evidence_lines(snapshot: &CryptoQuoteEvidenceSnapshot) -> Vec<Line<'static>> 
 
 fn research_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(format!(
-        "freshness: {}  news={} prediction_markets={}",
+        "freshness: {}  news={}",
         snapshot.fetched_at_local.as_deref().unwrap_or("-"),
-        snapshot.news.len(),
-        snapshot.prediction_markets.len()
+        snapshot.news.len()
     ))];
 
     for item in snapshot.news.iter().take(3) {
@@ -433,18 +465,10 @@ fn research_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
         ]));
     }
 
-    for market in snapshot.prediction_markets.iter().take(3) {
-        let probability = market
-            .probability
-            .map(|value| format!("{:.0}%", value * 100.0))
-            .unwrap_or_else(|| "-".to_string());
-        lines.push(Line::from(vec![
-            Span::styled("poly ", Style::default().fg(Color::Magenta)),
-            Span::raw(format!("{probability} {}", compact_text(&market.title, 84))),
-        ]));
-    }
-
-    for error in snapshot.errors.iter().take(2) {
+    for error in scoped_errors(snapshot, ResearchErrorScope::News)
+        .into_iter()
+        .take(2)
+    {
         lines.push(Line::from(Span::styled(
             format!("research warning: {error}"),
             Style::default().fg(Color::Yellow),
@@ -452,6 +476,90 @@ fn research_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
     }
 
     lines
+}
+
+fn prediction_market_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
+    let errors = scoped_errors(snapshot, ResearchErrorScope::Polymarket);
+    let mut lines = vec![Line::from(format!(
+        "freshness: {}  markets={}",
+        snapshot.fetched_at_local.as_deref().unwrap_or("-"),
+        snapshot.prediction_markets.len()
+    ))];
+
+    if !errors.is_empty() {
+        lines.extend(errors.into_iter().take(2).map(|error| {
+            Line::from(Span::styled(
+                format!("polymarket warning: {error}"),
+                Style::default().fg(Color::Yellow),
+            ))
+        }));
+    } else if snapshot.prediction_markets.is_empty() {
+        lines.push(Line::from(
+            "No related Polymarket signals found for the selected symbol.",
+        ));
+    }
+
+    lines.extend(
+        snapshot
+            .prediction_markets
+            .iter()
+            .take(5)
+            .map(prediction_market_line),
+    );
+
+    lines
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ResearchErrorScope {
+    News,
+    Polymarket,
+}
+
+impl ResearchErrorScope {
+    const fn prefix(self) -> &'static str {
+        match self {
+            Self::News => "news: ",
+            Self::Polymarket => "polymarket: ",
+        }
+    }
+}
+
+fn scoped_errors(snapshot: &ResearchContextSnapshot, scope: ResearchErrorScope) -> Vec<String> {
+    let prefix = scope.prefix();
+    snapshot
+        .errors
+        .iter()
+        .filter_map(|error| error.strip_prefix(prefix).map(str::to_string))
+        .collect()
+}
+
+fn prediction_market_line(market: &PredictionMarketSnapshot) -> Line<'static> {
+    let probability = market
+        .probability
+        .map(|value| format!("{:.0}%", value * 100.0))
+        .unwrap_or_else(|| "-".to_string());
+    let volume = market
+        .volume
+        .map(format_volume)
+        .unwrap_or_else(|| "-".to_string());
+    let liquidity = market
+        .liquidity
+        .map(format_volume)
+        .unwrap_or_else(|| "-".to_string());
+    let url = market
+        .market_url
+        .as_deref()
+        .map(|value| format!("  {}", compact_text(value, 42)))
+        .unwrap_or_default();
+
+    Line::from(vec![
+        Span::styled("poly ", Style::default().fg(Color::Magenta)),
+        Span::raw(format!(
+            "{probability} vol={volume} liq={liquidity} {}{url}",
+            compact_text(&market.title, 72)
+        )),
+    ])
 }
 
 fn compact_text(value: &str, max_chars: usize) -> String {
@@ -550,6 +658,7 @@ fn render_floating(frame: &mut Frame<'_>, state: &AppState, kind: FloatingKind, 
         FloatingKind::Help => vec![
             Line::from("agent-finance cockpit"),
             Line::from("j/k or arrows: switch selected symbol"),
+            Line::from("1-6: focus watchlist, quote, history, evidence, Polymarket, research"),
             Line::from(": open command palette"),
             Line::from("Enter: execute selected command in command palette"),
             Line::from("p inspect provider details"),
@@ -655,6 +764,7 @@ fn simple_block(title: &'static str) -> Block<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_finance_market::research_snapshot::ResearchNewsSnapshot;
 
     #[test]
     fn sparkline_values_preserve_flat_and_range_shape() {
@@ -668,5 +778,80 @@ mod tests {
         assert_eq!(command_window(11, 6, 7), 0..7);
         assert_eq!(command_window(11, 10, 7), 4..11);
         assert_eq!(command_window(11, 10, 0), 0..0);
+    }
+
+    #[test]
+    fn research_lines_do_not_duplicate_prediction_market_signals() {
+        let snapshot = research_snapshot();
+        let text = joined_lines(research_lines(&snapshot));
+
+        assert!(text.contains("news=1"));
+        assert!(text.contains("news AI optics demand"));
+        assert!(!text.contains("poly "));
+        assert!(!text.contains("markets=1"));
+    }
+
+    #[test]
+    fn prediction_market_lines_show_probability_and_market_depth() {
+        let snapshot = research_snapshot();
+        let text = joined_lines(prediction_market_lines(&snapshot));
+
+        assert!(text.contains("markets=1"));
+        assert!(text.contains("63%"));
+        assert!(text.contains("vol=1.50M"));
+        assert!(text.contains("liq=250.00K"));
+    }
+
+    #[test]
+    fn research_panels_show_only_their_scoped_errors() {
+        let mut snapshot = research_snapshot();
+        snapshot.prediction_markets.clear();
+        snapshot.errors = vec![
+            "news: provider timeout".to_string(),
+            "polymarket: clob unavailable".to_string(),
+        ];
+
+        let research = joined_lines(research_lines(&snapshot));
+        let polymarket = joined_lines(prediction_market_lines(&snapshot));
+
+        assert!(research.contains("research warning: provider timeout"));
+        assert!(!research.contains("clob unavailable"));
+        assert!(polymarket.contains("polymarket warning: clob unavailable"));
+        assert!(!polymarket.contains("provider timeout"));
+        assert!(!polymarket.contains("No related Polymarket signals"));
+    }
+
+    fn research_snapshot() -> ResearchContextSnapshot {
+        ResearchContextSnapshot {
+            requested_symbol: "CRDO".to_string(),
+            symbol: "CRDO".to_string(),
+            fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+            news: vec![ResearchNewsSnapshot {
+                title: "AI optics demand accelerates".to_string(),
+                provider: "test".to_string(),
+                module: "news".to_string(),
+            }],
+            prediction_markets: vec![PredictionMarketSnapshot {
+                title: "Will AI infrastructure stocks outperform this quarter?".to_string(),
+                probability: Some(0.63),
+                volume: Some(1_500_000.0),
+                liquidity: Some(250_000.0),
+                market_url: Some("https://polymarket.com/event/ai-infrastructure".to_string()),
+            }],
+            errors: Vec::new(),
+        }
+    }
+
+    fn joined_lines(lines: Vec<Line<'static>>) -> String {
+        lines
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.into_owned())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }

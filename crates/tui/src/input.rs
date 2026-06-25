@@ -34,6 +34,9 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
         KeyCode::Char('1') => Some(Action::Focus(Panel::Watchlist)),
         KeyCode::Char('2') => Some(Action::Focus(Panel::Quote)),
         KeyCode::Char('3') => Some(Action::Focus(Panel::History)),
+        KeyCode::Char('4') => Some(Action::Focus(Panel::Evidence)),
+        KeyCode::Char('5') => Some(Action::Focus(Panel::Polymarket)),
+        KeyCode::Char('6') => Some(Action::Focus(Panel::Research)),
         _ => None,
     }
 }
@@ -145,6 +148,10 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('0'))),
             Some(Action::RestorePanels)
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('5'))),
+            Some(Action::Focus(Panel::Polymarket))
         );
     }
 

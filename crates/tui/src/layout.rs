@@ -247,7 +247,7 @@ fn active_docked_groups(config: &LayoutConfig, open_panels: &[Panel]) -> Vec<(Do
         (
             DockedGroup::Right,
             right_ratio.max(MIN_RIGHT_RATIO),
-            &[Panel::Evidence, Panel::Research][..],
+            &[Panel::Evidence, Panel::Polymarket, Panel::Research][..],
         ),
     ]
     .into_iter()
@@ -348,7 +348,11 @@ fn wide_layout(columns: DockedColumns, open_panels: &[Panel]) -> PanelRects {
     assign_weighted_column(
         &mut rects,
         columns.right,
-        &[(Panel::Evidence, 48), (Panel::Research, 52)],
+        &[
+            (Panel::Evidence, 36),
+            (Panel::Polymarket, 28),
+            (Panel::Research, 36),
+        ],
         open_panels,
     );
     rects
@@ -540,6 +544,7 @@ mod tests {
             Panel::Quote,
             Panel::History,
             Panel::Evidence,
+            Panel::Polymarket,
             Panel::Research,
             Panel::ProviderHealth,
             Panel::TaskLog,
@@ -658,6 +663,7 @@ mod tests {
         assert_eq!(layout.panel_at(2, 2), Some(Panel::Watchlist));
         assert_eq!(layout.panel_at(80, 2), Some(Panel::Quote));
         assert_eq!(layout.panel_at(150, 36), Some(Panel::Research));
+        assert_eq!(layout.panel_at(150, 22), Some(Panel::Polymarket));
 
         assert_eq!(
             layout.hit_test(layout.panel_rect(Panel::Watchlist).unwrap().right(), 2),
@@ -682,6 +688,7 @@ mod tests {
         let layout = build(area, &LayoutConfig::default(), &[], &open);
 
         assert_eq!(layout.panel_rect(Panel::History), None);
+        assert_eq!(layout.panel_rect(Panel::Polymarket), None);
         assert_eq!(layout.panel_rect(Panel::Research), None);
         let quote = layout.panel_rect(Panel::Quote).expect("quote is open");
         assert!(quote.height > 30);
@@ -729,7 +736,7 @@ mod tests {
     fn closed_middle_group_exposes_left_right_split() {
         let area = Rect::new(0, 0, 160, 48);
         let config = LayoutConfig::default();
-        let open = [Panel::Watchlist, Panel::Evidence, Panel::Research];
+        let open = [Panel::Watchlist, Panel::Evidence, Panel::Polymarket];
         let layout = build(area, &config, &[], &open);
         let watchlist = layout.panel_rect(Panel::Watchlist).unwrap();
 

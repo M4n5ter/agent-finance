@@ -649,6 +649,7 @@ mod tests {
             Panel::Watchlist,
             Panel::Quote,
             Panel::Evidence,
+            Panel::Polymarket,
             Panel::Research,
             Panel::ProviderHealth,
             Panel::TaskLog,

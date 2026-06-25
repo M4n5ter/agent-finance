@@ -4,17 +4,19 @@ pub enum Panel {
     Quote,
     History,
     Evidence,
+    Polymarket,
     Research,
     ProviderHealth,
     TaskLog,
 }
 
 impl Panel {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Watchlist,
         Self::Quote,
         Self::History,
         Self::Evidence,
+        Self::Polymarket,
         Self::Research,
         Self::ProviderHealth,
         Self::TaskLog,
@@ -26,6 +28,7 @@ impl Panel {
             Self::Quote => "Quote / Sessions",
             Self::History => "History Chart",
             Self::Evidence => "Crypto Evidence",
+            Self::Polymarket => "Polymarket",
             Self::Research => "News / Research",
             Self::ProviderHealth => "Provider Health",
             Self::TaskLog => "Task Log",
@@ -38,9 +41,10 @@ impl Panel {
             Self::Quote => 1,
             Self::History => 2,
             Self::Evidence => 3,
-            Self::Research => 4,
-            Self::ProviderHealth => 5,
-            Self::TaskLog => 6,
+            Self::Polymarket => 4,
+            Self::Research => 5,
+            Self::ProviderHealth => 6,
+            Self::TaskLog => 7,
         }
     }
 }
