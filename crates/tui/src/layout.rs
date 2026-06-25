@@ -4,7 +4,7 @@ use crate::config::{
     LayoutConfig, MAX_LEFT_MAIN_RATIO, MAX_LEFT_RATIO, MAX_MAIN_RATIO, MIN_LEFT_RATIO,
     MIN_MAIN_RATIO, MIN_RIGHT_RATIO,
 };
-use crate::model::{FloatingKind, FloatingPane, Panel};
+use crate::model::{FloatingKind, FloatingPane, FloatingSize, Panel};
 
 const MIN_PANEL_WIDTH: u16 = 18;
 const MIN_PANEL_HEIGHT: u16 = 4;
@@ -42,6 +42,9 @@ impl CockpitLayout {
             .rev()
             .find(|floating| contains(floating.rect, x, y))
         {
+            if floating_resize_handle_contains(floating.rect, x, y) {
+                return Some(LayoutHit::FloatingResize(floating.kind));
+            }
             return Some(LayoutHit::Floating(floating.kind));
         }
         if contains(self.status, x, y) {
@@ -68,7 +71,6 @@ impl CockpitLayout {
 pub struct FloatingRect {
     pub kind: FloatingKind,
     pub rect: Rect,
-    pub z_index: u16,
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -88,6 +90,7 @@ pub enum DockedColumnSplit {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LayoutHit {
     Floating(FloatingKind),
+    FloatingResize(FloatingKind),
     DockedSplit(DockedColumnSplit),
     Panel(Panel),
     Status,
@@ -113,15 +116,13 @@ pub fn build(
         (wide_layout(columns, &open_panels), Some(columns))
     };
 
-    let mut floating = floating
+    let floating = floating
         .iter()
         .map(|pane| FloatingRect {
             kind: pane.kind,
-            rect: floating_rect(body, pane.kind),
-            z_index: pane.z_index,
+            rect: floating_rect(body, pane.size),
         })
         .collect::<Vec<_>>();
-    floating.sort_by_key(|pane| pane.z_index);
 
     CockpitLayout {
         panels,
@@ -182,6 +183,24 @@ pub fn resize_docked_columns(
     }
     next.normalize();
     next
+}
+
+pub fn resize_floating(area: Rect, x: u16, y: u16) -> FloatingSize {
+    let [body, _status] = split_vertical(
+        area,
+        [Constraint::Min(0), Constraint::Length(STATUS_HEIGHT)],
+    );
+    if body.width == 0 || body.height == 0 {
+        return FloatingSize::resized(FloatingSize::MIN_RATIO, FloatingSize::MIN_RATIO);
+    }
+
+    let center_x = body.x.saturating_add(body.width / 2);
+    let center_y = body.y.saturating_add(body.height / 2);
+    let width = x.abs_diff(center_x).saturating_mul(2).max(MIN_PANEL_WIDTH);
+    let height = y.abs_diff(center_y).saturating_mul(2).max(MIN_PANEL_HEIGHT);
+    let width_ratio = ratio_of(width, body.width);
+    let height_ratio = ratio_of(height, body.height);
+    FloatingSize::resized(width_ratio, height_ratio)
 }
 
 fn docked_columns(area: Rect, config: &LayoutConfig, open_panels: &[Panel]) -> DockedColumns {
@@ -428,14 +447,9 @@ fn normalized_open_panels(open_panels: &[Panel]) -> Vec<Panel> {
     normalized
 }
 
-fn floating_rect(area: Rect, kind: FloatingKind) -> Rect {
-    let (width_ratio, height_ratio) = match kind {
-        FloatingKind::CommandPalette => (70, 40),
-        FloatingKind::Help => (64, 70),
-        FloatingKind::ProviderDetails => (58, 58),
-    };
-    let width = floating_dimension(area.width, width_ratio, MIN_PANEL_WIDTH);
-    let height = floating_dimension(area.height, height_ratio, MIN_PANEL_HEIGHT);
+fn floating_rect(area: Rect, size: FloatingSize) -> Rect {
+    let width = floating_dimension(area.width, size.width_ratio, MIN_PANEL_WIDTH);
+    let height = floating_dimension(area.height, size.height_ratio, MIN_PANEL_HEIGHT);
     Rect {
         x: area.x + area.width.saturating_sub(width) / 2,
         y: area.y + area.height.saturating_sub(height) / 2,
@@ -444,15 +458,23 @@ fn floating_rect(area: Rect, kind: FloatingKind) -> Rect {
     }
 }
 
-fn floating_dimension(total: u16, ratio: u32, minimum: u16) -> u16 {
+fn floating_dimension(total: u16, ratio: u16, minimum: u16) -> u16 {
     let maximum = total.max(1) as u32;
     if maximum < minimum as u32 {
         return maximum as u16;
     }
 
-    ((total as u32 * ratio) / 100)
+    ((total as u32 * u32::from(ratio)) / 100)
         .max(1)
         .clamp(minimum as u32, maximum) as u16
+}
+
+fn ratio_of(value: u16, total: u16) -> u16 {
+    if total == 0 {
+        return FloatingSize::MIN_RATIO;
+    }
+
+    (((u32::from(value) * 100) / u32::from(total)).min(100)) as u16
 }
 
 fn split_vertical<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
@@ -478,6 +500,16 @@ fn contains(rect: Rect, x: u16, y: u16) -> bool {
         && x < rect.x.saturating_add(rect.width)
         && y >= rect.y
         && y < rect.y.saturating_add(rect.height)
+}
+
+fn floating_resize_handle_contains(rect: Rect, x: u16, y: u16) -> bool {
+    if !contains(rect, x, y) {
+        return false;
+    }
+
+    let handle_x = rect.x.saturating_add(rect.width.saturating_sub(2));
+    let handle_y = rect.y.saturating_add(rect.height.saturating_sub(1));
+    x >= handle_x && y >= handle_y
 }
 
 fn has_area(rect: Rect) -> bool {
@@ -533,25 +565,19 @@ mod tests {
     }
 
     #[test]
-    fn floating_rects_are_clamped_and_sorted_by_z_index() {
+    fn floating_rects_are_clamped_and_keep_stack_order() {
         let layout = build(
             Rect::new(0, 0, 100, 32),
             &LayoutConfig::default(),
             &[
-                FloatingPane {
-                    kind: FloatingKind::Help,
-                    z_index: 4,
-                },
-                FloatingPane {
-                    kind: FloatingKind::CommandPalette,
-                    z_index: 2,
-                },
+                FloatingPane::new(FloatingKind::Help),
+                FloatingPane::new(FloatingKind::CommandPalette),
             ],
             &Panel::ALL,
         );
 
-        assert_eq!(layout.floating[0].kind, FloatingKind::CommandPalette);
-        assert_eq!(layout.floating[1].kind, FloatingKind::Help);
+        assert_eq!(layout.floating[0].kind, FloatingKind::Help);
+        assert_eq!(layout.floating[1].kind, FloatingKind::CommandPalette);
         for floating in layout.floating {
             assert!(floating.rect.width <= 100);
             assert!(floating.rect.height <= 31);
@@ -565,14 +591,62 @@ mod tests {
         let layout = build(
             Rect::new(0, 0, 1, 1),
             &LayoutConfig::default(),
-            &[FloatingPane {
-                kind: FloatingKind::CommandPalette,
-                z_index: 1,
-            }],
+            &[FloatingPane::new(FloatingKind::CommandPalette)],
             &Panel::ALL,
         );
 
         assert_eq!(layout.floating[0].rect, Rect::new(0, 0, 1, 1));
+    }
+
+    #[test]
+    fn floating_rects_use_pane_size_and_resize_handle_hit_test() {
+        let mut pane = FloatingPane::new(FloatingKind::Help);
+        pane.size = FloatingSize::resized(80, 50);
+        let layout = build(
+            Rect::new(0, 0, 100, 41),
+            &LayoutConfig::default(),
+            &[pane],
+            &Panel::ALL,
+        );
+        let floating = layout.floating[0];
+
+        assert_eq!(floating.rect.width, 80);
+        assert_eq!(floating.rect.height, 20);
+        assert_eq!(
+            layout.hit_test(floating.rect.right() - 1, floating.rect.bottom() - 1),
+            Some(LayoutHit::FloatingResize(FloatingKind::Help))
+        );
+        assert_eq!(
+            layout.hit_test(floating.rect.x + 1, floating.rect.y + 1),
+            Some(LayoutHit::Floating(FloatingKind::Help))
+        );
+    }
+
+    #[test]
+    fn floating_resize_produces_visible_clamped_rect() {
+        let size = resize_floating(Rect::new(0, 0, 100, 41), 90, 35);
+        let mut pane = FloatingPane::new(FloatingKind::Help);
+        pane.size = size;
+        let layout = build(
+            Rect::new(0, 0, 100, 41),
+            &LayoutConfig::default(),
+            &[pane],
+            &Panel::ALL,
+        );
+        let rect = layout.floating[0].rect;
+        let default_help = floating_rect(
+            Rect::new(0, 0, 100, 40),
+            FloatingSize::default_for(FloatingKind::Help),
+        );
+        let default_palette = floating_rect(
+            Rect::new(0, 0, 100, 40),
+            FloatingSize::default_for(FloatingKind::CommandPalette),
+        );
+
+        assert!(rect.width > default_help.width);
+        assert!(rect.height > default_palette.height);
+        assert!(rect.right() <= 100);
+        assert!(rect.bottom() <= 40);
     }
 
     #[test]
@@ -731,10 +805,7 @@ mod tests {
         let layout = build(
             Rect::new(0, 0, 160, 48),
             &LayoutConfig::default(),
-            &[FloatingPane {
-                kind: FloatingKind::Help,
-                z_index: 1,
-            }],
+            &[FloatingPane::new(FloatingKind::Help)],
             &Panel::ALL,
         );
         let floating = layout.floating[0];

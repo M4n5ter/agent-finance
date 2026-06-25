@@ -145,7 +145,51 @@ impl FloatingKind {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct FloatingPane {
     pub kind: FloatingKind,
-    pub z_index: u16,
+    pub size: FloatingSize,
+}
+
+impl FloatingPane {
+    pub fn new(kind: FloatingKind) -> Self {
+        Self {
+            kind,
+            size: FloatingSize::default_for(kind),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct FloatingSize {
+    pub width_ratio: u16,
+    pub height_ratio: u16,
+}
+
+impl FloatingSize {
+    pub const MIN_RATIO: u16 = 20;
+    pub const MAX_RATIO: u16 = 95;
+
+    pub const fn default_for(kind: FloatingKind) -> Self {
+        match kind {
+            FloatingKind::CommandPalette => Self {
+                width_ratio: 70,
+                height_ratio: 40,
+            },
+            FloatingKind::Help => Self {
+                width_ratio: 64,
+                height_ratio: 70,
+            },
+            FloatingKind::ProviderDetails => Self {
+                width_ratio: 58,
+                height_ratio: 58,
+            },
+        }
+    }
+
+    pub fn resized(width_ratio: u16, height_ratio: u16) -> Self {
+        Self {
+            width_ratio: width_ratio.clamp(Self::MIN_RATIO, Self::MAX_RATIO),
+            height_ratio: height_ratio.clamp(Self::MIN_RATIO, Self::MAX_RATIO),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

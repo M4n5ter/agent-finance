@@ -7,7 +7,13 @@ use crate::state::{Action, AppState};
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct MouseDrag {
-    split: Option<DockedColumnSplit>,
+    target: Option<MouseDragTarget>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum MouseDragTarget {
+    DockedSplit(DockedColumnSplit),
+    FloatingResize(FloatingKind),
 }
 
 pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
@@ -51,15 +57,22 @@ pub fn handle_mouse_event(
                 &state.floating,
                 state.panels.open_panels(),
             );
-            drag.split = None;
+            drag.target = None;
             match layout.hit_test(mouse.column, mouse.row) {
                 Some(LayoutHit::Panel(panel)) => state.reduce(Action::Focus(panel)),
-                Some(LayoutHit::DockedSplit(split)) => drag.split = Some(split),
-                Some(LayoutHit::Floating(_)) | Some(LayoutHit::Status) | None => {}
+                Some(LayoutHit::DockedSplit(split)) => {
+                    drag.target = Some(MouseDragTarget::DockedSplit(split));
+                }
+                Some(LayoutHit::FloatingResize(kind)) => {
+                    state.reduce(Action::FocusFloating(kind));
+                    drag.target = Some(MouseDragTarget::FloatingResize(kind));
+                }
+                Some(LayoutHit::Floating(kind)) => state.reduce(Action::FocusFloating(kind)),
+                Some(LayoutHit::Status) | None => {}
             }
         }
-        MouseEventKind::Drag(MouseButton::Left) => {
-            if let Some(split) = drag.split {
+        MouseEventKind::Drag(MouseButton::Left) => match drag.target {
+            Some(MouseDragTarget::DockedSplit(split)) => {
                 let next = layout::resize_docked_columns(
                     terminal_area,
                     split,
@@ -72,9 +85,14 @@ pub fn handle_mouse_event(
                     main_ratio: next.main_ratio,
                 });
             }
-        }
+            Some(MouseDragTarget::FloatingResize(kind)) => {
+                let size = layout::resize_floating(terminal_area, mouse.column, mouse.row);
+                state.reduce(Action::ResizeFloating { kind, size });
+            }
+            None => {}
+        },
         MouseEventKind::Up(MouseButton::Left) => {
-            drag.split = None;
+            drag.target = None;
         }
         _ => {}
     }
@@ -191,7 +209,7 @@ mod tests {
         assert_eq!(
             drag,
             MouseDrag {
-                split: Some(DockedColumnSplit::LeftMain),
+                target: Some(MouseDragTarget::DockedSplit(DockedColumnSplit::LeftMain)),
             }
         );
 
@@ -210,6 +228,98 @@ mod tests {
             mouse_event(MouseEventKind::Up(MouseButton::Left), 50, 2),
         );
         assert_eq!(drag, MouseDrag::default());
+    }
+
+    #[test]
+    fn mouse_focuses_and_resizes_floating_panes() {
+        let area = Rect::new(0, 0, 160, 48);
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::ToggleFloating(FloatingKind::Help));
+        state.reduce(Action::ToggleFloating(FloatingKind::ProviderDetails));
+        let mut drag = MouseDrag::default();
+
+        let layout = layout::build(
+            area,
+            &state.layout,
+            &state.floating,
+            state.panels.open_panels(),
+        );
+        let help = layout
+            .floating
+            .iter()
+            .find(|pane| pane.kind == FloatingKind::Help)
+            .unwrap();
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                help.rect.x + 2,
+                help.rect.y + 2,
+            ),
+        );
+        assert_eq!(state.floating.last().unwrap().kind, FloatingKind::Help);
+        assert_eq!(drag, MouseDrag::default());
+
+        let layout = layout::build(
+            area,
+            &state.layout,
+            &state.floating,
+            state.panels.open_panels(),
+        );
+        let help = layout
+            .floating
+            .iter()
+            .find(|pane| pane.kind == FloatingKind::Help)
+            .unwrap();
+        let previous_rect = help.rect;
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(
+                MouseEventKind::Down(MouseButton::Left),
+                help.rect.right() - 1,
+                help.rect.bottom() - 1,
+            ),
+        );
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(
+                MouseEventKind::Drag(MouseButton::Left),
+                help.rect.right().saturating_add(8),
+                help.rect.bottom().saturating_add(4),
+            ),
+        );
+        let layout = layout::build(
+            area,
+            &state.layout,
+            &state.floating,
+            state.panels.open_panels(),
+        );
+        let resized = layout
+            .floating
+            .iter()
+            .find(|pane| pane.kind == FloatingKind::Help)
+            .unwrap();
+        assert!(resized.rect.width > previous_rect.width);
+        assert!(resized.rect.height > previous_rect.height);
+        assert_eq!(
+            layout.hit_test(resized.rect.x + 1, resized.rect.y + 1),
+            Some(LayoutHit::Floating(FloatingKind::Help))
+        );
+
+        state.reduce(Action::CloseFocusedFloating);
+        assert!(
+            !state
+                .floating
+                .iter()
+                .any(|pane| pane.kind == FloatingKind::Help)
+        );
     }
 
     fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {

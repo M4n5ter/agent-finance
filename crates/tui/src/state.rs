@@ -9,7 +9,7 @@ use agent_finance_market::snapshot::MarketSnapshot;
 
 use crate::command::{CommandEffect, CommandPaletteState};
 use crate::config::{LayoutConfig, TuiConfig};
-use crate::model::{DockedPanels, FloatingKind, FloatingPane, Panel, TaskLogEntry};
+use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, TaskLogEntry};
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -70,6 +70,8 @@ impl AppState {
             Action::CloseFocusedFloating => {
                 self.floating.pop();
             }
+            Action::FocusFloating(kind) => self.focus_floating(kind),
+            Action::ResizeFloating { kind, size } => self.resize_floating(kind, size),
             Action::ResetLayout => {
                 self.floating.clear();
                 self.layout = LayoutConfig::default();
@@ -251,20 +253,20 @@ impl AppState {
 
     fn open_floating(&mut self, kind: FloatingKind) {
         self.close_floating(kind);
-        let next_z = self.next_floating_z_index();
-        self.floating.push(FloatingPane {
-            kind,
-            z_index: next_z,
-        });
+        self.floating.push(FloatingPane::new(kind));
     }
 
-    fn next_floating_z_index(&self) -> u16 {
-        self.floating
-            .iter()
-            .map(|pane| pane.z_index)
-            .max()
-            .unwrap_or(0)
-            + 1
+    fn focus_floating(&mut self, kind: FloatingKind) {
+        if let Some(index) = self.floating.iter().position(|pane| pane.kind == kind) {
+            let pane = self.floating.remove(index);
+            self.floating.push(pane);
+        }
+    }
+
+    fn resize_floating(&mut self, kind: FloatingKind, size: FloatingSize) {
+        if let Some(pane) = self.floating.iter_mut().find(|pane| pane.kind == kind) {
+            pane.size = size;
+        }
     }
 
     fn apply_command(&mut self, effect: CommandEffect) {
@@ -434,6 +436,11 @@ pub enum Action {
     CloseFocusedPanel,
     RestorePanels,
     CloseFocusedFloating,
+    FocusFloating(FloatingKind),
+    ResizeFloating {
+        kind: FloatingKind,
+        size: FloatingSize,
+    },
     ResetLayout,
     ResizeDockedColumns {
         left_ratio: u16,
@@ -513,19 +520,43 @@ mod tests {
     }
 
     #[test]
-    fn floating_panes_keep_newest_overlay_on_top() {
+    fn floating_panes_use_vec_order_as_top_order() {
         let mut state = AppState::from_config(TuiConfig::default());
 
         state.reduce(Action::ToggleFloating(FloatingKind::Help));
         state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
 
-        assert_eq!(state.floating[0].z_index, 1);
-        assert_eq!(state.floating[1].z_index, 2);
+        assert_eq!(state.floating[0].kind, FloatingKind::Help);
+        assert_eq!(state.floating[1].kind, FloatingKind::CommandPalette);
 
         state.reduce(Action::CloseFocusedFloating);
 
         assert_eq!(state.floating.len(), 1);
         assert_eq!(state.floating[0].kind, FloatingKind::Help);
+    }
+
+    #[test]
+    fn floating_panes_can_be_focused_and_resized() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::ToggleFloating(FloatingKind::Help));
+        state.reduce(Action::ToggleFloating(FloatingKind::ProviderDetails));
+        state.reduce(Action::FocusFloating(FloatingKind::Help));
+
+        assert_eq!(state.floating.last().unwrap().kind, FloatingKind::Help);
+
+        let size = FloatingSize::resized(82, 63);
+        state.reduce(Action::ResizeFloating {
+            kind: FloatingKind::Help,
+            size,
+        });
+
+        let help = state
+            .floating
+            .iter()
+            .find(|pane| pane.kind == FloatingKind::Help)
+            .unwrap();
+        assert_eq!(help.size, size);
     }
 
     #[test]

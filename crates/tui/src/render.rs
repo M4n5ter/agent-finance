@@ -519,7 +519,7 @@ fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         .map(|snapshot| snapshot.errors.len())
         .unwrap_or(0);
     let text = format!(
-        " {} | focus: {} | panels: {}/{} | {} | errors: {} | j/k symbol | x close | 0 restore | : command | q quit ",
+        " {} | focus: {} | panels: {}/{} | {} | errors: {} | j/k symbol | x close | 0 restore | drag resize | : command | q quit ",
         symbol,
         state.panels.focused().title(),
         state.panels.open_count(),
@@ -556,7 +556,7 @@ fn render_floating(frame: &mut Frame<'_>, state: &AppState, kind: FloatingKind, 
             Line::from("x close focused panel"),
             Line::from("0 restore all panels"),
             Line::from("r reset layout"),
-            Line::from("mouse: focus panels and drag docked column borders"),
+            Line::from("mouse: focus panels, drag docked borders, resize floating corners"),
             Line::from("q quit"),
         ],
         FloatingKind::ProviderDetails => state
