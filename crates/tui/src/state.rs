@@ -20,7 +20,8 @@ use crate::task_log::{TaskKey, TaskLog};
 mod interaction;
 mod load;
 
-pub use load::{LoadSlot, SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
+use load::LoadSlot;
+pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -37,7 +38,7 @@ pub struct AppState {
     pub task_log: TaskLog,
     pub provider_profiles: Vec<ProviderProfile>,
     pub market_snapshot: Option<MarketSnapshot>,
-    pub refresh: LoadSlot<()>,
+    refresh: LoadSlot<()>,
     pub history: SelectedSymbolLoad<HistorySnapshot>,
     pub evidence: SelectedSymbolLoad<CryptoQuoteEvidenceSnapshot>,
     pub research: SelectedSymbolLoad<ResearchContextSnapshot>,
@@ -98,6 +99,10 @@ impl AppState {
 
     pub fn selected_symbol(&self) -> Option<&str> {
         self.watchlist.get(self.selected_symbol).map(String::as_str)
+    }
+
+    pub fn refresh_loading(&self) -> bool {
+        self.refresh.loading()
     }
 
     pub fn visible_panels(&self) -> Vec<Panel> {
@@ -1233,7 +1238,7 @@ mod tests {
             snapshot: stale,
         });
         assert!(state.market_snapshot.is_none());
-        assert!(state.refresh.loading());
+        assert!(state.refresh_loading());
 
         state.reduce(Action::SnapshotLoaded {
             generation: 2,
@@ -1247,7 +1252,7 @@ mod tests {
                 .and_then(|quote| quote.price),
             Some(250.0)
         );
-        assert!(!state.refresh.loading());
+        assert!(!state.refresh_loading());
     }
 
     #[test]
@@ -1271,7 +1276,7 @@ mod tests {
             "scheduler runtime failed".to_string(),
         ));
 
-        assert!(!state.refresh.loading());
+        assert!(!state.refresh_loading());
         assert!(!state.history.loading());
         assert!(!state.evidence.loading());
         assert!(!state.research.loading());

@@ -233,7 +233,7 @@ fn dump_is_ready(state: &AppState) -> bool {
     if state.scheduler_error.is_some() {
         return true;
     }
-    if state.refresh.loading() {
+    if state.refresh_loading() {
         return false;
     }
     if state.market_snapshot.is_none() && !state.task_failures.has_source(TaskFailureSource::Quotes)
@@ -372,7 +372,7 @@ fn prepare_refresh_request(
     state: &mut AppState,
     next_generation: &mut u64,
 ) -> Option<RefreshRequest> {
-    if state.refresh.loading() || state.scheduler_error.is_some() {
+    if state.refresh_loading() || state.scheduler_error.is_some() {
         return None;
     }
 
@@ -584,7 +584,7 @@ mod tests {
                 symbols: state.watchlist.clone(),
             })
         );
-        assert!(state.refresh.loading());
+        assert!(state.refresh_loading());
         assert_eq!(next_generation, 2);
 
         let second = prepare_refresh_request(&mut state, &mut next_generation);
@@ -596,7 +596,7 @@ mod tests {
             snapshot: market_snapshot(),
         });
         assert!(state.market_snapshot.is_some());
-        assert!(!state.refresh.loading());
+        assert!(!state.refresh_loading());
     }
 
     #[test]

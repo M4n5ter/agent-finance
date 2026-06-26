@@ -271,7 +271,7 @@ fn render_search_floating(
 fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> String {
     let runtime = if state.scheduler_error.is_some() {
         "scheduler error"
-    } else if state.refresh.loading() {
+    } else if state.refresh_loading() {
         "refreshing"
     } else {
         "ready"

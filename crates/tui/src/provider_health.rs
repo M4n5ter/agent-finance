@@ -270,7 +270,7 @@ impl ProviderHealthBuilder {
     }
 
     fn add_loading_tasks(&mut self, state: &AppState) {
-        if state.refresh.loading() {
+        if state.refresh_loading() {
             self.task_loading(ProviderHealthSource::Quotes, "refresh in flight");
         }
         if state.history.loading() {
