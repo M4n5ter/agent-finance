@@ -71,9 +71,14 @@ try {
     fail("TUI did not open the command palette");
   }
 
+  runTmux(["send-keys", "-t", session, "quote"]);
+  if (!waitForScreen(["quote", "Focus quote", "Toggle quote"], 4_000)) {
+    fail("TUI command palette did not filter commands from typed input");
+  }
+
   runTmux(["send-keys", "-t", session, "Enter"]);
-  if (!waitForScreen(["Help", "agent-finance cockpit"], 4_000)) {
-    fail("TUI did not execute a command palette action");
+  if (!waitForScreen(["mode: normal", "focus: Quote / Sessions"], 4_000)) {
+    fail("TUI did not execute the filtered command palette action");
   }
 
   runTmux(["send-keys", "-t", session, "q"]);

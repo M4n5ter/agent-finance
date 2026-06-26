@@ -6,7 +6,6 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, Wrap};
 
-use crate::command::ACTION_SPECS;
 use crate::model::{FloatingKind, WorkspaceKind};
 use crate::state::AppState;
 
@@ -108,19 +107,45 @@ pub(super) fn render_floating(
 }
 
 fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let selected = state.command_palette.selected;
-    let visible = command_window(
-        ACTION_SPECS.len(),
-        selected,
-        area.height.saturating_sub(2) as usize,
+    if area.height < 4 {
+        frame.render_widget(
+            Paragraph::new("Command Palette").block(floating_block("Command Palette")),
+            area,
+        );
+        return;
+    }
+
+    let [input_area, list_area] = split_vertical(area, [Constraint::Length(3), Constraint::Min(0)]);
+    let query = state.command_palette.query();
+    let input = if query.is_empty() {
+        "filter commands".to_string()
+    } else {
+        query.to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(input)
+            .style(if query.is_empty() {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Cyan)
+            })
+            .block(floating_block(
+                "Command Palette  type filter  Enter run  Esc close",
+            )),
+        input_area,
     );
+
+    let selected = state.command_palette.selected();
+    let total = state.command_palette.len();
+    let visible = command_window(total, selected, list_area.height.saturating_sub(2) as usize);
     let hidden_before = visible.start > 0;
-    let hidden_after = visible.end < ACTION_SPECS.len();
-    let items = ACTION_SPECS[visible.clone()]
-        .iter()
+    let hidden_after = visible.end < total;
+    let visible_start = visible.start;
+    let items = visible
         .enumerate()
-        .map(|(offset, command)| {
-            let index = visible.start + offset;
+        .filter_map(|(offset, index)| {
+            let command = state.command_palette.command_at(index)?;
+            let index = visible_start + offset;
             let is_selected = index == selected;
             let style = if is_selected {
                 Style::default()
@@ -130,22 +155,31 @@ fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             } else {
                 Style::default().fg(Color::White)
             };
-            ListItem::new(Line::from(vec![
+            Some(ListItem::new(Line::from(vec![
                 Span::styled(if is_selected { "> " } else { "  " }, style),
                 Span::styled(command.title, style),
                 Span::styled(" - ", style),
                 Span::styled(command.description, style),
-            ]))
+            ])))
         })
         .collect::<Vec<_>>();
 
-    let title = match (hidden_before, hidden_after) {
-        (true, true) => "Command Palette  Enter run  Esc close  more above/below",
-        (true, false) => "Command Palette  Enter run  Esc close  more above",
-        (false, true) => "Command Palette  Enter run  Esc close  more below",
-        (false, false) => "Command Palette  Enter run  Esc close",
+    let title = match (total, hidden_before, hidden_after) {
+        (0, _, _) => "0 matches",
+        (_, true, true) => "matches  more above/below",
+        (_, true, false) => "matches  more above",
+        (_, false, true) => "matches  more below",
+        (_, false, false) => "matches",
     };
-    frame.render_widget(List::new(items).block(floating_block(title)), area);
+    let items = if items.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "No matching commands",
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        items
+    };
+    frame.render_widget(List::new(items).block(floating_block(title)), list_area);
 }
 
 fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> String {
@@ -226,6 +260,16 @@ fn simple_block(title: &'static str) -> Block<'static> {
 fn split_horizontal<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
     Layout::default()
         .direction(Direction::Horizontal)
+        .constraints(constraints)
+        .split(area)
+        .as_ref()
+        .try_into()
+        .unwrap_or([Rect::default(); N])
+}
+
+fn split_vertical<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
+    Layout::default()
+        .direction(Direction::Vertical)
         .constraints(constraints)
         .split(area)
         .as_ref()

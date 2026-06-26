@@ -1,5 +1,8 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::layout::Rect;
+use tui_input::backend::crossterm::to_input_request;
 
 use crate::command::ActionId;
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
@@ -50,8 +53,8 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     }
 }
 
-pub fn should_quit(key: KeyEvent) -> bool {
-    matches!(key.code, KeyCode::Char('q'))
+pub fn should_quit(state: &AppState, key: KeyEvent) -> bool {
+    (matches!(key.code, KeyCode::Char('q')) && !command_palette_is_top(state))
         || (matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL))
 }
 
@@ -112,11 +115,17 @@ pub fn handle_mouse_event(
 
 fn command_palette_key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     match key.code {
-        KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveCommandSelection(1)),
-        KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveCommandSelection(-1)),
-        KeyCode::Enter => Some(Action::Execute(state.command_palette.selected_action())),
+        KeyCode::Down => Some(Action::MoveCommandSelection(1)),
+        KeyCode::Up => Some(Action::MoveCommandSelection(-1)),
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::MoveCommandSelection(1))
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::MoveCommandSelection(-1))
+        }
+        KeyCode::Enter => state.command_palette.selected_action().map(Action::Execute),
         KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        _ => None,
+        _ => to_input_request(&Event::Key(key)).map(Action::EditCommandQuery),
     }
 }
 
@@ -172,23 +181,38 @@ mod tests {
         )));
 
         assert_eq!(
-            key_action(&state, KeyEvent::from(KeyCode::Char('j'))),
+            key_action(&state, KeyEvent::from(KeyCode::Down)),
             Some(Action::MoveCommandSelection(1))
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Enter)),
-            Some(Action::Execute(state.command_palette.selected_action()))
+            state.command_palette.selected_action().map(Action::Execute)
         );
+        assert!(matches!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('p'))),
+            Some(Action::EditCommandQuery(_))
+        ));
     }
 
     #[test]
     fn quit_router_accepts_q_and_control_c_only() {
-        assert!(should_quit(KeyEvent::from(KeyCode::Char('q'))));
-        assert!(should_quit(KeyEvent::new(
-            KeyCode::Char('c'),
-            KeyModifiers::CONTROL
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+
+        assert!(should_quit(&state, KeyEvent::from(KeyCode::Char('q'))));
+        assert!(should_quit(
+            &state,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
+        ));
+        assert!(!should_quit(&state, KeyEvent::from(KeyCode::Char('c'))));
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
         )));
-        assert!(!should_quit(KeyEvent::from(KeyCode::Char('c'))));
+        assert!(!should_quit(&state, KeyEvent::from(KeyCode::Char('q'))));
+        assert!(matches!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('q'))),
+            Some(Action::EditCommandQuery(_))
+        ));
     }
 
     #[test]

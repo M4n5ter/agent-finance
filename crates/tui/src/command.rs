@@ -1,22 +1,108 @@
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
+use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo_matcher::{Config, Matcher, Utf32Str};
+use tui_input::{Input, InputRequest};
+
+use crate::model::{FloatingKind, Panel, WorkspaceKind};
+
+#[derive(Debug, Clone)]
 pub struct CommandPaletteState {
-    pub selected: usize,
+    input: Input,
+    selected: usize,
+    matches: Vec<usize>,
+}
+
+impl Default for CommandPaletteState {
+    fn default() -> Self {
+        Self {
+            input: Input::default(),
+            selected: 0,
+            matches: all_command_indices(),
+        }
+    }
 }
 
 impl CommandPaletteState {
+    pub fn query(&self) -> &str {
+        self.input.value()
+    }
+
+    pub fn len(&self) -> usize {
+        self.matches.len()
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub fn command_at(&self, index: usize) -> Option<CommandSpec> {
+        self.matches
+            .get(index)
+            .map(|command| ACTION_SPECS[*command])
+    }
+
     pub fn shift(&mut self, direction: isize) {
-        let len = ACTION_SPECS.len() as isize;
+        if self.matches.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let len = self.matches.len() as isize;
         let selected = self.selected as isize;
         self.selected = (selected + direction).rem_euclid(len) as usize;
     }
 
-    pub fn selected_command(&self) -> CommandSpec {
-        ACTION_SPECS[self.selected]
+    pub fn selected_command(&self) -> Option<CommandSpec> {
+        self.command_at(self.selected)
     }
 
-    pub fn selected_action(&self) -> ActionId {
-        self.selected_command().action
+    pub fn selected_action(&self) -> Option<ActionId> {
+        self.selected_command().map(|command| command.action)
     }
+
+    pub fn reset(&mut self) {
+        self.input = Input::default();
+        self.selected = 0;
+        self.matches = all_command_indices();
+    }
+
+    pub fn edit_query(&mut self, request: InputRequest) {
+        let previous = self.input.value().to_string();
+        self.input.handle(request);
+        if self.input.value() != previous {
+            self.refresh_matches();
+        }
+    }
+
+    fn refresh_matches(&mut self) {
+        let query = self.input.value().trim();
+        self.matches = if query.is_empty() {
+            all_command_indices()
+        } else {
+            fuzzy_command_indices(query)
+        };
+        self.selected = 0;
+    }
+}
+
+fn all_command_indices() -> Vec<usize> {
+    (0..ACTION_SPECS.len()).collect()
+}
+
+fn fuzzy_command_indices(query: &str) -> Vec<usize> {
+    let pattern = Pattern::parse(query, CaseMatching::Ignore, Normalization::Smart);
+    let mut matcher = Matcher::new(Config::DEFAULT);
+    let mut utf32_buffer = Vec::new();
+    let mut scored = ACTION_SPECS
+        .iter()
+        .enumerate()
+        .filter_map(|(index, command)| {
+            let text = format!("{} {}", command.title, command.description);
+            pattern
+                .score(Utf32Str::new(&text, &mut utf32_buffer), &mut matcher)
+                .map(|score| (index, score))
+        })
+        .collect::<Vec<_>>();
+    scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
+    scored.into_iter().map(|(index, _)| index).collect()
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -181,4 +267,57 @@ pub const ACTION_SPECS: [CommandSpec; 28] = [
         action: ActionId::CloseCommandPalette,
     },
 ];
-use crate::model::{FloatingKind, Panel, WorkspaceKind};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_palette_fuzzy_search_filters_and_ranks_actions() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "provider".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        let visible = (0..palette.len())
+            .filter_map(|index| palette.command_at(index))
+            .map(|command| command.title)
+            .collect::<Vec<_>>();
+        assert!(visible.contains(&"Open provider details"));
+        assert!(visible.contains(&"Workspace providers"));
+    }
+
+    #[test]
+    fn command_palette_selection_stays_in_filtered_bounds() {
+        let mut palette = CommandPaletteState::default();
+
+        palette.shift(-1);
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::CloseCommandPalette)
+        );
+        palette.edit_query(InputRequest::InsertChar('z'));
+        palette.edit_query(InputRequest::InsertChar('z'));
+        palette.edit_query(InputRequest::InsertChar('z'));
+
+        assert_eq!(palette.len(), 0);
+        assert_eq!(palette.selected(), 0);
+        assert_eq!(palette.selected_action(), None);
+    }
+
+    #[test]
+    fn command_palette_query_changes_select_top_ranked_match() {
+        let mut palette = CommandPaletteState::default();
+
+        palette.shift(-1);
+        for character in "provider".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::OpenFloating(FloatingKind::ProviderDetails))
+        );
+    }
+}

@@ -130,7 +130,7 @@ fn run_loop(
             .unwrap_or_default();
         if event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key) if input::should_quit(key) => break,
+                Event::Key(key) if input::should_quit(state, key) => break,
                 Event::Key(key) => {
                     if let Some(action) = input::key_action(state, key) {
                         state.reduce(action);

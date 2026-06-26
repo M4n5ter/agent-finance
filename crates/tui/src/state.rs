@@ -116,6 +116,9 @@ impl AppState {
             Action::MoveCommandSelection(direction) => {
                 self.command_palette.shift(direction);
             }
+            Action::EditCommandQuery(request) => {
+                self.command_palette.edit_query(request);
+            }
             Action::Execute(action) => self.execute(action),
             Action::CloseFocusedPanel => {
                 self.panels.close_focused();
@@ -130,11 +133,24 @@ impl AppState {
             }
             Action::SetWorkspace(workspace) => self.set_workspace(workspace),
             Action::CloseFocusedFloating => {
-                self.floating.pop();
+                if self
+                    .floating
+                    .pop()
+                    .is_some_and(|pane| pane.kind == FloatingKind::CommandPalette)
+                {
+                    self.command_palette.reset();
+                }
             }
             Action::FocusFloating(kind) => self.focus_floating(kind),
             Action::ResizeFloating { kind, size } => self.resize_floating(kind, size),
             Action::ResetLayout => {
+                if self
+                    .floating
+                    .iter()
+                    .any(|pane| pane.kind == FloatingKind::CommandPalette)
+                {
+                    self.command_palette.reset();
+                }
                 self.floating.clear();
                 self.layout = LayoutConfig::default();
                 self.panels = DockedPanels::default();
@@ -320,10 +336,17 @@ impl AppState {
     }
 
     fn close_floating(&mut self, kind: FloatingKind) {
+        let had_pane = self.floating.iter().any(|pane| pane.kind == kind);
         self.floating.retain(|pane| pane.kind != kind);
+        if had_pane && kind == FloatingKind::CommandPalette {
+            self.command_palette.reset();
+        }
     }
 
     fn open_floating(&mut self, kind: FloatingKind) {
+        if kind == FloatingKind::CommandPalette {
+            self.command_palette.reset();
+        }
         self.close_floating(kind);
         self.floating.push(FloatingPane::new(kind));
     }
@@ -518,6 +541,7 @@ pub enum Action {
     SelectNextSymbol,
     SelectPreviousSymbol,
     MoveCommandSelection(isize),
+    EditCommandQuery(tui_input::InputRequest),
     Execute(ActionId),
     CloseFocusedPanel,
     RestorePanels,
@@ -797,19 +821,66 @@ mod tests {
         state.reduce(Action::MoveCommandSelection(-1));
         assert_eq!(
             state.command_palette.selected_action(),
-            ActionId::CloseCommandPalette
+            Some(ActionId::CloseCommandPalette)
         );
 
         state.reduce(Action::MoveCommandSelection(1));
         assert_eq!(
             state.command_palette.selected_action(),
-            ActionId::OpenFloating(FloatingKind::Help)
+            Some(ActionId::OpenFloating(FloatingKind::Help))
         );
 
         state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
 
         assert_eq!(state.floating.len(), 1);
         assert_eq!(state.floating[0].kind, FloatingKind::Help);
+    }
+
+    #[test]
+    fn command_palette_query_filters_executable_actions() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+        for character in "crypto".chars() {
+            state.reduce(Action::EditCommandQuery(
+                tui_input::InputRequest::InsertChar(character),
+            ));
+        }
+
+        assert_eq!(state.command_palette.query(), "crypto");
+        assert_eq!(
+            state.command_palette.selected_action(),
+            Some(ActionId::SetWorkspace(WorkspaceKind::Crypto))
+        );
+    }
+
+    #[test]
+    fn command_palette_query_resets_after_close() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+        state.reduce(Action::EditCommandQuery(
+            tui_input::InputRequest::InsertChar('z'),
+        ));
+        state.reduce(Action::CloseFocusedFloating);
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+
+        assert_eq!(state.command_palette.query(), "");
+        assert_eq!(
+            state.command_palette.len(),
+            crate::command::ACTION_SPECS.len()
+        );
+        assert_eq!(
+            state.command_palette.selected_action(),
+            Some(ActionId::OpenFloating(FloatingKind::Help))
+        );
     }
 
     #[test]
