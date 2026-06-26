@@ -7,15 +7,21 @@ use agent_finance_market::research_snapshot::ResearchContextSnapshot;
 use agent_finance_market::service;
 use agent_finance_market::snapshot::MarketSnapshot;
 
-use crate::command::{CommandEffect, CommandPaletteState};
-use crate::config::{FloatingConfig, LayoutConfig, PanelConfig, TuiConfig};
-use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, TaskLogEntry};
+use crate::command::{ActionId, CommandPaletteState};
+use crate::config::{FloatingConfig, LayoutConfig, PanelConfig, TuiConfig, WorkspaceConfig};
+use crate::model::{
+    DockedPanels, FloatingKind, FloatingPane, FloatingSize, InteractionMode, Panel, TaskLogEntry,
+    WorkspaceKind,
+};
 use crate::task_failure::{TaskFailure, TaskFailureSource, TaskFailures};
+
+mod interaction;
 
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub watchlist: Vec<String>,
     pub selected_symbol: usize,
+    pub workspace: WorkspaceKind,
     pub layout: LayoutConfig,
     pub panels: DockedPanels,
     pub floating: Vec<FloatingPane>,
@@ -33,9 +39,10 @@ pub struct AppState {
 
 impl AppState {
     pub fn from_config(config: TuiConfig) -> Self {
-        Self {
+        let mut state = Self {
             watchlist: config.watchlist,
             selected_symbol: 0,
+            workspace: config.workspace.current,
             layout: config.layout,
             panels: DockedPanels::from_open_focused(config.panels.open, config.panels.focused),
             floating: config.floating.panes,
@@ -49,12 +56,17 @@ impl AppState {
             research: SelectedSymbolLoad::new(),
             task_failures: TaskFailures::default(),
             scheduler_error: None,
-        }
+        };
+        state.ensure_visible_focus();
+        state
     }
 
     pub fn export_config(&self, base: &TuiConfig) -> TuiConfig {
         let mut config = base.clone();
         config.watchlist = self.watchlist.clone();
+        config.workspace = WorkspaceConfig {
+            current: self.workspace,
+        };
         config.layout = self.layout.clone();
         config.panels = PanelConfig {
             open: self.panels.open_panels().to_vec(),
@@ -76,20 +88,47 @@ impl AppState {
         self.watchlist.get(self.selected_symbol).map(String::as_str)
     }
 
+    pub fn visible_panels(&self) -> Vec<Panel> {
+        self.panels
+            .open_panels()
+            .iter()
+            .copied()
+            .filter(|panel| self.workspace.panels().contains(panel))
+            .collect()
+    }
+
+    pub fn interaction_mode(&self) -> InteractionMode {
+        match self.floating.last().map(|pane| pane.kind) {
+            Some(FloatingKind::CommandPalette) => InteractionMode::Command,
+            Some(FloatingKind::Help) => InteractionMode::Help,
+            Some(FloatingKind::ProviderDetails) => InteractionMode::Inspect,
+            None => InteractionMode::Normal,
+        }
+    }
+
     pub fn reduce(&mut self, action: Action) {
         match action {
             Action::Focus(panel) => {
-                self.panels.focus(panel);
+                self.focus_panel(panel);
             }
             Action::SelectNextSymbol => self.shift_symbol(1),
             Action::SelectPreviousSymbol => self.shift_symbol(-1),
-            Action::ToggleFloating(kind) => self.toggle_floating(kind),
             Action::MoveCommandSelection(direction) => {
                 self.command_palette.shift(direction);
             }
-            Action::ApplyCommand(effect) => self.apply_command(effect),
-            Action::CloseFocusedPanel => self.panels.close_focused(),
-            Action::RestorePanels => self.panels.restore(),
+            Action::Execute(action) => self.execute(action),
+            Action::CloseFocusedPanel => {
+                self.panels.close_focused();
+                self.ensure_visible_focus();
+            }
+            Action::RestorePanels => {
+                self.panels.restore();
+                self.ensure_visible_focus();
+            }
+            Action::ShiftWorkspace(direction) => {
+                self.set_workspace(self.workspace.shift(direction))
+            }
+            Action::SetWorkspace(workspace) => self.set_workspace(workspace),
             Action::CloseFocusedFloating => {
                 self.floating.pop();
             }
@@ -99,6 +138,7 @@ impl AppState {
                 self.floating.clear();
                 self.layout = LayoutConfig::default();
                 self.panels = DockedPanels::default();
+                self.ensure_visible_focus();
             }
             Action::ResizeDockedColumns {
                 left_ratio,
@@ -279,15 +319,6 @@ impl AppState {
         self.selected_symbol = (selected + direction).rem_euclid(len) as usize;
     }
 
-    fn toggle_floating(&mut self, kind: FloatingKind) {
-        if let Some(index) = self.floating.iter().position(|pane| pane.kind == kind) {
-            self.floating.remove(index);
-            return;
-        }
-
-        self.open_floating(kind);
-    }
-
     fn close_floating(&mut self, kind: FloatingKind) {
         self.floating.retain(|pane| pane.kind != kind);
     }
@@ -310,35 +341,50 @@ impl AppState {
         }
     }
 
-    fn apply_command(&mut self, effect: CommandEffect) {
-        match effect {
-            CommandEffect::OpenFloating(kind) => {
-                self.close_floating(FloatingKind::CommandPalette);
-                self.open_floating(kind);
-            }
-            CommandEffect::ResetLayout => {
-                self.reduce(Action::ResetLayout);
-            }
-            CommandEffect::FocusPanel(panel) => {
-                self.close_floating(FloatingKind::CommandPalette);
-                self.reduce(Action::Focus(panel));
-            }
-            CommandEffect::TogglePanel(panel) => {
-                self.close_floating(FloatingKind::CommandPalette);
-                self.panels.toggle(panel);
-            }
-            CommandEffect::CloseFocusedPanel => {
-                self.close_floating(FloatingKind::CommandPalette);
-                self.reduce(Action::CloseFocusedPanel);
-            }
-            CommandEffect::RestorePanels => {
-                self.close_floating(FloatingKind::CommandPalette);
-                self.reduce(Action::RestorePanels);
-            }
-            CommandEffect::CloseCommandPalette => {
-                self.close_floating(FloatingKind::CommandPalette);
-            }
+    fn focus_panel(&mut self, panel: Panel) {
+        if !self.workspace.panels().contains(&panel)
+            && let Some(workspace) = WorkspaceKind::ALL
+                .iter()
+                .copied()
+                .find(|workspace| workspace.panels().contains(&panel))
+        {
+            self.workspace = workspace;
         }
+        if self.panels.contains(panel) {
+            self.panels.focus(panel);
+        } else {
+            self.panels.open_panel(panel);
+        }
+        self.ensure_visible_focus();
+    }
+
+    fn set_workspace(&mut self, workspace: WorkspaceKind) {
+        self.workspace = workspace;
+        self.ensure_visible_focus();
+    }
+
+    fn toggle_panel(&mut self, panel: Panel) {
+        let is_visible = self.visible_panels().contains(&panel);
+        if is_visible {
+            self.panels.toggle(panel);
+            self.ensure_visible_focus();
+        } else {
+            self.focus_panel(panel);
+        }
+    }
+
+    fn ensure_visible_focus(&mut self) {
+        let visible_panels = self.visible_panels();
+        if visible_panels.contains(&self.panels.focused()) {
+            return;
+        }
+
+        if let Some(panel) = visible_panels.first().copied() {
+            self.panels.focus(panel);
+            return;
+        }
+
+        self.panels.open_panel(self.workspace.default_panel());
     }
 
     fn push_log(&mut self, entry: TaskLogEntry) {
@@ -471,11 +517,12 @@ pub enum Action {
     Focus(Panel),
     SelectNextSymbol,
     SelectPreviousSymbol,
-    ToggleFloating(FloatingKind),
     MoveCommandSelection(isize),
-    ApplyCommand(CommandEffect),
+    Execute(ActionId),
     CloseFocusedPanel,
     RestorePanels,
+    ShiftWorkspace(isize),
+    SetWorkspace(WorkspaceKind),
     CloseFocusedFloating,
     FocusFloating(FloatingKind),
     ResizeFloating {
@@ -537,12 +584,16 @@ pub enum Action {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::CommandEffect;
+    use crate::command::ActionId;
     use crate::config::MAX_LEFT_MAIN_RATIO;
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::research_snapshot::ResearchContextSnapshot;
     use agent_finance_market::snapshot::{QuoteSnapshot, RegularBasisSnapshot};
+
+    fn toggle_panel_action(panel: Panel) -> ActionId {
+        ActionId::TogglePanel(panel)
+    }
 
     #[test]
     fn reducer_wraps_symbol_focus_across_watchlist_boundaries() {
@@ -564,8 +615,10 @@ mod tests {
     fn floating_panes_use_vec_order_as_top_order() {
         let mut state = AppState::from_config(TuiConfig::default());
 
-        state.reduce(Action::ToggleFloating(FloatingKind::Help));
-        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
 
         assert_eq!(state.floating[0].kind, FloatingKind::Help);
         assert_eq!(state.floating[1].kind, FloatingKind::CommandPalette);
@@ -580,8 +633,10 @@ mod tests {
     fn floating_panes_can_be_focused_and_resized() {
         let mut state = AppState::from_config(TuiConfig::default());
 
-        state.reduce(Action::ToggleFloating(FloatingKind::Help));
-        state.reduce(Action::ToggleFloating(FloatingKind::ProviderDetails));
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::ProviderDetails,
+        )));
         state.reduce(Action::FocusFloating(FloatingKind::Help));
 
         assert_eq!(state.floating.last().unwrap().kind, FloatingKind::Help);
@@ -601,25 +656,157 @@ mod tests {
     }
 
     #[test]
+    fn interaction_mode_follows_top_floating_pane() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        assert_eq!(state.interaction_mode(), InteractionMode::Normal);
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+        assert_eq!(state.interaction_mode(), InteractionMode::Help);
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+        assert_eq!(state.interaction_mode(), InteractionMode::Command);
+
+        state.reduce(Action::CloseFocusedFloating);
+        assert_eq!(state.interaction_mode(), InteractionMode::Help);
+    }
+
+    #[test]
+    fn workspace_switching_keeps_focus_visible() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::Focus(Panel::Evidence));
+
+        assert_eq!(state.panels.focused(), Panel::Evidence);
+
+        state.reduce(Action::SetWorkspace(WorkspaceKind::Research));
+
+        assert_eq!(state.workspace, WorkspaceKind::Research);
+        assert!(state.visible_panels().contains(&state.panels.focused()));
+        assert_eq!(state.panels.focused(), Panel::Watchlist);
+    }
+
+    #[test]
+    fn inconsistent_persisted_workspace_config_is_normalized_on_load() {
+        let state = AppState::from_config(TuiConfig {
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Research,
+            },
+            panels: PanelConfig {
+                open: vec![Panel::History, Panel::Evidence],
+                focused: Panel::History,
+            },
+            ..TuiConfig::default()
+        });
+
+        assert_eq!(state.workspace, WorkspaceKind::Research);
+        assert!(state.panels.contains(Panel::History));
+        assert!(state.panels.contains(Panel::Evidence));
+        assert!(state.panels.contains(Panel::Watchlist));
+        assert_eq!(state.panels.focused(), Panel::Watchlist);
+        assert_eq!(state.visible_panels(), vec![Panel::Watchlist]);
+    }
+
+    #[test]
+    fn closing_every_visible_workspace_panel_reopens_workspace_default() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::SetWorkspace(WorkspaceKind::Research));
+
+        for panel in WorkspaceKind::Research.panels() {
+            state.reduce(Action::Focus(*panel));
+            state.reduce(Action::CloseFocusedPanel);
+        }
+
+        assert!(!state.visible_panels().is_empty());
+        assert_eq!(
+            state.panels.focused(),
+            WorkspaceKind::Research.default_panel()
+        );
+        assert!(
+            state
+                .visible_panels()
+                .contains(&WorkspaceKind::Research.default_panel())
+        );
+    }
+
+    #[test]
+    fn focusing_hidden_panel_moves_to_a_workspace_that_can_show_it() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        assert_eq!(state.workspace, WorkspaceKind::Overview);
+
+        state.reduce(Action::Focus(Panel::Polymarket));
+
+        assert_eq!(state.workspace, WorkspaceKind::Research);
+        assert_eq!(state.panels.focused(), Panel::Polymarket);
+        assert!(state.visible_panels().contains(&Panel::Polymarket));
+    }
+
+    #[test]
+    fn command_palette_show_panel_routes_to_visible_workspace() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::SetWorkspace(WorkspaceKind::Research));
+        state.reduce(Action::Execute(ActionId::TogglePanel(Panel::Polymarket)));
+        assert!(!state.panels.contains(Panel::Polymarket));
+
+        state.reduce(Action::SetWorkspace(WorkspaceKind::Overview));
+        state.reduce(Action::Execute(ActionId::TogglePanel(Panel::Polymarket)));
+
+        assert_eq!(state.workspace, WorkspaceKind::Research);
+        assert_eq!(state.panels.focused(), Panel::Polymarket);
+        assert!(state.visible_panels().contains(&Panel::Polymarket));
+    }
+
+    #[test]
+    fn command_palette_toggle_hidden_open_panel_routes_to_visible_workspace() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        assert_eq!(state.workspace, WorkspaceKind::Overview);
+        assert!(state.panels.contains(Panel::Research));
+        assert!(!state.visible_panels().contains(&Panel::Research));
+
+        state.reduce(Action::Execute(ActionId::TogglePanel(Panel::Research)));
+
+        assert_eq!(state.workspace, WorkspaceKind::Research);
+        assert!(state.panels.contains(Panel::Research));
+        assert_eq!(state.panels.focused(), Panel::Research);
+        assert!(state.visible_panels().contains(&Panel::Research));
+    }
+
+    #[test]
+    fn command_palette_executes_workspace_commands() {
+        let mut state = AppState::from_config(TuiConfig::default());
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Crypto,
+        )));
+
+        assert_eq!(state.workspace, WorkspaceKind::Crypto);
+        assert!(state.floating.is_empty());
+        assert!(state.visible_panels().contains(&state.panels.focused()));
+    }
+
+    #[test]
     fn command_palette_wraps_selection_and_executes_overlay_commands() {
         let mut state = AppState::from_config(TuiConfig::default());
 
-        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
         state.reduce(Action::MoveCommandSelection(-1));
         assert_eq!(
-            state.command_palette.selected_effect(),
-            CommandEffect::CloseCommandPalette
+            state.command_palette.selected_action(),
+            ActionId::CloseCommandPalette
         );
 
         state.reduce(Action::MoveCommandSelection(1));
         assert_eq!(
-            state.command_palette.selected_effect(),
-            CommandEffect::OpenFloating(FloatingKind::Help)
+            state.command_palette.selected_action(),
+            ActionId::OpenFloating(FloatingKind::Help)
         );
 
-        state.reduce(Action::ApplyCommand(CommandEffect::OpenFloating(
-            FloatingKind::Help,
-        )));
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
 
         assert_eq!(state.floating.len(), 1);
         assert_eq!(state.floating[0].kind, FloatingKind::Help);
@@ -629,10 +816,10 @@ mod tests {
     fn command_palette_executes_panel_focus_commands() {
         let mut state = AppState::from_config(TuiConfig::default());
 
-        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
-        state.reduce(Action::ApplyCommand(CommandEffect::FocusPanel(
-            Panel::Research,
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
         )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Research)));
 
         assert_eq!(state.panels.focused(), Panel::Research);
         assert!(state.floating.is_empty());
@@ -642,9 +829,11 @@ mod tests {
     fn command_palette_close_preserves_underlying_overlay() {
         let mut state = AppState::from_config(TuiConfig::default());
 
-        state.reduce(Action::ToggleFloating(FloatingKind::Help));
-        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
-        state.reduce(Action::ApplyCommand(CommandEffect::CloseCommandPalette));
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+        state.reduce(Action::Execute(ActionId::CloseCommandPalette));
 
         assert_eq!(state.floating.len(), 1);
         assert_eq!(state.floating[0].kind, FloatingKind::Help);
@@ -668,43 +857,32 @@ mod tests {
                 .into_iter()
                 .all(|panel| state.panels.contains(panel))
         );
-        assert_eq!(state.panels.open_count(), Panel::ALL.len());
+        assert_eq!(state.panels.open_panels().len(), Panel::ALL.len());
     }
 
     #[test]
     fn panel_lifecycle_toggles_panels_without_closing_the_last_one() {
         let mut state = AppState::from_config(TuiConfig::default());
 
-        state.reduce(Action::ApplyCommand(CommandEffect::TogglePanel(
-            Panel::History,
-        )));
+        state.reduce(Action::Execute(ActionId::TogglePanel(Panel::History)));
         assert!(!state.panels.contains(Panel::History));
 
-        state.reduce(Action::ApplyCommand(CommandEffect::TogglePanel(
-            Panel::History,
-        )));
+        state.reduce(Action::Execute(ActionId::TogglePanel(Panel::History)));
         assert!(state.panels.contains(Panel::History));
         assert_eq!(state.panels.focused(), Panel::History);
 
         for panel in [
             Panel::Watchlist,
             Panel::Quote,
-            Panel::Evidence,
-            Panel::Polymarket,
-            Panel::Research,
             Panel::ProviderHealth,
             Panel::TaskLog,
         ] {
-            state.reduce(Action::ApplyCommand(CommandEffect::TogglePanel(panel)));
+            state.reduce(Action::Execute(toggle_panel_action(panel)));
         }
-        assert_eq!(state.panels.open_count(), 1);
-        assert!(state.panels.contains(Panel::History));
+        assert_eq!(state.visible_panels(), vec![Panel::History]);
 
-        state.reduce(Action::ApplyCommand(CommandEffect::TogglePanel(
-            Panel::History,
-        )));
-        assert_eq!(state.panels.open_count(), 1);
-        assert!(state.panels.contains(Panel::History));
+        state.reduce(Action::Execute(ActionId::TogglePanel(Panel::History)));
+        assert_eq!(state.visible_panels(), vec![Panel::Watchlist]);
     }
 
     #[test]
@@ -716,8 +894,10 @@ mod tests {
             left_ratio: 31,
             main_ratio: 42,
         });
-        state.reduce(Action::ToggleFloating(FloatingKind::Help));
-        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
         state.reduce(Action::ResizeFloating {
             kind: FloatingKind::Help,
             size: FloatingSize::resized(82, 63),

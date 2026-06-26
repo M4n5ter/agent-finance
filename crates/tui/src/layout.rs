@@ -441,14 +441,10 @@ fn assign_weighted_column(
 }
 
 fn normalized_open_panels(open_panels: &[Panel]) -> Vec<Panel> {
-    let mut normalized = Panel::ALL
+    Panel::ALL
         .into_iter()
         .filter(|panel| open_panels.contains(panel))
-        .collect::<Vec<_>>();
-    if normalized.is_empty() {
-        normalized.push(Panel::Watchlist);
-    }
-    normalized
+        .collect()
 }
 
 fn floating_rect(area: Rect, size: FloatingSize) -> Rect {
@@ -567,6 +563,18 @@ mod tests {
         assert!(layout.panel_rect(Panel::History).unwrap().width > 0);
         assert!(layout.panel_rect(Panel::Evidence).unwrap().height > 0);
         assert_eq!(layout.status.height, 1);
+    }
+
+    #[test]
+    fn layout_does_not_invent_panels_for_empty_input() {
+        let layout = build(Rect::new(0, 0, 160, 48), &LayoutConfig::default(), &[], &[]);
+
+        assert!(
+            Panel::ALL
+                .iter()
+                .all(|panel| layout.panel_rect(*panel).is_none())
+        );
+        assert_eq!(layout.panel_at(2, 2), None);
     }
 
     #[test]

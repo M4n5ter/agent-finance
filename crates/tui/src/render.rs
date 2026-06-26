@@ -2,7 +2,6 @@ use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::research_snapshot::{PredictionMarketSnapshot, ResearchContextSnapshot};
 use agent_finance_market::snapshot::QuoteSnapshot;
 use std::cmp::Reverse;
-use std::ops::Range;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -10,20 +9,23 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Sparkline, Wrap};
 
-use crate::command::COMMANDS;
 use crate::layout::{self, CockpitLayout};
-use crate::model::{FloatingKind, Panel, TaskLevel};
+use crate::model::{Panel, TaskLevel};
 use crate::provider_health::{
     ProviderHealthProvider, ProviderHealthReport, ProviderHealthSeverity, ProviderHealthTask,
 };
 use crate::state::AppState;
+
+mod chrome;
+
+use chrome::{render_floating, render_status};
 
 pub fn render(frame: &mut Frame<'_>, state: &AppState) {
     let layout = layout::build(
         frame.area(),
         &state.layout,
         &state.floating,
-        state.panels.open_panels(),
+        &state.visible_panels(),
     );
     render_docked(frame, state, &layout);
     render_status(frame, state, layout.status);
@@ -726,135 +728,6 @@ fn sparkline_values(values: &[f64]) -> Vec<u64> {
         .collect()
 }
 
-fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let symbol = state.selected_symbol().unwrap_or("N/A");
-    let errors = state
-        .market_snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.errors.len())
-        .unwrap_or(0);
-    let text = format!(
-        " {} | focus: {} | panels: {}/{} | {} | errors: {} | j/k symbol | x close | 0 restore | drag resize | : command | q quit ",
-        symbol,
-        state.panels.focused().title(),
-        state.panels.open_count(),
-        Panel::ALL.len(),
-        if state.scheduler_error.is_some() {
-            "scheduler error"
-        } else if state.refresh.loading {
-            "refreshing"
-        } else {
-            "ready"
-        },
-        errors
-    );
-    frame.render_widget(
-        Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White)),
-        area,
-    );
-}
-
-fn render_floating(frame: &mut Frame<'_>, state: &AppState, kind: FloatingKind, area: Rect) {
-    if kind == FloatingKind::CommandPalette {
-        render_command_palette(frame, state, area);
-        return;
-    }
-
-    let text = match kind {
-        FloatingKind::CommandPalette => unreachable!("command palette is rendered separately"),
-        FloatingKind::Help => vec![
-            Line::from("agent-finance cockpit"),
-            Line::from("j/k or arrows: switch selected symbol"),
-            Line::from("1-6: focus watchlist, quote, history, evidence, Polymarket, research"),
-            Line::from(": open command palette"),
-            Line::from("Enter: execute selected command in command palette"),
-            Line::from("p inspect provider details"),
-            Line::from("x close focused panel"),
-            Line::from("0 restore all panels"),
-            Line::from("r reset layout"),
-            Line::from("mouse: focus panels, drag docked borders, resize floating corners"),
-            Line::from("q quit"),
-        ],
-        FloatingKind::ProviderDetails => state
-            .provider_profiles
-            .iter()
-            .take(12)
-            .map(|profile| {
-                Line::from(format!(
-                    "{}: {}",
-                    profile.provider,
-                    profile
-                        .capabilities
-                        .iter()
-                        .filter(|capability| capability.implemented)
-                        .map(|capability| format!("{}:{}", capability.module, capability.status))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
-            })
-            .collect(),
-    };
-    frame.render_widget(
-        Paragraph::new(text)
-            .block(simple_block(kind.title()))
-            .wrap(Wrap { trim: true }),
-        area,
-    );
-}
-
-fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let selected = state.command_palette.selected;
-    let visible = command_window(
-        COMMANDS.len(),
-        selected,
-        area.height.saturating_sub(2) as usize,
-    );
-    let hidden_before = visible.start > 0;
-    let hidden_after = visible.end < COMMANDS.len();
-    let items = COMMANDS[visible.clone()]
-        .iter()
-        .enumerate()
-        .map(|(offset, command)| {
-            let index = visible.start + offset;
-            let is_selected = index == selected;
-            let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(if is_selected { "> " } else { "  " }, style),
-                Span::styled(command.title, style),
-                Span::styled(" - ", style),
-                Span::styled(command.description, style),
-            ]))
-        })
-        .collect::<Vec<_>>();
-
-    let title = match (hidden_before, hidden_after) {
-        (true, true) => "Command Palette  Enter run  Esc close  more above/below",
-        (true, false) => "Command Palette  Enter run  Esc close  more above",
-        (false, true) => "Command Palette  Enter run  Esc close  more below",
-        (false, false) => "Command Palette  Enter run  Esc close",
-    };
-    frame.render_widget(List::new(items).block(simple_block(title)), area);
-}
-
-fn command_window(total: usize, selected: usize, capacity: usize) -> Range<usize> {
-    if total == 0 || capacity == 0 {
-        return 0..0;
-    }
-
-    let selected = selected.min(total - 1);
-    let capacity = capacity.min(total);
-    let start = selected.saturating_add(1).saturating_sub(capacity);
-    let end = (start + capacity).min(total);
-    start..end
-}
-
 fn panel_block(panel: Panel, state: &AppState) -> Block<'static> {
     let style = if state.panels.focused() == panel {
         Style::default().fg(Color::Cyan)
@@ -871,8 +744,14 @@ fn simple_block(title: &'static str) -> Block<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command::ActionId;
+    use crate::config::TuiConfig;
+    use crate::model::{FloatingKind, WorkspaceKind};
     use crate::provider_health::{ProviderHealthSignal, ProviderHealthSource, ProviderHealthTask};
     use agent_finance_market::research_snapshot::ResearchNewsSnapshot;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::symbols;
 
     #[test]
     fn sparkline_values_preserve_flat_and_range_shape() {
@@ -881,11 +760,37 @@ mod tests {
     }
 
     #[test]
-    fn command_window_keeps_selected_command_visible() {
-        assert_eq!(command_window(11, 0, 7), 0..7);
-        assert_eq!(command_window(11, 6, 7), 0..7);
-        assert_eq!(command_window(11, 10, 7), 4..11);
-        assert_eq!(command_window(11, 10, 0), 0..0);
+    fn workspace_tabs_and_adaptive_status_render_without_overflow() {
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec!["CRDO".to_string(), "BTCUSDT".to_string()],
+            ..TuiConfig::default()
+        });
+        state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Crypto,
+        )));
+
+        let wide = render_to_text(&state, 120, 32);
+        assert!(wide.contains("Overview"));
+        assert!(wide.contains("Crypto"));
+        assert!(wide.contains("mode: normal"));
+
+        let narrow = render_to_text(&state, 48, 20);
+        assert!(narrow.contains("Crypto"));
+        assert!(narrow.contains("CRDO"));
+        assert!(!narrow.contains("[/] workspace"));
+    }
+
+    #[test]
+    fn floating_panes_render_with_shadow_layer() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(crate::state::Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+
+        let text = render_to_text(&state, 100, 30);
+        assert!(text.contains("Command"));
+        assert!(text.contains("Open help"));
+        assert!(text.contains(symbols::shade::DARK));
     }
 
     #[test]
@@ -989,5 +894,18 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn render_to_text(state: &AppState, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(frame, state)).unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
     }
 }

@@ -9,7 +9,7 @@ use agent_finance_market::args::{CryptoProvider, Provider};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::model::{DockedPanels, FloatingPane, FloatingSize, Panel};
+use crate::model::{DockedPanels, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 
 pub const MIN_LEFT_RATIO: u16 = 15;
 pub const MAX_LEFT_RATIO: u16 = 35;
@@ -102,6 +102,8 @@ pub struct TuiConfig {
     #[serde(default = "default_watchlist")]
     pub watchlist: Vec<String>,
     #[serde(default)]
+    pub workspace: WorkspaceConfig,
+    #[serde(default)]
     pub layout: LayoutConfig,
     #[serde(default)]
     pub panels: PanelConfig,
@@ -117,6 +119,7 @@ impl Default for TuiConfig {
     fn default() -> Self {
         Self {
             watchlist: default_watchlist(),
+            workspace: WorkspaceConfig::default(),
             layout: LayoutConfig::default(),
             panels: PanelConfig::default(),
             floating: FloatingConfig::default(),
@@ -152,11 +155,22 @@ impl TuiConfig {
         if self.watchlist.is_empty() {
             self.watchlist = default_watchlist();
         }
+        self.workspace.normalize();
         self.layout.normalize();
         self.panels.normalize();
         self.floating.normalize();
         self.refresh.normalize();
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct WorkspaceConfig {
+    #[serde(default)]
+    pub current: WorkspaceKind,
+}
+
+impl WorkspaceConfig {
+    fn normalize(&mut self) {}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -488,6 +502,9 @@ mod tests {
     fn config_roundtrip_preserves_user_visible_preferences() {
         let mut config = TuiConfig {
             watchlist: vec!["lite".to_string(), "aaoi".to_string()],
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Research,
+            },
             layout: LayoutConfig {
                 left_ratio: 8,
                 main_ratio: 90,
@@ -523,6 +540,7 @@ mod tests {
         let decoded = toml::from_str::<TuiConfig>(&encoded).expect("decode");
 
         assert_eq!(decoded.watchlist, ["LITE", "AAOI"]);
+        assert_eq!(decoded.workspace.current, WorkspaceKind::Research);
         assert_eq!(decoded.layout.left_ratio, 15);
         assert_eq!(decoded.layout.main_ratio, 60);
         assert_eq!(decoded.panels.open, [Panel::Watchlist, Panel::Research]);
@@ -583,6 +601,9 @@ mod tests {
         let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), false);
         let mut config = TuiConfig {
             watchlist: vec!["crdo".to_string(), "lite".to_string()],
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Crypto,
+            },
             layout: LayoutConfig {
                 left_ratio: 30,
                 main_ratio: 42,
@@ -612,6 +633,7 @@ mod tests {
         let _ = fs::remove_file(&path);
 
         assert_eq!(loaded.watchlist, ["CRDO", "LITE"]);
+        assert_eq!(loaded.workspace.current, WorkspaceKind::Crypto);
         assert_eq!(loaded.layout.left_ratio, 30);
         assert_eq!(loaded.layout.main_ratio, 42);
         assert_eq!(loaded.panels.open, [Panel::Watchlist, Panel::History]);

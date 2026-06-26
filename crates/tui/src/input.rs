@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
+use crate::command::ActionId;
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::model::{FloatingKind, Panel};
 use crate::state::{Action, AppState};
@@ -24,19 +25,27 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => Some(Action::SelectNextSymbol),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::SelectPreviousSymbol),
-        KeyCode::Char('h') | KeyCode::F(1) => Some(Action::ToggleFloating(FloatingKind::Help)),
-        KeyCode::Char(':') => Some(Action::ToggleFloating(FloatingKind::CommandPalette)),
-        KeyCode::Char('p') => Some(Action::ToggleFloating(FloatingKind::ProviderDetails)),
-        KeyCode::Char('r') => Some(Action::ResetLayout),
-        KeyCode::Char('x') => Some(Action::CloseFocusedPanel),
-        KeyCode::Char('0') => Some(Action::RestorePanels),
+        KeyCode::Char('h') | KeyCode::F(1) => {
+            Some(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)))
+        }
+        KeyCode::Char(':') => Some(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        ))),
+        KeyCode::Char('p') => Some(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::ProviderDetails,
+        ))),
+        KeyCode::Char('r') => Some(Action::Execute(ActionId::ResetLayout)),
+        KeyCode::Char('x') => Some(Action::Execute(ActionId::CloseFocusedPanel)),
+        KeyCode::Char('0') => Some(Action::Execute(ActionId::RestorePanels)),
+        KeyCode::Char(']') => Some(Action::Execute(ActionId::ShiftWorkspace(1))),
+        KeyCode::Char('[') => Some(Action::Execute(ActionId::ShiftWorkspace(-1))),
         KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        KeyCode::Char('1') => Some(Action::Focus(Panel::Watchlist)),
-        KeyCode::Char('2') => Some(Action::Focus(Panel::Quote)),
-        KeyCode::Char('3') => Some(Action::Focus(Panel::History)),
-        KeyCode::Char('4') => Some(Action::Focus(Panel::Evidence)),
-        KeyCode::Char('5') => Some(Action::Focus(Panel::Polymarket)),
-        KeyCode::Char('6') => Some(Action::Focus(Panel::Research)),
+        KeyCode::Char('1') => Some(Action::Execute(ActionId::FocusPanel(Panel::Watchlist))),
+        KeyCode::Char('2') => Some(Action::Execute(ActionId::FocusPanel(Panel::Quote))),
+        KeyCode::Char('3') => Some(Action::Execute(ActionId::FocusPanel(Panel::History))),
+        KeyCode::Char('4') => Some(Action::Execute(ActionId::FocusPanel(Panel::Evidence))),
+        KeyCode::Char('5') => Some(Action::Execute(ActionId::FocusPanel(Panel::Polymarket))),
+        KeyCode::Char('6') => Some(Action::Execute(ActionId::FocusPanel(Panel::Research))),
         _ => None,
     }
 }
@@ -58,7 +67,7 @@ pub fn handle_mouse_event(
                 terminal_area,
                 &state.layout,
                 &state.floating,
-                state.panels.open_panels(),
+                &state.visible_panels(),
             );
             drag.target = None;
             match layout.hit_test(mouse.column, mouse.row) {
@@ -81,7 +90,7 @@ pub fn handle_mouse_event(
                     split,
                     mouse.column,
                     &state.layout,
-                    state.panels.open_panels(),
+                    &state.visible_panels(),
                 );
                 state.reduce(Action::ResizeDockedColumns {
                     left_ratio: next.left_ratio,
@@ -105,9 +114,7 @@ fn command_palette_key_action(state: &AppState, key: KeyEvent) -> Option<Action>
     match key.code {
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveCommandSelection(1)),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveCommandSelection(-1)),
-        KeyCode::Enter => Some(Action::ApplyCommand(
-            state.command_palette.selected_effect(),
-        )),
+        KeyCode::Enter => Some(Action::Execute(state.command_palette.selected_action())),
         KeyCode::Esc => Some(Action::CloseFocusedFloating),
         _ => None,
     }
@@ -135,7 +142,9 @@ mod tests {
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char(':'))),
-            Some(Action::ToggleFloating(FloatingKind::CommandPalette))
+            Some(Action::Execute(ActionId::OpenFloating(
+                FloatingKind::CommandPalette
+            )))
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Esc)),
@@ -143,22 +152,24 @@ mod tests {
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('x'))),
-            Some(Action::CloseFocusedPanel)
+            Some(Action::Execute(ActionId::CloseFocusedPanel))
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('0'))),
-            Some(Action::RestorePanels)
+            Some(Action::Execute(ActionId::RestorePanels))
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('5'))),
-            Some(Action::Focus(Panel::Polymarket))
+            Some(Action::Execute(ActionId::FocusPanel(Panel::Polymarket)))
         );
     }
 
     #[test]
     fn command_palette_mode_routes_selection_and_execution() {
         let mut state = AppState::from_config(crate::config::TuiConfig::default());
-        state.reduce(Action::ToggleFloating(FloatingKind::CommandPalette));
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
 
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('j'))),
@@ -166,9 +177,7 @@ mod tests {
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Enter)),
-            Some(Action::ApplyCommand(
-                state.command_palette.selected_effect()
-            ))
+            Some(Action::Execute(state.command_palette.selected_action()))
         );
     }
 
@@ -191,7 +200,7 @@ mod tests {
             area,
             &state.layout,
             &state.floating,
-            state.panels.open_panels(),
+            &state.visible_panels(),
         );
 
         handle_mouse_event(
@@ -220,19 +229,26 @@ mod tests {
             }
         );
 
+        let previous_left_ratio = state.layout.left_ratio;
+        let drag_column = layout
+            .panel_rect(Panel::Watchlist)
+            .unwrap()
+            .right()
+            .saturating_add(24)
+            .min(area.right().saturating_sub(2));
         handle_mouse_event(
             area,
             &mut state,
             &mut drag,
-            mouse_event(MouseEventKind::Drag(MouseButton::Left), 50, 2),
+            mouse_event(MouseEventKind::Drag(MouseButton::Left), drag_column, 2),
         );
-        assert!(state.layout.left_ratio > crate::config::LayoutConfig::default().left_ratio);
+        assert!(state.layout.left_ratio > previous_left_ratio);
 
         handle_mouse_event(
             area,
             &mut state,
             &mut drag,
-            mouse_event(MouseEventKind::Up(MouseButton::Left), 50, 2),
+            mouse_event(MouseEventKind::Up(MouseButton::Left), drag_column, 2),
         );
         assert_eq!(drag, MouseDrag::default());
     }
@@ -241,15 +257,17 @@ mod tests {
     fn mouse_focuses_and_resizes_floating_panes() {
         let area = Rect::new(0, 0, 160, 48);
         let mut state = AppState::from_config(crate::config::TuiConfig::default());
-        state.reduce(Action::ToggleFloating(FloatingKind::Help));
-        state.reduce(Action::ToggleFloating(FloatingKind::ProviderDetails));
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::ProviderDetails,
+        )));
         let mut drag = MouseDrag::default();
 
         let layout = layout::build(
             area,
             &state.layout,
             &state.floating,
-            state.panels.open_panels(),
+            &state.visible_panels(),
         );
         let help = layout
             .floating
@@ -273,7 +291,7 @@ mod tests {
             area,
             &state.layout,
             &state.floating,
-            state.panels.open_panels(),
+            &state.visible_panels(),
         );
         let help = layout
             .floating
@@ -306,7 +324,7 @@ mod tests {
             area,
             &state.layout,
             &state.floating,
-            state.panels.open_panels(),
+            &state.visible_panels(),
         );
         let resized = layout
             .floating

@@ -49,7 +49,7 @@ try {
   ]);
 
   const screen = waitForScreen(
-    ["Watchlist", "Quote / Sessions", "provider: yahoo", "interval=1d"],
+    ["Overview", "Research", "Watchlist", "Quote / Sessions", "provider: yahoo", "interval=1d"],
     20_000,
   );
   if (!screen) {
@@ -57,6 +57,21 @@ try {
   }
   if (screen.includes("provider: yahoo-boats")) {
     fail("TUI ignored the configured equity provider and rendered yahoo-boats");
+  }
+
+  runTmux(["send-keys", "-t", session, "]"]);
+  if (!waitForScreen(["Research", "Polymarket"], 4_000)) {
+    fail("TUI did not switch to the research workspace");
+  }
+
+  runTmux(["send-keys", "-t", session, ":"]);
+  if (!waitForScreen(["Command Palette", "Open help"], 4_000)) {
+    fail("TUI did not open the command palette");
+  }
+
+  runTmux(["send-keys", "-t", session, "Enter"]);
+  if (!waitForScreen(["Help", "agent-finance cockpit"], 4_000)) {
+    fail("TUI did not execute a command palette action");
   }
 
   runTmux(["send-keys", "-t", session, "q"]);

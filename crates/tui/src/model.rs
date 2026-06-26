@@ -1,5 +1,99 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkspaceKind {
+    #[default]
+    Overview,
+    Research,
+    Crypto,
+    Providers,
+}
+
+impl WorkspaceKind {
+    pub const ALL: [Self; 4] = [
+        Self::Overview,
+        Self::Research,
+        Self::Crypto,
+        Self::Providers,
+    ];
+
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Overview => "Overview",
+            Self::Research => "Research",
+            Self::Crypto => "Crypto",
+            Self::Providers => "Providers",
+        }
+    }
+
+    pub const fn panels(self) -> &'static [Panel] {
+        match self {
+            Self::Overview => &[
+                Panel::Watchlist,
+                Panel::Quote,
+                Panel::History,
+                Panel::ProviderHealth,
+                Panel::TaskLog,
+            ],
+            Self::Research => &[
+                Panel::Watchlist,
+                Panel::Quote,
+                Panel::Polymarket,
+                Panel::Research,
+                Panel::TaskLog,
+            ],
+            Self::Crypto => &[
+                Panel::Watchlist,
+                Panel::Quote,
+                Panel::History,
+                Panel::Evidence,
+                Panel::ProviderHealth,
+            ],
+            Self::Providers => &[
+                Panel::Watchlist,
+                Panel::ProviderHealth,
+                Panel::TaskLog,
+                Panel::Quote,
+            ],
+        }
+    }
+
+    pub const fn default_panel(self) -> Panel {
+        self.panels()[0]
+    }
+
+    pub fn shift(self, direction: isize) -> Self {
+        let index = Self::ALL
+            .iter()
+            .position(|workspace| *workspace == self)
+            .unwrap_or(0) as isize;
+        let next = (index + direction).rem_euclid(Self::ALL.len() as isize) as usize;
+        Self::ALL[next]
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InteractionMode {
+    #[default]
+    Normal,
+    Command,
+    Help,
+    Inspect,
+}
+
+impl InteractionMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Command => "command",
+            Self::Help => "help",
+            Self::Inspect => "inspect",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Panel {
@@ -88,10 +182,6 @@ impl DockedPanels {
 
     pub fn into_parts(self) -> (Vec<Panel>, Panel) {
         (self.open, self.focused)
-    }
-
-    pub fn open_count(&self) -> usize {
-        self.open.len()
     }
 
     pub fn contains(&self, panel: Panel) -> bool {
