@@ -15,6 +15,10 @@ impl TaskFailures {
         self.entries.iter()
     }
 
+    pub fn has_source(&self, source: TaskFailureSource) -> bool {
+        self.entries.iter().any(|failure| failure.source == source)
+    }
+
     pub fn set(&mut self, failure: TaskFailure) {
         self.clear(failure.source, failure.symbol.as_deref());
         self.entries.push(failure);

@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::Serialize;
+
 use crate::state::AppState;
 use crate::task_failure::TaskFailureSource;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct ProviderHealthReport {
     pub providers: Vec<ProviderHealthProvider>,
     pub tasks: Vec<ProviderHealthTask>,
@@ -26,7 +28,7 @@ impl ProviderHealthReport {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct ProviderHealthProvider {
     pub provider: String,
     pub severity: ProviderHealthSeverity,
@@ -34,28 +36,30 @@ pub struct ProviderHealthProvider {
     pub freshness: Option<String>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct ProviderHealthSignal {
     pub source: ProviderHealthSource,
     pub status: ProviderHealthSeverity,
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct ProviderHealthTask {
     pub source: ProviderHealthSource,
     pub status: ProviderHealthSeverity,
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ProviderHealthSeverity {
     Ok,
     Loading,
     Warning,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ProviderHealthSource {
     Quotes,
     History,

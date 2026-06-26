@@ -1,5 +1,6 @@
 use std::io::{self, Stdout};
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
@@ -13,10 +14,13 @@ use ratatui::backend::CrosstermBackend;
 use agent_finance_market::is_likely_crypto_pair;
 
 use crate::config::TuiLaunch;
+use crate::dump::TuiDump;
 use crate::input::{self, MouseDrag};
+use crate::model::Panel;
 use crate::render;
 use crate::scheduler::{Scheduler, SchedulerEvent, SymbolTaskKind};
 use crate::state::{Action, AppState, SelectedSymbolLoad, SymbolSnapshot};
+use crate::task_failure::TaskFailureSource;
 
 type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
 
@@ -25,6 +29,10 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
     let runtime_config = launch.runtime_config(persisted_config.clone());
     let mut state = AppState::from_config(runtime_config.clone());
     state.reduce(Action::Log("cockpit initialized".to_string()));
+
+    if launch.dump_state.is_some() {
+        return run_dump_state(&launch, runtime_config, state);
+    }
 
     let mut terminal = TerminalGuard::enter().context("failed to initialize terminal UI")?;
     let scheduler = Scheduler::start(&launch, runtime_config.providers.clone());
@@ -56,6 +64,49 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
     result.and(restore_result).and(persist_result)
 }
 
+fn run_dump_state(
+    launch: &TuiLaunch,
+    runtime_config: crate::config::TuiConfig,
+    mut state: AppState,
+) -> Result<()> {
+    let options = launch
+        .dump_state
+        .context("dump-state options were not configured")?;
+    let scheduler = Scheduler::start(launch, runtime_config.providers.clone());
+    let mut next_refresh_generation = 1;
+    let mut symbol_loads = SymbolLoadRuntimes::new();
+    let deadline = Instant::now() + Duration::from_secs(options.wait_seconds);
+
+    request_refresh(&scheduler, &mut state, &mut next_refresh_generation);
+    request_symbol_loads(&scheduler, &mut state, &mut symbol_loads, false);
+
+    while Instant::now() < deadline {
+        drain_scheduler_events(&scheduler, &mut state);
+        request_symbol_loads(&scheduler, &mut state, &mut symbol_loads, false);
+        if dump_is_ready(&state) {
+            break;
+        }
+        thread::sleep(launch.tick_rate.min(Duration::from_millis(100)));
+    }
+    drain_scheduler_events(&scheduler, &mut state);
+
+    let partial = !dump_is_ready(&state);
+    let dump = TuiDump::from_state(&state, partial);
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&dump)?);
+    } else {
+        println!(
+            "{} {} panes={} tasks={} partial={}",
+            dump.selected_symbol.as_deref().unwrap_or("N/A"),
+            dump.workspace,
+            dump.panes.iter().filter(|pane| pane.visible).count(),
+            dump.tasks.len(),
+            dump.partial
+        );
+    }
+    Ok(())
+}
+
 fn run_loop(
     terminal: &mut TuiTerminal,
     state: &mut AppState,
@@ -69,60 +120,7 @@ fn run_loop(
     loop {
         terminal.draw(|frame| render::render(frame, state))?;
 
-        while let Some(event) = context.scheduler.try_recv() {
-            match event {
-                SchedulerEvent::Snapshot {
-                    generation,
-                    snapshot,
-                } => state.reduce(Action::SnapshotLoaded {
-                    generation,
-                    snapshot,
-                }),
-                SchedulerEvent::RefreshFailed { generation, error } => {
-                    state.reduce(Action::RefreshFailed { generation, error })
-                }
-                SchedulerEvent::History {
-                    generation,
-                    snapshot,
-                } => state.reduce(Action::HistoryLoaded {
-                    generation,
-                    snapshot,
-                }),
-                SchedulerEvent::HistoryFailed {
-                    generation,
-                    symbol,
-                    error,
-                } => state.reduce(Action::HistoryFailed {
-                    generation,
-                    symbol,
-                    error,
-                }),
-                SchedulerEvent::Evidence {
-                    generation,
-                    snapshot,
-                } => state.reduce(Action::EvidenceLoaded {
-                    generation,
-                    snapshot,
-                }),
-                SchedulerEvent::EvidenceFailed {
-                    generation,
-                    symbol,
-                    error,
-                } => state.reduce(Action::EvidenceFailed {
-                    generation,
-                    symbol,
-                    error,
-                }),
-                SchedulerEvent::Research {
-                    generation,
-                    snapshot,
-                } => state.reduce(Action::ResearchLoaded {
-                    generation,
-                    snapshot,
-                }),
-                SchedulerEvent::Fatal(error) => state.reduce(Action::SchedulerFailed(error)),
-            }
-        }
+        drain_scheduler_events(context.scheduler, state);
         request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
 
         let timeout = context
@@ -168,6 +166,87 @@ fn run_loop(
         );
     }
     Ok(())
+}
+
+fn drain_scheduler_events(scheduler: &Scheduler, state: &mut AppState) {
+    while let Some(event) = scheduler.try_recv() {
+        apply_scheduler_event(state, event);
+    }
+}
+
+fn apply_scheduler_event(state: &mut AppState, event: SchedulerEvent) {
+    match event {
+        SchedulerEvent::Snapshot {
+            generation,
+            snapshot,
+        } => state.reduce(Action::SnapshotLoaded {
+            generation,
+            snapshot,
+        }),
+        SchedulerEvent::RefreshFailed { generation, error } => {
+            state.reduce(Action::RefreshFailed { generation, error })
+        }
+        SchedulerEvent::History {
+            generation,
+            snapshot,
+        } => state.reduce(Action::HistoryLoaded {
+            generation,
+            snapshot,
+        }),
+        SchedulerEvent::HistoryFailed {
+            generation,
+            symbol,
+            error,
+        } => state.reduce(Action::HistoryFailed {
+            generation,
+            symbol,
+            error,
+        }),
+        SchedulerEvent::Evidence {
+            generation,
+            snapshot,
+        } => state.reduce(Action::EvidenceLoaded {
+            generation,
+            snapshot,
+        }),
+        SchedulerEvent::EvidenceFailed {
+            generation,
+            symbol,
+            error,
+        } => state.reduce(Action::EvidenceFailed {
+            generation,
+            symbol,
+            error,
+        }),
+        SchedulerEvent::Research {
+            generation,
+            snapshot,
+        } => state.reduce(Action::ResearchLoaded {
+            generation,
+            snapshot,
+        }),
+        SchedulerEvent::Fatal(error) => state.reduce(Action::SchedulerFailed(error)),
+    }
+}
+
+fn dump_is_ready(state: &AppState) -> bool {
+    if state.scheduler_error.is_some() {
+        return true;
+    }
+    if state.refresh.loading {
+        return false;
+    }
+    if state.market_snapshot.is_none() && !state.task_failures.has_source(TaskFailureSource::Quotes)
+    {
+        return false;
+    }
+
+    state.visible_panels().into_iter().all(|panel| match panel {
+        Panel::History => !state.history.loading(),
+        Panel::Evidence => !state.evidence.loading(),
+        Panel::Polymarket | Panel::Research => !state.research.loading(),
+        Panel::Watchlist | Panel::Quote | Panel::ProviderHealth | Panel::TaskLog => true,
+    })
 }
 
 struct LoopContext<'a> {
@@ -489,6 +568,7 @@ mod tests {
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::research_snapshot::ResearchContextSnapshot;
+    use agent_finance_market::snapshot::MarketSnapshot;
 
     #[test]
     fn refresh_request_does_not_enqueue_while_previous_refresh_is_in_flight() {
@@ -524,6 +604,28 @@ mod tests {
             None
         );
         assert_eq!(next_generation, 1);
+    }
+
+    #[test]
+    fn dump_readiness_ignores_hidden_workspace_panel_loads() {
+        let mut state = AppState::from_config(crate::config::TuiConfig {
+            workspace: crate::config::WorkspaceConfig {
+                current: crate::model::WorkspaceKind::Providers,
+            },
+            ..crate::config::TuiConfig::default()
+        });
+
+        state.reduce(Action::RefreshStarted(1));
+        state.reduce(Action::SnapshotLoaded {
+            generation: 1,
+            snapshot: market_snapshot(),
+        });
+        state.reduce(Action::ResearchStarted {
+            generation: 2,
+            symbol: "AAPL".to_string(),
+        });
+
+        assert!(dump_is_ready(&state));
     }
 
     #[test]
@@ -801,6 +903,14 @@ mod tests {
             fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
             news: Vec::new(),
             prediction_markets: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    fn market_snapshot() -> MarketSnapshot {
+        MarketSnapshot {
+            fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+            quotes: Vec::new(),
             errors: Vec::new(),
         }
     }

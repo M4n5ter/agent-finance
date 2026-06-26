@@ -5,6 +5,7 @@ pub use agent_finance_market::{
     AssetClass, HistoryAdjustment, HistorySession, OptionsProvider, Provider, ReadUrlProvider,
     ResearchProvider, SessionMode, StooqAsset, StooqFrequency, StooqMarket,
 };
+pub use agent_finance_tui::WorkspaceKind;
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Parser, Subcommand};
 
@@ -12,6 +13,7 @@ pub use crate::crypto_cli::*;
 pub use crate::terminal_cli::*;
 
 pub const HISTORY_INTERVAL_HELP: &str = "Bar interval. Provider-specific values: Yahoo 1m/2m/5m/15m/30m/60m/90m/1h/1d/5d/1wk/1mo/3mo; Robinhood 5m/10m/1h/1d/1w; Stooq live 1d/1w/1mo; Stooq bulk 5m/1h after sync; Binance 1m/3m/5m/15m/30m/1h/2h/4h/6h/8h/12h/1d/3d/1w/1M; Coinbase 1m/5m/15m/1h/6h/1d; OKX 1m/3m/5m/15m/30m/1h/2h/4h/6h/12h/1d/2d/3d; CoinGecko maps common intraday/daily requests to supported day windows.";
+pub const MAX_TUI_DUMP_WAIT_SECONDS: u64 = 3_600;
 
 pub(crate) fn enum_value_parser<T>(
     labels: &'static [&'static str],
@@ -101,6 +103,27 @@ pub struct TuiArgs {
     /// Do not write persistent layout/config state after launch.
     #[arg(long)]
     pub no_persist: bool,
+
+    /// Initial workspace for the cockpit.
+    #[arg(long, value_parser = enum_value_parser::<WorkspaceKind>(WorkspaceKind::labels()))]
+    pub workspace: Option<WorkspaceKind>,
+
+    /// Print a read-only TUI state snapshot without entering the alternate screen.
+    #[arg(long)]
+    pub dump_state: bool,
+
+    /// Maximum seconds to wait for initial quote/history/research/evidence tasks in dump-state mode.
+    #[arg(
+        long,
+        default_value_t = 10,
+        requires = "dump_state",
+        value_parser = clap::value_parser!(u64).range(0..=MAX_TUI_DUMP_WAIT_SECONDS)
+    )]
+    pub wait_seconds: u64,
+
+    /// Emit JSON in dump-state mode.
+    #[arg(long, requires = "dump_state")]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -168,6 +191,49 @@ pub struct PriceArgs {
 
     #[arg(long, default_value_t = false)]
     pub json: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn tui_dump_format_flags_require_dump_state() {
+        assert!(
+            Cli::try_parse_from(["agent-finance", "tui", "--json"]).is_err(),
+            "--json should not silently enter the interactive TUI"
+        );
+        assert!(
+            Cli::try_parse_from(["agent-finance", "tui", "--wait-seconds", "0"]).is_err(),
+            "--wait-seconds should not be accepted without dump-state"
+        );
+    }
+
+    #[test]
+    fn tui_dump_wait_seconds_has_a_bounded_range() {
+        assert!(
+            Cli::try_parse_from([
+                "agent-finance",
+                "tui",
+                "--dump-state",
+                "--wait-seconds",
+                "3600",
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "agent-finance",
+                "tui",
+                "--dump-state",
+                "--wait-seconds",
+                "3601",
+            ])
+            .is_err()
+        );
+    }
 }
 
 #[derive(Parser, Debug)]

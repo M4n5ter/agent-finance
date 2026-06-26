@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -70,6 +72,39 @@ impl WorkspaceKind {
             .unwrap_or(0) as isize;
         let next = (index + direction).rem_euclid(Self::ALL.len() as isize) as usize;
         Self::ALL[next]
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Research => "research",
+            Self::Crypto => "crypto",
+            Self::Providers => "providers",
+        }
+    }
+
+    pub const fn labels() -> &'static [&'static str] {
+        &["overview", "research", "crypto", "providers"]
+    }
+}
+
+impl fmt::Display for WorkspaceKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
+    }
+}
+
+impl FromStr for WorkspaceKind {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "overview" => Ok(Self::Overview),
+            "research" => Ok(Self::Research),
+            "crypto" => Ok(Self::Crypto),
+            "providers" => Ok(Self::Providers),
+            _ => Err(format!("unknown workspace {value}")),
+        }
     }
 }
 

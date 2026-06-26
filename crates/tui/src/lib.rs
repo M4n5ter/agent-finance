@@ -1,6 +1,7 @@
 mod app;
 mod command;
 mod config;
+mod dump;
 mod input;
 mod layout;
 mod model;
@@ -11,4 +12,5 @@ mod state;
 mod task_failure;
 
 pub use app::run;
-pub use config::{TuiConfig, TuiLaunch};
+pub use config::{TuiConfig, TuiDumpOptions, TuiLaunch};
+pub use model::WorkspaceKind;

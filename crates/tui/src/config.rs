@@ -23,11 +23,19 @@ pub struct TuiLaunch {
     pub symbols: Vec<String>,
     pub config_path: Option<PathBuf>,
     pub no_persist: bool,
+    pub workspace: Option<WorkspaceKind>,
+    pub dump_state: Option<TuiDumpOptions>,
     pub tick_rate: Duration,
     pub proxy: Option<String>,
     pub no_proxy: bool,
     pub timeout_seconds: u64,
     pub timezone: String,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct TuiDumpOptions {
+    pub wait_seconds: u64,
+    pub json: bool,
 }
 
 impl TuiLaunch {
@@ -48,12 +56,25 @@ impl TuiLaunch {
             symbols,
             config_path,
             no_persist,
+            workspace: None,
+            dump_state: None,
             tick_rate: Duration::from_millis(250),
             proxy: proxy.map(ToString::to_string),
             no_proxy,
             timeout_seconds,
             timezone: timezone.to_string(),
         }
+    }
+
+    pub fn with_workspace(mut self, workspace: Option<WorkspaceKind>) -> Self {
+        self.workspace = workspace;
+        self
+    }
+
+    pub fn with_dump_state(mut self, dump_state: Option<TuiDumpOptions>) -> Self {
+        self.dump_state = dump_state;
+        self.no_persist = self.no_persist || dump_state.is_some();
+        self
     }
 
     pub fn load_config(&self) -> Result<TuiConfig> {
@@ -78,6 +99,9 @@ impl TuiLaunch {
         let symbols = normalize_symbols(&self.symbols);
         if !symbols.is_empty() {
             config.watchlist = symbols;
+        }
+        if let Some(workspace) = self.workspace {
+            config.workspace.current = workspace;
         }
         config.normalize();
         config
@@ -496,6 +520,40 @@ mod tests {
 
         assert_eq!(persisted.watchlist, ["AAPL", "CRDO"]);
         assert_eq!(runtime.watchlist, ["TSLA"]);
+    }
+
+    #[test]
+    fn launch_workspace_override_changes_runtime_workspace_only() {
+        let launch =
+            TuiLaunch::new(Vec::new(), None, true).with_workspace(Some(WorkspaceKind::Providers));
+        let persisted = TuiConfig {
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Research,
+            },
+            ..TuiConfig::default()
+        };
+
+        let runtime = launch.runtime_config(persisted.clone());
+
+        assert_eq!(persisted.workspace.current, WorkspaceKind::Research);
+        assert_eq!(runtime.workspace.current, WorkspaceKind::Providers);
+    }
+
+    #[test]
+    fn dump_state_launch_is_not_persisted() {
+        let path = unique_temp_config_path("dump-state-no-persist");
+        let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), false).with_dump_state(Some(
+            TuiDumpOptions {
+                wait_seconds: 0,
+                json: true,
+            },
+        ));
+
+        launch
+            .persist_config(&TuiConfig::default())
+            .expect("dump-state persistence should be a no-op");
+
+        assert!(!path.exists());
     }
 
     #[test]

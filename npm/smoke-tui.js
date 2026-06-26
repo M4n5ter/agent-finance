@@ -10,11 +10,7 @@ const session = `agent-finance-tui-smoke-${process.pid}`;
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-finance-tui-"));
 const configPath = path.join(tempDir, "tui.toml");
 const statusPath = path.join(tempDir, "status");
-
-if (!commandExists("tmux")) {
-  console.log("tmux is unavailable; skipping TUI smoke test");
-  process.exit(0);
-}
+const baseTuiCommand = process.env.AGENT_FINANCE_TUI_CMD || "cargo run --quiet -- tui";
 
 fs.writeFileSync(
   configPath,
@@ -28,9 +24,15 @@ fs.writeFileSync(
   ].join("\n"),
 );
 
+smokeDumpState();
+
+if (!commandExists("tmux")) {
+  console.log("tmux is unavailable; skipping tmux TUI smoke test");
+  process.exit(0);
+}
+
 const tuiCommand =
-  process.env.AGENT_FINANCE_TUI_CMD ||
-  `cargo run --quiet -- tui --config ${shellQuote(configPath)} --no-persist --symbols AAPL,BTCUSDT`;
+  commandWithArgs(["--config", configPath, "--no-persist", "--symbols", "AAPL,BTCUSDT"]);
 const wrappedCommand = `cd ${shellQuote(root)} && ${tuiCommand}; printf '%s' "$?" > ${shellQuote(statusPath)}`;
 
 try {
@@ -82,10 +84,60 @@ try {
     fail(`TUI exited with status ${status}`);
   }
 
-  console.log("TUI tmux smoke test passed");
+  console.log("TUI smoke tests passed");
 } finally {
   spawnSync("tmux", ["kill-session", "-t", session], { stdio: "ignore" });
   fs.rmSync(tempDir, { recursive: true, force: true });
+}
+
+function smokeDumpState() {
+  const command = commandWithArgs([
+    "--config",
+    configPath,
+    "--no-persist",
+    "--symbols",
+    "AAPL,BTCUSDT",
+    "--workspace",
+    "crypto",
+    "--dump-state",
+    "--wait-seconds",
+    "0",
+    "--json",
+  ]);
+  const result = spawnSync("sh", ["-lc", command], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (result.error) {
+    fail(`dump-state smoke could not start: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    fail(`dump-state smoke failed: ${result.stderr || result.stdout}`);
+  }
+
+  let dump;
+  try {
+    dump = JSON.parse(result.stdout);
+  } catch (error) {
+    fail(`dump-state did not emit valid JSON: ${error.message}\n${result.stdout}`);
+  }
+
+  const requiredKeys = ["workspace", "mode", "selected_symbol", "panes", "provider_health", "tasks"];
+  for (const key of requiredKeys) {
+    if (!Object.prototype.hasOwnProperty.call(dump, key)) {
+      fail(`dump-state JSON is missing ${key}`);
+    }
+  }
+  if (dump.workspace !== "crypto") {
+    fail(`dump-state workspace mismatch: ${dump.workspace}`);
+  }
+  if (!Array.isArray(dump.panes) || !dump.panes.some((pane) => pane.panel === "history" && pane.visible)) {
+    fail("dump-state JSON is missing a visible history pane");
+  }
+}
+
+function commandWithArgs(args) {
+  return `${baseTuiCommand} ${args.map(shellQuote).join(" ")}`;
 }
 
 function waitForScreen(markers, timeoutMs) {

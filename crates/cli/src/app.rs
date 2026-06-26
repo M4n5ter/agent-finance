@@ -24,15 +24,25 @@ pub async fn run() -> Result<()> {
     match cli.command {
         Command::Market(args) => run_market(args, proxy, no_proxy, timeout_seconds, timezone).await,
         Command::Tui(args) => {
-            agent_finance_tui::run(agent_finance_tui::TuiLaunch::with_market_runtime(
-                args.symbols,
-                args.config,
-                args.no_persist,
-                proxy,
-                no_proxy,
-                timeout_seconds,
-                timezone,
-            ))
+            let dump_state = args
+                .dump_state
+                .then_some(agent_finance_tui::TuiDumpOptions {
+                    wait_seconds: args.wait_seconds,
+                    json: args.json,
+                });
+            agent_finance_tui::run(
+                agent_finance_tui::TuiLaunch::with_market_runtime(
+                    args.symbols,
+                    args.config,
+                    args.no_persist,
+                    proxy,
+                    no_proxy,
+                    timeout_seconds,
+                    timezone,
+                )
+                .with_workspace(args.workspace)
+                .with_dump_state(dump_state),
+            )
         }
         Command::Capabilities(args) => crate::terminal_app::run_capabilities(args),
         Command::Profile(args) => crate::terminal_app::run_profile(args, timeout_seconds).await,
