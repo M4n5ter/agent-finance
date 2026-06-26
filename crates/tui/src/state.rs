@@ -8,9 +8,7 @@ use agent_finance_market::snapshot::MarketSnapshot;
 use crate::command::{ActionId, CommandPaletteState};
 use crate::config::{FloatingConfig, LayoutConfig, PanelConfig, TuiConfig, WorkspaceConfig};
 use crate::keymap::KeymapConfig;
-use crate::model::{
-    DockedPanels, FloatingKind, FloatingPane, FloatingSize, InteractionMode, Panel, WorkspaceKind,
-};
+use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 use crate::search::SymbolSearchState;
 use crate::task_failure::TaskFailures;
 use crate::task_log::TaskLog;
@@ -20,6 +18,7 @@ use crate::task_log::TaskStatus;
 mod interaction;
 mod lifecycle;
 mod load;
+mod workspace;
 
 use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
@@ -98,54 +97,8 @@ impl AppState {
         config
     }
 
-    pub fn selected_symbol(&self) -> Option<&str> {
-        self.watchlist.get(self.selected_symbol).map(String::as_str)
-    }
-
     pub fn refresh_loading(&self) -> bool {
         self.refresh.loading()
-    }
-
-    pub fn visible_panels(&self) -> Vec<Panel> {
-        self.layout_panels()
-    }
-
-    /// Panels that should be rendered in the current layout.
-    pub fn layout_panels(&self) -> Vec<Panel> {
-        let panels = self.workspace_panels();
-        if self.zoomed
-            && let Some(focused) = panels
-                .iter()
-                .copied()
-                .find(|panel| *panel == self.panels.focused())
-        {
-            return vec![focused];
-        }
-        panels
-    }
-
-    /// Open panels in the current workspace, independent of zoom.
-    pub fn workspace_panels(&self) -> Vec<Panel> {
-        self.workspace
-            .panels()
-            .iter()
-            .copied()
-            .filter(|panel| self.panels.contains(*panel))
-            .collect()
-    }
-
-    pub fn is_open_in_workspace(&self, panel: Panel) -> bool {
-        self.panels.contains(panel) && self.workspace_contains(panel)
-    }
-
-    pub fn interaction_mode(&self) -> InteractionMode {
-        match self.floating.last().map(|pane| pane.kind) {
-            Some(FloatingKind::CommandPalette) => InteractionMode::Command,
-            Some(FloatingKind::Help) => InteractionMode::Help,
-            Some(FloatingKind::ProviderDetails) => InteractionMode::Inspect,
-            Some(FloatingKind::SymbolSearch) => InteractionMode::Search,
-            None => InteractionMode::Normal,
-        }
     }
 
     pub fn reduce(&mut self, action: Action) {
@@ -256,148 +209,6 @@ impl AppState {
             Action::Log(message) => self.task_log.info(message),
         }
     }
-
-    fn shift_symbol(&mut self, direction: isize) {
-        if self.watchlist.is_empty() {
-            self.selected_symbol = 0;
-            return;
-        }
-
-        let len = self.watchlist.len() as isize;
-        let selected = self.selected_symbol as isize;
-        self.selected_symbol = (selected + direction).rem_euclid(len) as usize;
-    }
-
-    fn clear_zoom(&mut self) {
-        self.zoomed = false;
-    }
-
-    fn focus_panel_by(&mut self, direction: isize) {
-        let visible = self.workspace_panels();
-        if visible.is_empty() {
-            self.ensure_visible_focus();
-            return;
-        }
-        let current = visible
-            .iter()
-            .position(|panel| *panel == self.panels.focused())
-            .unwrap_or(0) as isize;
-        let next = (current + direction).rem_euclid(visible.len() as isize) as usize;
-        self.panels.focus(visible[next]);
-    }
-
-    fn close_floating(&mut self, kind: FloatingKind) {
-        let had_pane = self.floating.iter().any(|pane| pane.kind == kind);
-        self.floating.retain(|pane| pane.kind != kind);
-        if had_pane {
-            self.reset_floating_state(kind);
-        }
-    }
-
-    fn open_floating(&mut self, kind: FloatingKind) {
-        self.close_floating(kind);
-        self.reset_floating_state(kind);
-        self.floating.push(FloatingPane::new(kind));
-    }
-
-    fn close_text_input_floatings_except(&mut self, except: FloatingKind) {
-        for kind in [FloatingKind::CommandPalette, FloatingKind::SymbolSearch] {
-            if kind != except {
-                self.close_floating(kind);
-            }
-        }
-    }
-
-    fn close_text_input_floatings(&mut self) {
-        for kind in [FloatingKind::CommandPalette, FloatingKind::SymbolSearch] {
-            self.close_floating(kind);
-        }
-    }
-
-    fn reset_open_floating_state(&mut self) {
-        let kinds = self
-            .floating
-            .iter()
-            .map(|pane| pane.kind)
-            .collect::<Vec<_>>();
-        for kind in kinds {
-            self.reset_floating_state(kind);
-        }
-    }
-
-    fn reset_floating_state(&mut self, kind: FloatingKind) {
-        match kind {
-            FloatingKind::CommandPalette => self.command_palette.reset(),
-            FloatingKind::SymbolSearch => self.symbol_search.reset(&self.watchlist),
-            FloatingKind::Help | FloatingKind::ProviderDetails => {}
-        }
-    }
-
-    fn focus_floating(&mut self, kind: FloatingKind) {
-        if let Some(index) = self.floating.iter().position(|pane| pane.kind == kind) {
-            let pane = self.floating.remove(index);
-            self.floating.push(pane);
-        }
-    }
-
-    fn resize_floating(&mut self, kind: FloatingKind, size: FloatingSize) {
-        if let Some(pane) = self.floating.iter_mut().find(|pane| pane.kind == kind) {
-            pane.size = size;
-        }
-    }
-
-    fn focus_panel(&mut self, panel: Panel) {
-        if !self.workspace_contains(panel)
-            && let Some(workspace) = WorkspaceKind::ALL
-                .iter()
-                .copied()
-                .find(|workspace| workspace.panels().contains(&panel))
-        {
-            self.workspace = workspace;
-        }
-        if self.panels.contains(panel) {
-            self.panels.focus(panel);
-        } else {
-            self.panels.open_panel(panel);
-        }
-        self.clear_zoom();
-        self.ensure_visible_focus();
-    }
-
-    fn set_workspace(&mut self, workspace: WorkspaceKind) {
-        self.workspace = workspace;
-        self.clear_zoom();
-        self.ensure_visible_focus();
-    }
-
-    fn toggle_panel(&mut self, panel: Panel) {
-        if self.is_open_in_workspace(panel) {
-            self.panels.toggle(panel);
-            self.clear_zoom();
-            self.ensure_visible_focus();
-        } else {
-            self.focus_panel(panel);
-        }
-    }
-
-    fn ensure_visible_focus(&mut self) {
-        let visible_panels = self.workspace_panels();
-        if visible_panels.contains(&self.panels.focused()) {
-            return;
-        }
-        self.clear_zoom();
-
-        if let Some(panel) = visible_panels.first().copied() {
-            self.panels.focus(panel);
-            return;
-        }
-
-        self.panels.open_panel(self.workspace.default_panel());
-    }
-
-    fn workspace_contains(&self, panel: Panel) -> bool {
-        self.workspace.panels().contains(&panel)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -478,6 +289,7 @@ mod tests {
     use super::*;
     use crate::command::ActionId;
     use crate::config::MAX_LEFT_MAIN_RATIO;
+    use crate::model::InteractionMode;
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::research_snapshot::ResearchContextSnapshot;
