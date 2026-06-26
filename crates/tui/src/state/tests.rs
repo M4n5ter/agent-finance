@@ -3,6 +3,8 @@ use crate::command::ActionId;
 use crate::config::MAX_LEFT_MAIN_RATIO;
 use crate::model::InteractionMode;
 use crate::task_log::TaskStatus;
+use agent_finance_core::intent::IntentStatus;
+use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::research_snapshot::ResearchContextSnapshot;
@@ -26,6 +28,129 @@ fn reducer_wraps_symbol_focus_across_watchlist_boundaries() {
     state.reduce(Action::Execute(ActionId::SelectSymbolBy(1)));
 
     assert_eq!(state.selected_symbol(), Some("AAPL"));
+}
+
+#[test]
+fn default_submit_mode_is_session_only_and_not_exported_to_config() {
+    let mut state = AppState::from_config(TuiConfig::default());
+
+    state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+    let exported = state.export_config(&TuiConfig::default());
+    let restored = AppState::from_config(exported);
+
+    assert_eq!(state.default_submit_mode, SubmitMode::Live);
+    assert_eq!(restored.default_submit_mode, SubmitMode::DryRun);
+}
+
+#[test]
+fn reducer_tracks_write_session_workflow_without_accepting_unsafe_jumps() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::OpenWriteSession(WriteSessionRequest {
+        id: "order-1".to_string(),
+        intent_kind: SubmitIntentKind::Order,
+        summary: "Buy BTCUSDT".to_string(),
+    }));
+
+    state.reduce(Action::ApplyWriteSessionEvent {
+        id: "order-1".to_string(),
+        event: WriteSessionEvent::LiveSubmitSucceeded {
+            intent_id: "intent-1".to_string(),
+        },
+    });
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.stage, WriteSessionStage::Draft);
+
+    for event in [
+        WriteSessionEvent::ValidationStarted,
+        WriteSessionEvent::ValidationReady,
+        WriteSessionEvent::ConfirmationRequested,
+        WriteSessionEvent::IntentCreated {
+            intent_id: "intent-1".to_string(),
+        },
+        WriteSessionEvent::LiveSubmitStarted {
+            intent_id: "intent-1".to_string(),
+        },
+        WriteSessionEvent::LiveSubmitSucceeded {
+            intent_id: "intent-1".to_string(),
+        },
+    ] {
+        state.reduce(Action::ApplyWriteSessionEvent {
+            id: "order-1".to_string(),
+            event,
+        });
+    }
+
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.stage, WriteSessionStage::LiveSubmitted);
+    assert_eq!(view.intent_id.as_deref(), Some("intent-1"));
+    assert_eq!(view.intent_status, Some(IntentStatus::Submitted));
+
+    state.reduce(Action::CloseWriteSession("order-1".to_string()));
+    assert_eq!(state.write_session_views().len(), 0);
+}
+
+#[test]
+fn reducer_keeps_live_submitting_write_session_until_terminal_event() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::OpenWriteSession(WriteSessionRequest {
+        id: "order-1".to_string(),
+        intent_kind: SubmitIntentKind::Order,
+        summary: "Buy BTCUSDT".to_string(),
+    }));
+    for event in [
+        WriteSessionEvent::ValidationStarted,
+        WriteSessionEvent::ValidationReady,
+        WriteSessionEvent::ConfirmationRequested,
+        WriteSessionEvent::IntentCreated {
+            intent_id: "intent-1".to_string(),
+        },
+        WriteSessionEvent::LiveSubmitStarted {
+            intent_id: "intent-1".to_string(),
+        },
+    ] {
+        state.reduce(Action::ApplyWriteSessionEvent {
+            id: "order-1".to_string(),
+            event,
+        });
+    }
+
+    state.reduce(Action::CloseWriteSession("order-1".to_string()));
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.stage, WriteSessionStage::LiveSubmitting);
+
+    state.reduce(Action::ApplyWriteSessionEvent {
+        id: "order-1".to_string(),
+        event: WriteSessionEvent::LiveSubmitSucceeded {
+            intent_id: "intent-1".to_string(),
+        },
+    });
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.stage, WriteSessionStage::LiveSubmitted);
+}
+
+#[test]
+fn reducer_does_not_replace_active_write_session_with_new_submit_mode() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::OpenWriteSession(WriteSessionRequest {
+        id: "order-1".to_string(),
+        intent_kind: SubmitIntentKind::Order,
+        summary: "Dry run order".to_string(),
+    }));
+    state.reduce(Action::ApplyWriteSessionEvent {
+        id: "order-1".to_string(),
+        event: WriteSessionEvent::ValidationStarted,
+    });
+    state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+    state.reduce(Action::OpenWriteSession(WriteSessionRequest {
+        id: "order-1".to_string(),
+        intent_kind: SubmitIntentKind::Order,
+        summary: "Live order".to_string(),
+    }));
+
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.mode, SubmitMode::DryRun);
+    assert_eq!(view.stage, WriteSessionStage::Validating);
+    assert_eq!(view.summary, "Dry run order");
 }
 
 #[test]

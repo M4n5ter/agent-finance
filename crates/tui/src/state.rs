@@ -1,3 +1,4 @@
+use agent_finance_core::submit::SubmitMode;
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::model::ProviderProfile;
@@ -18,9 +19,14 @@ mod interaction;
 mod lifecycle;
 mod load;
 mod workspace;
+mod write_session;
 
 use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
+#[cfg(test)]
+pub use write_session::WriteSessionStage;
+use write_session::{CloseSessionResult, OpenSessionResult, TransitionResult, WriteSessions};
+pub use write_session::{WriteSessionEvent, WriteSessionRequest, WriteSessionView};
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -44,6 +50,8 @@ pub struct AppState {
     pub task_failures: TaskFailures,
     pub scheduler_error: Option<String>,
     pub theme: ThemeConfig,
+    pub default_submit_mode: SubmitMode,
+    write_sessions: WriteSessions,
 }
 
 impl AppState {
@@ -69,6 +77,8 @@ impl AppState {
             task_failures: TaskFailures::default(),
             scheduler_error: None,
             theme: config.theme,
+            default_submit_mode: SubmitMode::DryRun,
+            write_sessions: WriteSessions::default(),
         };
         state.ensure_visible_focus();
         state
@@ -101,6 +111,10 @@ impl AppState {
 
     pub fn refresh_loading(&self) -> bool {
         self.refresh.loading()
+    }
+
+    pub fn write_session_views(&self) -> Vec<WriteSessionView> {
+        self.write_sessions.views()
     }
 
     pub fn reduce(&mut self, action: Action) {
@@ -208,6 +222,41 @@ impl AppState {
                 snapshot,
             } => self.research_loaded(generation, snapshot),
             Action::SchedulerFailed(error) => self.scheduler_failed(error),
+            Action::SetDefaultSubmitMode(mode) => {
+                self.default_submit_mode = mode;
+                self.task_log
+                    .info(format!("default write mode set to {mode}"));
+            }
+            Action::OpenWriteSession(request) => {
+                match self.write_sessions.open(request, self.default_submit_mode) {
+                    OpenSessionResult::Opened => {}
+                    OpenSessionResult::Rejected => self.task_log.warning_event(
+                        "write session cannot replace an active session".to_string(),
+                    ),
+                }
+            }
+            Action::ApplyWriteSessionEvent { id, event } => {
+                match self.write_sessions.apply(&id, event) {
+                    TransitionResult::Applied => {}
+                    TransitionResult::Missing => self
+                        .task_log
+                        .warning_event(format!("write session {id} is no longer present")),
+                    TransitionResult::Rejected { current, event } => {
+                        self.task_log.warning_event(format!(
+                            "write session {id} cannot apply {event:?} from {current}"
+                        ));
+                    }
+                }
+            }
+            Action::CloseWriteSession(id) => match self.write_sessions.close(&id) {
+                CloseSessionResult::Closed => {}
+                CloseSessionResult::Missing => self
+                    .task_log
+                    .warning_event(format!("write session {id} is no longer present")),
+                CloseSessionResult::Rejected { current } => self
+                    .task_log
+                    .warning_event(format!("write session {id} cannot close while {current}")),
+            },
             Action::Log(message) => self.task_log.info(message),
         }
     }
@@ -283,6 +332,41 @@ pub enum Action {
         snapshot: ResearchContextSnapshot,
     },
     SchedulerFailed(String),
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "submit mode changes are reserved for a confirmed write-mode selector"
+        )
+    )]
+    SetDefaultSubmitMode(SubmitMode),
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "write session actions are part of the state contract before write panels bind them"
+        )
+    )]
+    OpenWriteSession(WriteSessionRequest),
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "write session actions are part of the state contract before write panels bind them"
+        )
+    )]
+    ApplyWriteSessionEvent {
+        id: String,
+        event: WriteSessionEvent,
+    },
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "write session actions are part of the state contract before write panels bind them"
+        )
+    )]
+    CloseWriteSession(String),
     Log(String),
 }
 
