@@ -116,6 +116,7 @@ pub enum InteractionMode {
     Command,
     Help,
     Inspect,
+    Search,
 }
 
 impl InteractionMode {
@@ -125,6 +126,7 @@ impl InteractionMode {
             Self::Command => "command",
             Self::Help => "help",
             Self::Inspect => "inspect",
+            Self::Search => "search",
         }
     }
 }
@@ -286,14 +288,19 @@ pub enum FloatingKind {
     CommandPalette,
     Help,
     ProviderDetails,
+    SymbolSearch,
 }
 
 impl FloatingKind {
     pub const fn persistent(self) -> bool {
         match self {
-            Self::CommandPalette => false,
+            Self::CommandPalette | Self::SymbolSearch => false,
             Self::Help | Self::ProviderDetails => true,
         }
+    }
+
+    pub const fn text_input(self) -> bool {
+        matches!(self, Self::CommandPalette | Self::SymbolSearch)
     }
 
     pub const fn title(self) -> &'static str {
@@ -301,6 +308,7 @@ impl FloatingKind {
             Self::CommandPalette => "Command Palette",
             Self::Help => "Help",
             Self::ProviderDetails => "Provider Details",
+            Self::SymbolSearch => "Symbol Search",
         }
     }
 }
@@ -332,7 +340,7 @@ impl FloatingSize {
 
     pub const fn default_for(kind: FloatingKind) -> Self {
         match kind {
-            FloatingKind::CommandPalette => Self {
+            FloatingKind::CommandPalette | FloatingKind::SymbolSearch => Self {
                 width_ratio: 70,
                 height_ratio: 40,
             },

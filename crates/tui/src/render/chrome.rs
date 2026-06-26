@@ -62,9 +62,14 @@ pub(super) fn render_floating(
         render_command_palette(frame, state, area);
         return;
     }
+    if kind == FloatingKind::SymbolSearch {
+        render_symbol_search(frame, state, area);
+        return;
+    }
 
     let text = match kind {
         FloatingKind::CommandPalette => unreachable!("command palette is rendered separately"),
+        FloatingKind::SymbolSearch => unreachable!("symbol search is rendered separately"),
         FloatingKind::Help => vec![
             Line::from("agent-finance cockpit"),
             Line::from("[/]: switch workspace"),
@@ -73,6 +78,7 @@ pub(super) fn render_floating(
             Line::from("j/k or arrows: switch selected symbol"),
             Line::from("1-6: focus watchlist, quote, history, evidence, Polymarket, research"),
             Line::from(": open command palette"),
+            Line::from("/ search watchlist symbols"),
             Line::from("Enter: execute selected command in command palette"),
             Line::from("p inspect provider details"),
             Line::from("x close focused panel"),
@@ -109,46 +115,21 @@ pub(super) fn render_floating(
 }
 
 fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    if area.height < 4 {
-        frame.render_widget(
-            Paragraph::new("Command Palette").block(floating_block("Command Palette")),
-            area,
-        );
-        return;
-    }
-
-    let [input_area, list_area] = split_vertical(area, [Constraint::Length(3), Constraint::Min(0)]);
-    let query = state.command_palette.query();
-    let input = if query.is_empty() {
-        "filter commands".to_string()
-    } else {
-        query.to_string()
-    };
-    frame.render_widget(
-        Paragraph::new(input)
-            .style(if query.is_empty() {
-                Style::default().fg(Color::DarkGray)
-            } else {
-                Style::default().fg(Color::Cyan)
-            })
-            .block(floating_block(
-                "Command Palette  type filter  Enter run  Esc close",
-            )),
-        input_area,
-    );
-
-    let selected = state.command_palette.selected();
-    let total = state.command_palette.len();
-    let visible = command_window(total, selected, list_area.height.saturating_sub(2) as usize);
-    let hidden_before = visible.start > 0;
-    let hidden_after = visible.end < total;
-    let visible_start = visible.start;
-    let items = visible
-        .enumerate()
-        .filter_map(|(offset, index)| {
+    render_search_floating(
+        frame,
+        area,
+        SearchFloating {
+            title: "Command Palette",
+            input_title: "Command Palette  type filter  Enter run  Esc close",
+            placeholder: "filter commands",
+            query: state.command_palette.query(),
+            selected: state.command_palette.selected(),
+            total: state.command_palette.len(),
+            noun: "matches",
+            empty: "No matching commands",
+        },
+        |index, is_selected| {
             let command = state.command_palette.command_at(index)?;
-            let index = visible_start + offset;
-            let is_selected = index == selected;
             let style = if is_selected {
                 Style::default()
                     .fg(Color::Black)
@@ -163,25 +144,125 @@ fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 Span::styled(" - ", style),
                 Span::styled(command.description, style),
             ])))
+        },
+    );
+}
+
+fn render_symbol_search(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    render_search_floating(
+        frame,
+        area,
+        SearchFloating {
+            title: "Symbol Search",
+            input_title: "Symbol Search  type filter  Enter select  Esc close",
+            placeholder: "filter symbols",
+            query: state.symbol_search.query(),
+            selected: state.symbol_search.selected(),
+            total: state.symbol_search.len(),
+            noun: "symbols",
+            empty: "No matching symbols",
+        },
+        |index, is_selected| {
+            let symbol_index = state.symbol_search.symbol_index_at(index)?;
+            let symbol = state.watchlist.get(symbol_index)?;
+            let is_current = symbol_index == state.selected_symbol;
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_current {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            Some(ListItem::new(Line::from(vec![
+                Span::styled(if is_selected { "> " } else { "  " }, style),
+                Span::styled(symbol.clone(), style),
+                Span::styled(if is_current { " current" } else { "" }, style),
+            ])))
+        },
+    );
+}
+
+struct SearchFloating<'a> {
+    title: &'static str,
+    input_title: &'static str,
+    placeholder: &'static str,
+    query: &'a str,
+    selected: usize,
+    total: usize,
+    noun: &'static str,
+    empty: &'static str,
+}
+
+fn render_search_floating(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    floating: SearchFloating<'_>,
+    mut item_at: impl FnMut(usize, bool) -> Option<ListItem<'static>>,
+) {
+    if area.height < 4 {
+        frame.render_widget(
+            Paragraph::new(floating.title).block(floating_block(floating.title)),
+            area,
+        );
+        return;
+    }
+
+    let [input_area, list_area] = split_vertical(area, [Constraint::Length(3), Constraint::Min(0)]);
+    let input = if floating.query.is_empty() {
+        floating.placeholder.to_string()
+    } else {
+        floating.query.to_string()
+    };
+    frame.render_widget(
+        Paragraph::new(input)
+            .style(if floating.query.is_empty() {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Cyan)
+            })
+            .block(floating_block(floating.input_title)),
+        input_area,
+    );
+
+    let visible = command_window(
+        floating.total,
+        floating.selected,
+        list_area.height.saturating_sub(2) as usize,
+    );
+    let visible_start = visible.start;
+    let hidden_before = visible.start > 0;
+    let hidden_after = visible.end < floating.total;
+    let items = visible
+        .enumerate()
+        .filter_map(|(offset, _)| {
+            let index = visible_start + offset;
+            item_at(index, index == floating.selected)
         })
         .collect::<Vec<_>>();
-
-    let title = match (total, hidden_before, hidden_after) {
-        (0, _, _) => "0 matches",
-        (_, true, true) => "matches  more above/below",
-        (_, true, false) => "matches  more above",
-        (_, false, true) => "matches  more below",
-        (_, false, false) => "matches",
+    let title = match (floating.total, hidden_before, hidden_after) {
+        (0, _, _) => format!("0 {}", floating.noun),
+        (_, true, true) => format!("{}  more above/below", floating.noun),
+        (_, true, false) => format!("{}  more above", floating.noun),
+        (_, false, true) => format!("{}  more below", floating.noun),
+        (_, false, false) => floating.noun.to_string(),
     };
     let items = if items.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
-            "No matching commands",
+            floating.empty,
             Style::default().fg(Color::DarkGray),
         )))]
     } else {
         items
     };
-    frame.render_widget(List::new(items).block(floating_block(title)), list_area);
+    frame.render_widget(
+        List::new(items).block(dynamic_floating_block(title)),
+        list_area,
+    );
 }
 
 fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> String {
@@ -214,7 +295,7 @@ fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> S
         state.panels.focused().title(),
         state.visible_panels().len(),
         state.workspace.panels().len(),
-        "[/] workspace  Tab pane  z zoom  : command  h help  x close  0 restore  q quit"
+        "[/] workspace  Tab pane  z zoom  : command  / search  h help  x close  0 restore  q quit"
     )
 }
 
@@ -248,7 +329,15 @@ fn command_window(total: usize, selected: usize, capacity: usize) -> Range<usize
 }
 
 fn floating_block(title: &'static str) -> Block<'static> {
-    simple_block(title).shadow(
+    shadowed_block(simple_block(title))
+}
+
+fn dynamic_floating_block(title: String) -> Block<'static> {
+    shadowed_block(Block::default().title(title).borders(Borders::ALL))
+}
+
+fn shadowed_block(block: Block<'static>) -> Block<'static> {
+    block.shadow(
         Shadow::dark_shade()
             .style(Style::default().fg(Color::Black).bg(Color::DarkGray))
             .offset(Offset::new(1, 1)),

@@ -9,6 +9,7 @@ mod model;
 mod provider_health;
 mod render;
 mod scheduler;
+mod search;
 mod state;
 mod task_failure;
 

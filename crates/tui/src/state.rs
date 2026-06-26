@@ -14,6 +14,7 @@ use crate::model::{
     DockedPanels, FloatingKind, FloatingPane, FloatingSize, InteractionMode, Panel, TaskLogEntry,
     WorkspaceKind,
 };
+use crate::search::SymbolSearchState;
 use crate::task_failure::{TaskFailure, TaskFailureSource, TaskFailures};
 
 mod interaction;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub panels: DockedPanels,
     pub floating: Vec<FloatingPane>,
     pub command_palette: CommandPaletteState,
+    pub symbol_search: SymbolSearchState,
     pub keymap: KeymapConfig,
     pub task_log: VecDeque<TaskLogEntry>,
     pub provider_profiles: Vec<ProviderProfile>,
@@ -51,6 +53,7 @@ impl AppState {
             panels: DockedPanels::from_open_focused(config.panels.open, config.panels.focused),
             floating: config.floating.panes,
             command_palette: CommandPaletteState::default(),
+            symbol_search: SymbolSearchState::default(),
             keymap: config.keymap,
             task_log: VecDeque::new(),
             provider_profiles: service::provider_profiles(),
@@ -131,6 +134,7 @@ impl AppState {
             Some(FloatingKind::CommandPalette) => InteractionMode::Command,
             Some(FloatingKind::Help) => InteractionMode::Help,
             Some(FloatingKind::ProviderDetails) => InteractionMode::Inspect,
+            Some(FloatingKind::SymbolSearch) => InteractionMode::Search,
             None => InteractionMode::Normal,
         }
     }
@@ -145,6 +149,18 @@ impl AppState {
             }
             Action::EditCommandQuery(request) => {
                 self.command_palette.edit_query(request);
+            }
+            Action::MoveSymbolSearchSelection(direction) => {
+                self.symbol_search.shift(direction);
+            }
+            Action::EditSymbolSearchQuery(request) => {
+                self.symbol_search.edit_query(&self.watchlist, request);
+            }
+            Action::AcceptSymbolSearch => {
+                if let Some(index) = self.symbol_search.selected_symbol_index() {
+                    self.selected_symbol = index;
+                    self.close_floating(FloatingKind::SymbolSearch);
+                }
             }
             Action::Execute(action) => self.execute(action),
             Action::CloseFocusedPanel => {
@@ -168,24 +184,14 @@ impl AppState {
                 }
             }
             Action::CloseFocusedFloating => {
-                if self
-                    .floating
-                    .pop()
-                    .is_some_and(|pane| pane.kind == FloatingKind::CommandPalette)
-                {
-                    self.command_palette.reset();
+                if let Some(pane) = self.floating.pop() {
+                    self.reset_floating_state(pane.kind);
                 }
             }
             Action::FocusFloating(kind) => self.focus_floating(kind),
             Action::ResizeFloating { kind, size } => self.resize_floating(kind, size),
             Action::ResetLayout => {
-                if self
-                    .floating
-                    .iter()
-                    .any(|pane| pane.kind == FloatingKind::CommandPalette)
-                {
-                    self.command_palette.reset();
-                }
+                self.reset_open_floating_state();
                 self.floating.clear();
                 self.clear_zoom();
                 self.layout = LayoutConfig::default();
@@ -392,17 +398,48 @@ impl AppState {
     fn close_floating(&mut self, kind: FloatingKind) {
         let had_pane = self.floating.iter().any(|pane| pane.kind == kind);
         self.floating.retain(|pane| pane.kind != kind);
-        if had_pane && kind == FloatingKind::CommandPalette {
-            self.command_palette.reset();
+        if had_pane {
+            self.reset_floating_state(kind);
         }
     }
 
     fn open_floating(&mut self, kind: FloatingKind) {
-        if kind == FloatingKind::CommandPalette {
-            self.command_palette.reset();
-        }
         self.close_floating(kind);
+        self.reset_floating_state(kind);
         self.floating.push(FloatingPane::new(kind));
+    }
+
+    fn close_text_input_floatings_except(&mut self, except: FloatingKind) {
+        for kind in [FloatingKind::CommandPalette, FloatingKind::SymbolSearch] {
+            if kind != except {
+                self.close_floating(kind);
+            }
+        }
+    }
+
+    fn close_text_input_floatings(&mut self) {
+        for kind in [FloatingKind::CommandPalette, FloatingKind::SymbolSearch] {
+            self.close_floating(kind);
+        }
+    }
+
+    fn reset_open_floating_state(&mut self) {
+        let kinds = self
+            .floating
+            .iter()
+            .map(|pane| pane.kind)
+            .collect::<Vec<_>>();
+        for kind in kinds {
+            self.reset_floating_state(kind);
+        }
+    }
+
+    fn reset_floating_state(&mut self, kind: FloatingKind) {
+        match kind {
+            FloatingKind::CommandPalette => self.command_palette.reset(),
+            FloatingKind::SymbolSearch => self.symbol_search.reset(&self.watchlist),
+            FloatingKind::Help | FloatingKind::ProviderDetails => {}
+        }
     }
 
     fn focus_floating(&mut self, kind: FloatingKind) {
@@ -601,6 +638,9 @@ pub enum Action {
     Focus(Panel),
     MoveCommandSelection(isize),
     EditCommandQuery(tui_input::InputRequest),
+    MoveSymbolSearchSelection(isize),
+    EditSymbolSearchQuery(tui_input::InputRequest),
+    AcceptSymbolSearch,
     Execute(ActionId),
     FocusPanelBy(isize),
     ToggleFocusedZoom,
@@ -1039,6 +1079,42 @@ mod tests {
             state.command_palette.selected_action(),
             Some(ActionId::SelectSymbolBy(1))
         );
+    }
+
+    #[test]
+    fn symbol_search_selects_watchlist_symbols_and_resets_on_close() {
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec![
+                "AAPL".to_string(),
+                "CRDO".to_string(),
+                "BTCUSDT".to_string(),
+            ],
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::SymbolSearch,
+        )));
+
+        for character in "btc".chars() {
+            state.reduce(Action::EditSymbolSearchQuery(
+                tui_input::InputRequest::InsertChar(character),
+            ));
+        }
+        state.reduce(Action::AcceptSymbolSearch);
+
+        assert_eq!(state.selected_symbol(), Some("BTCUSDT"));
+        assert_eq!(state.interaction_mode(), InteractionMode::Normal);
+        assert_eq!(state.symbol_search.query(), "");
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::SymbolSearch,
+        )));
+        state.reduce(Action::EditSymbolSearchQuery(
+            tui_input::InputRequest::InsertChar('c'),
+        ));
+        state.reduce(Action::CloseFocusedFloating);
+
+        assert_eq!(state.symbol_search.query(), "");
     }
 
     #[test]

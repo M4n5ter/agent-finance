@@ -214,6 +214,7 @@ fn default_normal_bindings() -> Vec<KeyBinding> {
         ("h", ActionId::OpenFloating(FloatingKind::Help)),
         ("f1", ActionId::OpenFloating(FloatingKind::Help)),
         (":", ActionId::OpenFloating(FloatingKind::CommandPalette)),
+        ("/", ActionId::OpenFloating(FloatingKind::SymbolSearch)),
         ("p", ActionId::OpenFloating(FloatingKind::ProviderDetails)),
         ("esc", ActionId::CloseFocusedFloating),
         ("r", ActionId::ResetLayout),

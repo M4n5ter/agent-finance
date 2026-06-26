@@ -23,12 +23,15 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     if command_palette_is_top(state) {
         return command_palette_key_action(state, key);
     }
+    if symbol_search_is_top(state) {
+        return symbol_search_key_action(key);
+    }
 
     state.keymap.normal_action(key).map(Action::Execute)
 }
 
 pub fn should_quit(state: &AppState, key: KeyEvent) -> bool {
-    (matches!(key.code, KeyCode::Char('q')) && !command_palette_is_top(state))
+    (matches!(key.code, KeyCode::Char('q')) && !text_input_floating_is_top(state))
         || (matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL))
 }
 
@@ -103,11 +106,38 @@ fn command_palette_key_action(state: &AppState, key: KeyEvent) -> Option<Action>
     }
 }
 
+fn symbol_search_key_action(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Down => Some(Action::MoveSymbolSearchSelection(1)),
+        KeyCode::Up => Some(Action::MoveSymbolSearchSelection(-1)),
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::MoveSymbolSearchSelection(1))
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::MoveSymbolSearchSelection(-1))
+        }
+        KeyCode::Enter => Some(Action::AcceptSymbolSearch),
+        KeyCode::Esc => Some(Action::CloseFocusedFloating),
+        _ => to_input_request(&Event::Key(key)).map(Action::EditSymbolSearchQuery),
+    }
+}
+
 fn command_palette_is_top(state: &AppState) -> bool {
     state
         .floating
         .last()
         .is_some_and(|pane| pane.kind == FloatingKind::CommandPalette)
+}
+
+fn symbol_search_is_top(state: &AppState) -> bool {
+    state
+        .floating
+        .last()
+        .is_some_and(|pane| pane.kind == FloatingKind::SymbolSearch)
+}
+
+fn text_input_floating_is_top(state: &AppState) -> bool {
+    command_palette_is_top(state) || symbol_search_is_top(state)
 }
 
 #[cfg(test)]
@@ -129,6 +159,12 @@ mod tests {
             key_action(&state, KeyEvent::from(KeyCode::Char(':'))),
             Some(Action::Execute(ActionId::OpenFloating(
                 FloatingKind::CommandPalette
+            )))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('/'))),
+            Some(Action::Execute(ActionId::OpenFloating(
+                FloatingKind::SymbolSearch
             )))
         );
         assert_eq!(
@@ -183,6 +219,27 @@ mod tests {
     }
 
     #[test]
+    fn symbol_search_mode_routes_selection_and_query_editing() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::SymbolSearch,
+        )));
+
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Down)),
+            Some(Action::MoveSymbolSearchSelection(1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Enter)),
+            Some(Action::AcceptSymbolSearch)
+        );
+        assert!(matches!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('a'))),
+            Some(Action::EditSymbolSearchQuery(_))
+        ));
+    }
+
+    #[test]
     fn quit_router_accepts_q_and_control_c_only() {
         let mut state = AppState::from_config(crate::config::TuiConfig::default());
 
@@ -200,6 +257,16 @@ mod tests {
         assert!(matches!(
             key_action(&state, KeyEvent::from(KeyCode::Char('q'))),
             Some(Action::EditCommandQuery(_))
+        ));
+
+        state.reduce(Action::CloseFocusedFloating);
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::SymbolSearch,
+        )));
+        assert!(!should_quit(&state, KeyEvent::from(KeyCode::Char('q'))));
+        assert!(matches!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('q'))),
+            Some(Action::EditSymbolSearchQuery(_))
         ));
     }
 

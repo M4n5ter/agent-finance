@@ -1,57 +1,46 @@
-use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
-use nucleo_matcher::{Config, Matcher, Utf32Str};
-use tui_input::{Input, InputRequest};
+use tui_input::InputRequest;
 
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
+use crate::search::{SearchListState, fuzzy_indices};
 
 #[derive(Debug, Clone)]
 pub struct CommandPaletteState {
-    input: Input,
-    selected: usize,
-    matches: Vec<usize>,
+    list: SearchListState,
 }
 
 impl Default for CommandPaletteState {
     fn default() -> Self {
         Self {
-            input: Input::default(),
-            selected: 0,
-            matches: all_command_indices(),
+            list: SearchListState::with_matches(all_command_indices()),
         }
     }
 }
 
 impl CommandPaletteState {
     pub fn query(&self) -> &str {
-        self.input.value()
+        self.list.query()
     }
 
     pub fn len(&self) -> usize {
-        self.matches.len()
+        self.list.len()
     }
 
     pub fn selected(&self) -> usize {
-        self.selected
+        self.list.selected()
     }
 
     pub fn command_at(&self, index: usize) -> Option<CommandSpec> {
-        self.matches
-            .get(index)
-            .and_then(|command| ACTION_REGISTRY[*command].command())
+        self.list
+            .index_at(index)
+            .and_then(|command| ACTION_REGISTRY[command].command())
     }
 
     pub fn shift(&mut self, direction: isize) {
-        if self.matches.is_empty() {
-            self.selected = 0;
-            return;
-        }
-        let len = self.matches.len() as isize;
-        let selected = self.selected as isize;
-        self.selected = (selected + direction).rem_euclid(len) as usize;
+        self.list.shift(direction);
     }
 
     pub fn selected_command(&self) -> Option<CommandSpec> {
-        self.command_at(self.selected)
+        self.command_at(self.selected())
     }
 
     pub fn selected_action(&self) -> Option<ActionId> {
@@ -59,27 +48,11 @@ impl CommandPaletteState {
     }
 
     pub fn reset(&mut self) {
-        self.input = Input::default();
-        self.selected = 0;
-        self.matches = all_command_indices();
+        self.list.reset(all_command_indices());
     }
 
     pub fn edit_query(&mut self, request: InputRequest) {
-        let previous = self.input.value().to_string();
-        self.input.handle(request);
-        if self.input.value() != previous {
-            self.refresh_matches();
-        }
-    }
-
-    fn refresh_matches(&mut self) {
-        let query = self.input.value().trim();
-        self.matches = if query.is_empty() {
-            all_command_indices()
-        } else {
-            fuzzy_command_indices(query)
-        };
-        self.selected = 0;
+        self.list.edit_query(request, command_indices_for_query);
     }
 }
 
@@ -92,22 +65,18 @@ fn all_command_indices() -> Vec<usize> {
 }
 
 fn fuzzy_command_indices(query: &str) -> Vec<usize> {
-    let pattern = Pattern::parse(query, CaseMatching::Ignore, Normalization::Smart);
-    let mut matcher = Matcher::new(Config::DEFAULT);
-    let mut utf32_buffer = Vec::new();
-    let mut scored = ACTION_REGISTRY
-        .iter()
-        .enumerate()
-        .filter_map(|(index, action)| {
-            let command = action.command()?;
-            let text = format!("{} {}", command.title, command.description);
-            pattern
-                .score(Utf32Str::new(&text, &mut utf32_buffer), &mut matcher)
-                .map(|score| (index, score))
-        })
-        .collect::<Vec<_>>();
-    scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-    scored.into_iter().map(|(index, _)| index).collect()
+    fuzzy_indices(query, 0..ACTION_REGISTRY.len(), |index| {
+        let command = ACTION_REGISTRY[index].command()?;
+        Some(format!("{} {}", command.title, command.description))
+    })
+}
+
+fn command_indices_for_query(query: &str) -> Vec<usize> {
+    if query.is_empty() {
+        all_command_indices()
+    } else {
+        fuzzy_command_indices(query)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -187,7 +156,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 35] = [
+pub const ACTION_REGISTRY: [ActionSpec; 36] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -217,6 +186,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 35] = [
         ActionId::OpenFloating(FloatingKind::CommandPalette),
         "Open command palette",
         "Search and execute cockpit actions"
+    ),
+    action!(
+        "open-symbol-search",
+        ActionId::OpenFloating(FloatingKind::SymbolSearch),
+        "Open symbol search",
+        "Filter the watchlist and jump to a symbol"
     ),
     action!(
         "close-floating",
