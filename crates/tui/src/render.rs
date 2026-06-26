@@ -1,25 +1,21 @@
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::research_snapshot::{PredictionMarketSnapshot, ResearchContextSnapshot};
 use agent_finance_market::snapshot::QuoteSnapshot;
-use std::cmp::Reverse;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Axis, Block, Borders, Cell, Chart, Clear, Dataset, GraphType, List, ListItem, Paragraph, Row,
-    Table, Wrap,
-};
+use ratatui::widgets::{Block, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Wrap};
 
 use crate::layout::{self, CockpitLayout};
 use crate::model::{Panel, TaskLevel};
-use crate::provider_health::{
-    ProviderHealthProvider, ProviderHealthReport, ProviderHealthSeverity, ProviderHealthTask,
-};
+use crate::provider_health::ProviderHealthReport;
 use crate::state::AppState;
 
 mod chrome;
+mod history;
+mod provider_health;
 
 use chrome::{render_floating, render_status};
 
@@ -219,8 +215,8 @@ fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let points = history_chart_points(&closes);
-    let chart = history_chart(&points);
+    let points = history::chart_points(&closes);
+    let chart = history::chart(&points);
     frame.render_widget(chart, chunks[1]);
 }
 
@@ -338,152 +334,17 @@ fn render_provider_health(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             })
             .collect::<Vec<_>>()
     } else {
-        provider_health_display_rows(report, area.height.saturating_sub(3) as usize)
-            .into_iter()
-            .map(provider_health_table_row)
-            .collect()
+        provider_health::table_rows(report, area.height.saturating_sub(3) as usize)
     };
     frame.render_widget(
-        Table::new(
-            rows,
-            [
-                Constraint::Length(12),
-                Constraint::Length(12),
-                Constraint::Min(18),
-                Constraint::Length(16),
-            ],
-        )
-        .header(
-            Row::new(["provider", "status", "detail", "freshness"])
-                .style(Style::default().fg(Color::Cyan)),
-        )
-        .block(panel_block(Panel::ProviderHealth, state)),
+        Table::new(rows, provider_health::table_widths())
+            .header(
+                Row::new(["provider", "status", "detail", "freshness"])
+                    .style(Style::default().fg(Color::Cyan)),
+            )
+            .block(panel_block(Panel::ProviderHealth, state)),
         area,
     );
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-struct ProviderHealthDisplayRow {
-    provider: String,
-    status: &'static str,
-    detail: String,
-    freshness: String,
-    severity: ProviderHealthSeverity,
-}
-
-fn provider_health_display_rows(
-    report: ProviderHealthReport,
-    limit: usize,
-) -> Vec<ProviderHealthDisplayRow> {
-    let mut rows = report
-        .providers
-        .into_iter()
-        .map(ProviderHealthRow::Provider)
-        .chain(report.tasks.into_iter().map(ProviderHealthRow::Task))
-        .collect::<Vec<_>>();
-    rows.sort_by_key(|row| {
-        (
-            Reverse(row.severity()),
-            Reverse(row.is_task()),
-            row.label().to_string(),
-        )
-    });
-    rows.into_iter()
-        .map(provider_health_display_row)
-        .take(limit)
-        .collect()
-}
-
-enum ProviderHealthRow {
-    Provider(ProviderHealthProvider),
-    Task(ProviderHealthTask),
-}
-
-impl ProviderHealthRow {
-    fn severity(&self) -> ProviderHealthSeverity {
-        match self {
-            Self::Provider(provider) => provider.severity,
-            Self::Task(task) => task.status,
-        }
-    }
-
-    fn is_task(&self) -> bool {
-        matches!(self, Self::Task(_))
-    }
-
-    fn label(&self) -> &str {
-        match self {
-            Self::Provider(provider) => provider.provider.as_str(),
-            Self::Task(task) => task.source.label(),
-        }
-    }
-}
-
-fn provider_health_display_row(row: ProviderHealthRow) -> ProviderHealthDisplayRow {
-    match row {
-        ProviderHealthRow::Provider(provider) => provider_health_provider_display_row(provider),
-        ProviderHealthRow::Task(task) => provider_health_task_display_row(task),
-    }
-}
-
-fn provider_health_provider_display_row(
-    provider: ProviderHealthProvider,
-) -> ProviderHealthDisplayRow {
-    let severity = provider.severity;
-    let status = provider_health_status_label(severity);
-    let freshness = provider.freshness.unwrap_or_else(|| "-".to_string());
-    let detail = provider
-        .signals
-        .iter()
-        .take(2)
-        .map(|signal| format!("{}={}", signal.source.label(), signal.detail))
-        .collect::<Vec<_>>()
-        .join("; ");
-    ProviderHealthDisplayRow {
-        provider: provider.provider,
-        status,
-        detail,
-        freshness,
-        severity,
-    }
-}
-
-fn provider_health_task_display_row(task: ProviderHealthTask) -> ProviderHealthDisplayRow {
-    let severity = task.status;
-    let status = provider_health_status_label(severity);
-    ProviderHealthDisplayRow {
-        provider: "task".to_string(),
-        status,
-        detail: format!("{} {}", task.source.label(), task.detail),
-        freshness: "-".to_string(),
-        severity,
-    }
-}
-
-fn provider_health_table_row(row: ProviderHealthDisplayRow) -> Row<'static> {
-    let style = provider_health_status_style(row.severity);
-    Row::new([
-        Cell::from(row.provider).style(style),
-        Cell::from(row.status).style(style),
-        Cell::from(row.detail),
-        Cell::from(row.freshness).style(Style::default().fg(Color::DarkGray)),
-    ])
-}
-
-fn provider_health_status_label(status: ProviderHealthSeverity) -> &'static str {
-    match status {
-        ProviderHealthSeverity::Ok => "ok",
-        ProviderHealthSeverity::Warning => "warn",
-        ProviderHealthSeverity::Loading => "load",
-    }
-}
-
-fn provider_health_status_style(status: ProviderHealthSeverity) -> Style {
-    match status {
-        ProviderHealthSeverity::Ok => Style::default().fg(Color::Green),
-        ProviderHealthSeverity::Warning => Style::default().fg(Color::Yellow),
-        ProviderHealthSeverity::Loading => Style::default().fg(Color::Cyan),
-    }
 }
 
 fn render_task_log(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
@@ -742,62 +603,6 @@ fn format_volume(value: f64) -> String {
     }
 }
 
-fn history_chart(points: &[(f64, f64)]) -> Chart<'_> {
-    let bounds = history_chart_bounds(points);
-    let dataset = Dataset::default()
-        .name("close")
-        .marker(ratatui::symbols::Marker::Braille)
-        .graph_type(GraphType::Area)
-        .style(Style::default().fg(Color::Green))
-        .fill_to_y(bounds.y[0])
-        .data(points);
-    Chart::new(vec![dataset])
-        .x_axis(Axis::default().bounds(bounds.x))
-        .y_axis(Axis::default().bounds(bounds.y))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct ChartBounds {
-    x: [f64; 2],
-    y: [f64; 2],
-}
-
-fn history_chart_points(closes: &[f64]) -> Vec<(f64, f64)> {
-    closes
-        .iter()
-        .copied()
-        .enumerate()
-        .filter(|(_, close)| close.is_finite())
-        .map(|(index, close)| (index as f64, close))
-        .collect()
-}
-
-fn history_chart_bounds(points: &[(f64, f64)]) -> ChartBounds {
-    if points.is_empty() {
-        return ChartBounds {
-            x: [0.0, 1.0],
-            y: [0.0, 1.0],
-        };
-    }
-    let max_x = points.last().map(|(x, _)| *x).unwrap_or(1.0).max(1.0);
-    let (min_y, max_y) = points.iter().fold(
-        (f64::INFINITY, f64::NEG_INFINITY),
-        |(min_y, max_y), (_, y)| (min_y.min(*y), max_y.max(*y)),
-    );
-    let price_scale = min_y.abs().max(max_y.abs()).max(f64::MIN_POSITIVE);
-    let padding = ((max_y - min_y).abs() * 0.05).max(price_scale * 0.001);
-    let y_min = min_y - padding;
-    let y_max = max_y + padding;
-    let y = if min_y >= 0.0 && y_min < 0.0 {
-        [0.0, y_max]
-    } else if max_y <= 0.0 && y_max > 0.0 {
-        [y_min, 0.0]
-    } else {
-        [y_min, y_max]
-    };
-    ChartBounds { x: [0.0, max_x], y }
-}
-
 fn panel_block(panel: Panel, state: &AppState) -> Block<'static> {
     let style = if state.panels.focused() == panel {
         Style::default().fg(Color::Cyan)
@@ -817,27 +622,10 @@ mod tests {
     use crate::command::ActionId;
     use crate::config::TuiConfig;
     use crate::model::{FloatingKind, WorkspaceKind};
-    use crate::provider_health::{ProviderHealthSignal, ProviderHealthSource, ProviderHealthTask};
     use agent_finance_market::research_snapshot::ResearchNewsSnapshot;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::symbols;
-
-    #[test]
-    fn history_chart_points_skip_bad_values_and_bounds_close_range() {
-        let points = history_chart_points(&[10.0, f64::NAN, 15.0, 20.0]);
-        assert_eq!(points, vec![(0.0, 10.0), (2.0, 15.0), (3.0, 20.0)]);
-
-        let bounds = history_chart_bounds(&points);
-        assert_eq!(bounds.x, [0.0, 3.0]);
-        assert_eq!(bounds.y, [9.5, 20.5]);
-
-        let flat_bounds = history_chart_bounds(&history_chart_points(&[10.0, 10.0]));
-        assert_eq!(flat_bounds.y, [9.99, 10.01]);
-
-        let micro_bounds = history_chart_bounds(&history_chart_points(&[0.000010, 0.000020]));
-        assert_eq!(micro_bounds.y, [0.0000095, 0.0000205]);
-    }
 
     #[test]
     fn workspace_tabs_and_adaptive_status_render_without_overflow() {
@@ -871,34 +659,6 @@ mod tests {
         assert!(text.contains("Command"));
         assert!(text.contains("Open help"));
         assert!(text.contains(symbols::shade::DARK));
-    }
-
-    #[test]
-    fn provider_health_display_rows_prioritize_actionable_tasks_before_ok_providers() {
-        let report = ProviderHealthReport {
-            providers: vec![ProviderHealthProvider {
-                provider: "yahoo".to_string(),
-                severity: ProviderHealthSeverity::Ok,
-                signals: vec![ProviderHealthSignal {
-                    source: ProviderHealthSource::Quotes,
-                    status: ProviderHealthSeverity::Ok,
-                    detail: "1 priced quotes".to_string(),
-                }],
-                freshness: None,
-            }],
-            tasks: vec![ProviderHealthTask {
-                source: ProviderHealthSource::History,
-                status: ProviderHealthSeverity::Warning,
-                detail: "timeout".to_string(),
-            }],
-        };
-
-        let rows = provider_health_display_rows(report, 1);
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].provider, "task");
-        assert_eq!(rows[0].status, "warn");
-        assert_eq!(rows[0].detail, "history timeout");
     }
 
     #[test]
