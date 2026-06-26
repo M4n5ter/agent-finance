@@ -1233,7 +1233,7 @@ mod tests {
             snapshot: stale,
         });
         assert!(state.market_snapshot.is_none());
-        assert!(state.refresh.loading);
+        assert!(state.refresh.loading());
 
         state.reduce(Action::SnapshotLoaded {
             generation: 2,
@@ -1247,7 +1247,7 @@ mod tests {
                 .and_then(|quote| quote.price),
             Some(250.0)
         );
-        assert!(!state.refresh.loading);
+        assert!(!state.refresh.loading());
     }
 
     #[test]
@@ -1271,7 +1271,7 @@ mod tests {
             "scheduler runtime failed".to_string(),
         ));
 
-        assert!(!state.refresh.loading);
+        assert!(!state.refresh.loading());
         assert!(!state.history.loading());
         assert!(!state.evidence.loading());
         assert!(!state.research.loading());

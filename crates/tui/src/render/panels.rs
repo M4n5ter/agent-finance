@@ -91,7 +91,7 @@ fn render_quote(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(if state.refresh.loading {
+        Span::raw(if state.refresh.loading() {
             " refreshing..."
         } else {
             " market snapshot"

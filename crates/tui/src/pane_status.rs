@@ -99,7 +99,7 @@ fn pane_data_state(state: &AppState, panel: Panel) -> PaneDataState {
             false,
         ),
         Panel::Quote => PaneDataState::new(
-            state.refresh.loading,
+            state.refresh.loading(),
             if state.market_snapshot.is_some() {
                 SelectedDataState::Fresh
             } else {
@@ -127,7 +127,7 @@ fn pane_data_state(state: &AppState, panel: Panel) -> PaneDataState {
         Panel::ProviderHealth => {
             let report = ProviderHealthReport::from_state(state);
             PaneDataState::new(
-                state.refresh.loading,
+                state.refresh.loading(),
                 if report.is_empty() {
                     SelectedDataState::Empty
                 } else {

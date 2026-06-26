@@ -4,9 +4,9 @@ use agent_finance_market::research_snapshot::ResearchContextSnapshot;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LoadSlot<K> {
-    pub generation: u64,
-    pub loading: bool,
-    pub key: Option<K>,
+    generation: u64,
+    loading: bool,
+    key: Option<K>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -28,6 +28,10 @@ impl<K> LoadSlot<K> {
         self.generation = generation;
         self.loading = true;
         self.key = Some(key);
+    }
+
+    pub fn loading(&self) -> bool {
+        self.loading
     }
 
     pub(super) fn finish(&mut self, generation: u64) -> Option<ActiveLoad<K>> {
@@ -70,7 +74,7 @@ impl<T> SelectedSymbolLoad<T> {
     }
 
     pub fn loading(&self) -> bool {
-        self.request.loading
+        self.request.loading()
     }
 
     pub(super) fn start(&mut self, generation: u64, symbol: String) {
