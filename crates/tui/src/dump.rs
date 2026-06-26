@@ -18,6 +18,8 @@ pub struct TuiDump {
     pub provider_health: ProviderHealthReport,
     pub tasks: Vec<ProviderHealthTask>,
     pub default_submit_mode: SubmitMode,
+    pub live_writes_enabled: bool,
+    pub effective_submit_mode: SubmitMode,
     pub trading_profile: Option<String>,
     pub account: Option<AccountSnapshot>,
     pub write_sessions: Vec<WriteSessionView>,
@@ -50,6 +52,8 @@ impl TuiDump {
                 .collect(),
             tasks: provider_health.tasks.clone(),
             default_submit_mode: state.default_submit_mode,
+            live_writes_enabled: state.live_writes_enabled,
+            effective_submit_mode: state.effective_submit_mode(),
             trading_profile: state.trading_profile.clone(),
             account: state.account_snapshot.clone(),
             write_sessions: state.write_session_views(),
@@ -212,9 +216,11 @@ mod tests {
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
         assert_eq!(value["default_submit_mode"], "live");
+        assert_eq!(value["live_writes_enabled"], false);
+        assert_eq!(value["effective_submit_mode"], "dry-run");
         assert_eq!(value["write_sessions"][0]["intent_kind"], "order");
         assert_eq!(value["write_sessions"][0]["stage"], "draft");
-        assert_eq!(value["write_sessions"][0]["mode"], "live");
+        assert_eq!(value["write_sessions"][0]["mode"], "dry-run");
         assert!(value["write_sessions"][0]["intent_status"].is_null());
         state.reduce(Action::ApplyWriteSessionEvent {
             id: "watchlist-add-crdo".to_string(),
@@ -236,7 +242,7 @@ mod tests {
         });
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
         assert_eq!(value["write_sessions"][0]["stage"], "intent-created");
-        assert_eq!(value["write_sessions"][0]["mode"], "live");
+        assert_eq!(value["write_sessions"][0]["mode"], "dry-run");
         assert_eq!(value["write_sessions"][0]["intent_id"], "intent-1");
         assert!(value["write_sessions"][0]["intent_status"].is_null());
 
@@ -261,23 +267,10 @@ mod tests {
             },
         });
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
-        assert_eq!(value["write_sessions"][0]["stage"], "live-submitting");
-        assert_eq!(value["write_sessions"][0]["mode"], "live");
+        assert_eq!(value["write_sessions"][0]["stage"], "dry-run-completed");
+        assert_eq!(value["write_sessions"][0]["mode"], "dry-run");
         assert_eq!(value["write_sessions"][0]["intent_id"], "intent-1");
         assert!(value["write_sessions"][0]["intent_status"].is_null());
-
-        state.reduce(Action::ApplyWriteSessionEvent {
-            id: "watchlist-add-crdo".to_string(),
-            event: WriteSessionEvent::LiveSubmitSucceeded {
-                intent_id: "intent-1".to_string(),
-            },
-        });
-
-        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
-        assert_eq!(value["write_sessions"][0]["stage"], "live-submitted");
-        assert_eq!(value["write_sessions"][0]["mode"], "live");
-        assert_eq!(value["write_sessions"][0]["intent_id"], "intent-1");
-        assert_eq!(value["write_sessions"][0]["intent_status"], "submitted");
     }
 
     #[test]

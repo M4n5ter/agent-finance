@@ -46,6 +46,14 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::ToggleFocusedZoom);
             }
+            ActionId::ToggleLiveWrites => {
+                self.close_text_input_floatings();
+                if self.live_writes_enabled {
+                    self.reduce(Action::SetLiveWritesEnabled(false));
+                } else {
+                    self.open_floating(FloatingKind::LiveWritesConfirmation);
+                }
+            }
             ActionId::CloseCommandPalette => {
                 self.close_floating(FloatingKind::CommandPalette);
             }

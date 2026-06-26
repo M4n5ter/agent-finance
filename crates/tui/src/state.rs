@@ -54,6 +54,7 @@ pub struct AppState {
     pub scheduler_error: Option<String>,
     pub theme: ThemeConfig,
     pub default_submit_mode: SubmitMode,
+    pub live_writes_enabled: bool,
     pub trading_profile: Option<String>,
     write_sessions: WriteSessions,
 }
@@ -84,6 +85,7 @@ impl AppState {
             scheduler_error: None,
             theme: config.theme,
             default_submit_mode: SubmitMode::DryRun,
+            live_writes_enabled: false,
             trading_profile: config.trading.default_profile,
             write_sessions: WriteSessions::default(),
         };
@@ -127,6 +129,14 @@ impl AppState {
 
     pub fn write_session_views(&self) -> Vec<WriteSessionView> {
         self.write_sessions.views()
+    }
+
+    pub const fn effective_submit_mode(&self) -> SubmitMode {
+        if self.live_writes_enabled {
+            self.default_submit_mode
+        } else {
+            SubmitMode::DryRun
+        }
     }
 
     pub fn reduce(&mut self, action: Action) {
@@ -252,8 +262,28 @@ impl AppState {
                 self.task_log
                     .info(format!("default write mode set to {mode}"));
             }
+            Action::SetLiveWritesEnabled(enabled) => {
+                self.live_writes_enabled = enabled;
+                self.close_floating(FloatingKind::LiveWritesConfirmation);
+                self.task_log.info(if enabled {
+                    "live writes enabled for this TUI session".to_string()
+                } else {
+                    "live writes disabled for this TUI session".to_string()
+                });
+                if !enabled {
+                    let abandoned = self.write_sessions.disable_live();
+                    if abandoned > 0 {
+                        self.task_log.warning_event(format!(
+                            "abandoned {abandoned} pending live write session(s)"
+                        ));
+                    }
+                }
+            }
             Action::OpenWriteSession(request) => {
-                match self.write_sessions.open(request, self.default_submit_mode) {
+                match self
+                    .write_sessions
+                    .open(request, self.effective_submit_mode())
+                {
                     OpenSessionResult::Opened => {}
                     OpenSessionResult::Rejected => self.task_log.warning_event(
                         "write session cannot replace an active session".to_string(),
@@ -378,6 +408,7 @@ pub enum Action {
         )
     )]
     SetDefaultSubmitMode(SubmitMode),
+    SetLiveWritesEnabled(bool),
     #[cfg_attr(
         not(test),
         expect(

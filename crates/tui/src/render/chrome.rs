@@ -90,6 +90,16 @@ pub(super) fn render_floating(
             Line::from("mouse: focus panels, drag docked borders, resize floating corners"),
             Line::from("q quit"),
         ],
+        FloatingKind::LiveWritesConfirmation => vec![
+            Line::from("Live writes are disabled by default for every TUI session."),
+            Line::from(""),
+            Line::from(
+                "Enabling live writes allows staged orders, cancels, transfers, and futures state changes to reach live providers after their own review and risk gates.",
+            ),
+            Line::from(""),
+            Line::from("Enter: enable live writes for this session"),
+            Line::from("Esc: keep live writes disabled"),
+        ],
         FloatingKind::ProviderDetails => state
             .provider_profiles
             .iter()
@@ -276,21 +286,25 @@ fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> S
 
     if width < 42 {
         return format!(
-            " {symbol} {} {runtime} e:{errors} ",
-            state.interaction_mode().label()
+            " {symbol} {} live:{} {runtime} e:{errors} ",
+            state.interaction_mode().label(),
+            live_label(state)
         );
     }
 
     if width < 82 {
         if let Some(profile) = state.trading_profile.as_deref() {
             return format!(
-                " {symbol} | mode: {} | profile: {profile} | {runtime} | e:{errors} ",
-                state.interaction_mode().label(),
+                " {symbol} | profile: {profile} | live:{} | {} | {runtime} | e:{errors} ",
+                live_label(state),
+                state.effective_submit_mode()
             );
         }
         return format!(
-            " {symbol} | mode: {} | focus: {} | {runtime} | e:{errors} ",
+            " {symbol} | mode: {} | live:{} | {} | focus: {} | {runtime} | e:{errors} ",
             state.interaction_mode().label(),
+            live_label(state),
+            state.effective_submit_mode(),
             state.panels.focused().title(),
         );
     }
@@ -301,14 +315,31 @@ fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> S
         .map(|profile| format!(" | profile: {profile}"))
         .unwrap_or_default();
     let prefix = format!(
-        " {symbol} | mode: {}{profile} | focus: {} | visible: {}/{} | {runtime} | errors: {errors} | ",
+        " {symbol} | mode: {}{profile} | {} | focus: {} | visible: {}/{} | {runtime} | errors: {errors} | ",
         state.interaction_mode().label(),
+        write_label(state),
         state.panels.focused().title(),
         state.visible_panels().len(),
         state.workspace.panels().len(),
     );
     let hint_budget = width.saturating_sub(prefix.len() as u16 + 1) as usize;
     format!("{}{} ", prefix, hints::status_key_hints(state, hint_budget))
+}
+
+fn write_label(state: &AppState) -> String {
+    format!(
+        "live: {} / write: {}",
+        live_label(state),
+        state.effective_submit_mode()
+    )
+}
+
+fn live_label(state: &AppState) -> &'static str {
+    if state.live_writes_enabled {
+        "on"
+    } else {
+        "off"
+    }
 }
 
 fn workspace_index(current: WorkspaceKind) -> usize {

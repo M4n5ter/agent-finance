@@ -28,10 +28,24 @@ impl WriteSession {
     }
 
     pub fn apply(&mut self, event: WriteSessionEvent) -> bool {
+        if matches!(event, WriteSessionEvent::LiveSubmitStarted { .. })
+            && self.default_mode != SubmitMode::Live
+        {
+            return false;
+        }
         let Some(next) = self.state.next(event) else {
             return false;
         };
         self.state = next;
+        true
+    }
+
+    fn disable_live(&mut self) -> bool {
+        if self.default_mode != SubmitMode::Live || !self.state.can_disable_live() {
+            return false;
+        }
+        self.default_mode = SubmitMode::DryRun;
+        self.state = WriteSessionState::Abandoned;
         true
     }
 }
@@ -259,6 +273,13 @@ impl WriteSessionState {
     fn blocks_close(&self) -> bool {
         matches!(self, Self::LiveSubmitting { .. })
     }
+
+    fn can_disable_live(&self) -> bool {
+        !matches!(
+            self,
+            Self::LiveSubmitting { .. } | Self::LiveSubmitted { .. }
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -327,6 +348,16 @@ impl WriteSessions {
                 event,
             }
         }
+    }
+
+    pub(super) fn disable_live(&mut self) -> usize {
+        let mut disabled = 0;
+        for session in &mut self.sessions {
+            if session.disable_live() {
+                disabled += 1;
+            }
+        }
+        disabled
     }
 
     pub(super) fn close(&mut self, id: &str) -> CloseSessionResult {
@@ -449,17 +480,11 @@ mod tests {
                 WriteSessionEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
-                WriteSessionEvent::LiveSubmitStarted {
-                    intent_id: "intent-1".to_string(),
-                },
-                WriteSessionEvent::LiveSubmitSucceeded {
-                    intent_id: "intent-1".to_string(),
-                },
             ],
         );
         assert_eq!(
             session.state(),
-            &WriteSessionState::LiveSubmitted {
+            &WriteSessionState::IntentCreated {
                 intent_id: "intent-1".to_string()
             }
         );
@@ -517,7 +542,7 @@ mod tests {
         assert_eq!(view.intent_id.as_deref(), Some("intent-1"));
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::DryRun);
-        assert!(session.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(!session.apply(WriteSessionEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         }));
     }
@@ -544,7 +569,47 @@ mod tests {
         let view = WriteSessionView::from(&session);
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::Test);
-        assert!(session.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(!session.apply(WriteSessionEvent::LiveSubmitStarted {
+            intent_id: "intent-1".to_string(),
+        }));
+    }
+
+    #[test]
+    fn only_live_mode_sessions_can_start_live_submission() {
+        for mode in [SubmitMode::DryRun, SubmitMode::Test] {
+            let mut session = WriteSession::from_request(request("session-1"), mode);
+            apply_all(
+                &mut session,
+                [
+                    WriteSessionEvent::ValidationStarted,
+                    WriteSessionEvent::ValidationReady,
+                    WriteSessionEvent::ConfirmationRequested,
+                    WriteSessionEvent::IntentCreated {
+                        intent_id: "intent-1".to_string(),
+                    },
+                ],
+            );
+
+            assert!(!session.apply(WriteSessionEvent::LiveSubmitStarted {
+                intent_id: "intent-1".to_string(),
+            }));
+            assert_eq!(WriteSessionView::from(&session).mode, mode);
+        }
+
+        let mut live = WriteSession::from_request(request("session-1"), SubmitMode::Live);
+        apply_all(
+            &mut live,
+            [
+                WriteSessionEvent::ValidationStarted,
+                WriteSessionEvent::ValidationReady,
+                WriteSessionEvent::ConfirmationRequested,
+                WriteSessionEvent::IntentCreated {
+                    intent_id: "intent-1".to_string(),
+                },
+            ],
+        );
+
+        assert!(live.apply(WriteSessionEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         }));
     }
@@ -683,5 +748,52 @@ mod tests {
         let view = sessions.views().pop().unwrap();
         assert_eq!(view.mode, SubmitMode::Live);
         assert_eq!(view.stage, WriteSessionStage::Draft);
+    }
+
+    #[test]
+    fn disabling_live_abandons_pending_live_sessions_but_keeps_submitting_sessions() {
+        let mut sessions = WriteSessions::default();
+        assert_eq!(
+            sessions.open(request("pending"), SubmitMode::Live),
+            OpenSessionResult::Opened
+        );
+        assert_eq!(
+            sessions.open(request("submitting"), SubmitMode::Live),
+            OpenSessionResult::Opened
+        );
+        apply_all(
+            sessions
+                .sessions
+                .iter_mut()
+                .find(|session| session.id == "submitting")
+                .expect("submitting session"),
+            [
+                WriteSessionEvent::ValidationStarted,
+                WriteSessionEvent::ValidationReady,
+                WriteSessionEvent::ConfirmationRequested,
+                WriteSessionEvent::IntentCreated {
+                    intent_id: "intent-1".to_string(),
+                },
+                WriteSessionEvent::LiveSubmitStarted {
+                    intent_id: "intent-1".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(sessions.disable_live(), 1);
+        let views = sessions.views();
+        let pending = views
+            .iter()
+            .find(|view| view.id == "pending")
+            .expect("pending view");
+        let submitting = views
+            .iter()
+            .find(|view| view.id == "submitting")
+            .expect("submitting view");
+
+        assert_eq!(pending.stage, WriteSessionStage::Abandoned);
+        assert_eq!(pending.mode, SubmitMode::DryRun);
+        assert_eq!(submitting.stage, WriteSessionStage::LiveSubmitting);
+        assert_eq!(submitting.mode, SubmitMode::Live);
     }
 }

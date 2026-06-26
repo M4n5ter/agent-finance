@@ -3,6 +3,17 @@ use crate::model::{FloatingKind, InteractionMode};
 use crate::state::AppState;
 
 pub fn mode_key_hints(state: &AppState) -> Vec<String> {
+    if state
+        .floating
+        .last()
+        .is_some_and(|pane| pane.kind == FloatingKind::LiveWritesConfirmation)
+    {
+        return vec![
+            "enter enable live writes".to_string(),
+            "esc close".to_string(),
+        ];
+    }
+
     match state.interaction_mode() {
         InteractionMode::Normal => normal_key_hints(state),
         InteractionMode::Command | InteractionMode::Search => {

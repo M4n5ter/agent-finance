@@ -33,20 +33,53 @@ fn reducer_wraps_symbol_focus_across_watchlist_boundaries() {
 }
 
 #[test]
-fn default_submit_mode_is_session_only_and_not_exported_to_config() {
+fn live_write_gate_is_session_only_and_not_exported_to_config() {
     let mut state = AppState::from_config(TuiConfig::default());
 
     state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+    state.reduce(Action::SetLiveWritesEnabled(true));
     let exported = state.export_config(&TuiConfig::default());
     let restored = AppState::from_config(exported);
 
     assert_eq!(state.default_submit_mode, SubmitMode::Live);
+    assert!(state.live_writes_enabled);
+    assert_eq!(state.effective_submit_mode(), SubmitMode::Live);
     assert_eq!(restored.default_submit_mode, SubmitMode::DryRun);
+    assert!(!restored.live_writes_enabled);
+    assert_eq!(restored.effective_submit_mode(), SubmitMode::DryRun);
+}
+
+#[test]
+fn write_sessions_use_dry_run_until_live_writes_are_confirmed() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+
+    state.reduce(Action::OpenWriteSession(WriteSessionRequest {
+        id: "order-1".to_string(),
+        intent_kind: SubmitIntentKind::Order,
+        summary: "Protected order".to_string(),
+    }));
+
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.mode, SubmitMode::DryRun);
+
+    state.reduce(Action::CloseWriteSession("order-1".to_string()));
+    state.reduce(Action::SetLiveWritesEnabled(true));
+    state.reduce(Action::OpenWriteSession(WriteSessionRequest {
+        id: "order-2".to_string(),
+        intent_kind: SubmitIntentKind::Order,
+        summary: "Confirmed live order".to_string(),
+    }));
+
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.mode, SubmitMode::Live);
 }
 
 #[test]
 fn reducer_tracks_write_session_workflow_without_accepting_unsafe_jumps() {
     let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+    state.reduce(Action::SetLiveWritesEnabled(true));
     state.reduce(Action::OpenWriteSession(WriteSessionRequest {
         id: "order-1".to_string(),
         intent_kind: SubmitIntentKind::Order,
@@ -94,6 +127,8 @@ fn reducer_tracks_write_session_workflow_without_accepting_unsafe_jumps() {
 #[test]
 fn reducer_keeps_live_submitting_write_session_until_terminal_event() {
     let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+    state.reduce(Action::SetLiveWritesEnabled(true));
     state.reduce(Action::OpenWriteSession(WriteSessionRequest {
         id: "order-1".to_string(),
         intent_kind: SubmitIntentKind::Order,
@@ -153,6 +188,50 @@ fn reducer_does_not_replace_active_write_session_with_new_submit_mode() {
     assert_eq!(view.mode, SubmitMode::DryRun);
     assert_eq!(view.stage, WriteSessionStage::Validating);
     assert_eq!(view.summary, "Dry run order");
+}
+
+#[test]
+fn live_write_command_requires_confirmation_before_enabling() {
+    let mut state = AppState::from_config(TuiConfig::default());
+
+    state.reduce(Action::Execute(ActionId::ToggleLiveWrites));
+
+    assert!(!state.live_writes_enabled);
+    assert_eq!(
+        state.floating.last().map(|pane| pane.kind),
+        Some(FloatingKind::LiveWritesConfirmation)
+    );
+
+    state.reduce(Action::SetLiveWritesEnabled(true));
+    assert!(state.live_writes_enabled);
+    assert!(
+        !state
+            .floating
+            .iter()
+            .any(|pane| pane.kind == FloatingKind::LiveWritesConfirmation)
+    );
+
+    state.reduce(Action::Execute(ActionId::ToggleLiveWrites));
+    assert!(!state.live_writes_enabled);
+}
+
+#[test]
+fn disabling_live_writes_abandons_pending_live_sessions() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+    state.reduce(Action::SetLiveWritesEnabled(true));
+    state.reduce(Action::OpenWriteSession(WriteSessionRequest {
+        id: "order-1".to_string(),
+        intent_kind: SubmitIntentKind::Order,
+        summary: "Pending live order".to_string(),
+    }));
+
+    state.reduce(Action::SetLiveWritesEnabled(false));
+
+    let view = state.write_session_views().pop().unwrap();
+    assert_eq!(view.stage, WriteSessionStage::Abandoned);
+    assert_eq!(view.mode, SubmitMode::DryRun);
+    assert_eq!(state.effective_submit_mode(), SubmitMode::DryRun);
 }
 
 #[test]

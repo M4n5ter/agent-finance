@@ -26,13 +26,21 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     if symbol_search_is_top(state) {
         return symbol_search_key_action(key);
     }
+    if live_writes_confirmation_is_top(state) {
+        return live_writes_confirmation_key_action(key);
+    }
 
     state.keymap.normal_action(key).map(Action::Execute)
 }
 
 pub fn should_quit(state: &AppState, key: KeyEvent) -> bool {
-    (matches!(key.code, KeyCode::Char('q')) && !text_input_floating_is_top(state))
-        || (matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL))
+    if matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return true;
+    }
+    if live_writes_confirmation_is_top(state) {
+        return false;
+    }
+    matches!(key.code, KeyCode::Char('q')) && !text_input_floating_is_top(state)
 }
 
 pub fn handle_mouse_event(
@@ -43,6 +51,9 @@ pub fn handle_mouse_event(
 ) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
+            if live_writes_confirmation_is_top(state) {
+                return;
+            }
             let layout = layout::build(
                 terminal_area,
                 &state.layout,
@@ -122,11 +133,26 @@ fn symbol_search_key_action(key: KeyEvent) -> Option<Action> {
     }
 }
 
+fn live_writes_confirmation_key_action(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Enter => Some(Action::SetLiveWritesEnabled(true)),
+        KeyCode::Esc => Some(Action::CloseFocusedFloating),
+        _ => None,
+    }
+}
+
 fn command_palette_is_top(state: &AppState) -> bool {
     state
         .floating
         .last()
         .is_some_and(|pane| pane.kind == FloatingKind::CommandPalette)
+}
+
+fn live_writes_confirmation_is_top(state: &AppState) -> bool {
+    state
+        .floating
+        .last()
+        .is_some_and(|pane| pane.kind == FloatingKind::LiveWritesConfirmation)
 }
 
 fn symbol_search_is_top(state: &AppState) -> bool {
@@ -237,6 +263,52 @@ mod tests {
             key_action(&state, KeyEvent::from(KeyCode::Char('a'))),
             Some(Action::EditSymbolSearchQuery(_))
         ));
+    }
+
+    #[test]
+    fn live_writes_confirmation_blocks_normal_keys_until_confirmed_or_closed() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::ToggleLiveWrites));
+
+        assert!(!should_quit(&state, KeyEvent::from(KeyCode::Char('q'))));
+        assert!(should_quit(
+            &state,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
+        ));
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Enter)),
+            Some(Action::SetLiveWritesEnabled(true))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Esc)),
+            Some(Action::CloseFocusedFloating)
+        );
+        assert_eq!(key_action(&state, KeyEvent::from(KeyCode::Char('j'))), None);
+    }
+
+    #[test]
+    fn live_writes_confirmation_blocks_mouse_focus_behind_the_modal() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+        state.reduce(Action::Execute(ActionId::ToggleLiveWrites));
+        let mut drag = MouseDrag::default();
+
+        handle_mouse_event(
+            Rect::new(0, 0, 120, 40),
+            &mut state,
+            &mut drag,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 1,
+                row: 1,
+                modifiers: KeyModifiers::empty(),
+            },
+        );
+
+        assert_eq!(
+            state.floating.last().map(|pane| pane.kind),
+            Some(FloatingKind::LiveWritesConfirmation)
+        );
     }
 
     #[test]

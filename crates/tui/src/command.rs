@@ -100,6 +100,7 @@ pub enum ActionId {
     SetWorkspace(WorkspaceKind),
     FocusPanel(Panel),
     TogglePanel(Panel),
+    ToggleLiveWrites,
     CloseCommandPalette,
 }
 
@@ -156,7 +157,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 36] = [
+pub const ACTION_REGISTRY: [ActionSpec; 37] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -234,6 +235,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 36] = [
         ActionId::ToggleFocusedZoom,
         "Toggle pane zoom",
         "Expand the focused docked pane or restore the workspace layout"
+    ),
+    action!(
+        "toggle-live-writes",
+        ActionId::ToggleLiveWrites,
+        "Toggle live writes",
+        "Enable live writes after confirmation or disable them for this session"
     ),
     action!(
         "next-workspace",

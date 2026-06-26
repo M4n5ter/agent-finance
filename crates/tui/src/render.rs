@@ -59,6 +59,7 @@ mod tests {
         assert!(wide.contains("Overview"));
         assert!(wide.contains("Crypto"));
         assert!(wide.contains("mode: normal"));
+        assert!(wide.contains("live:off"));
 
         let narrow = render_to_text(&state, 48, 20);
         assert!(narrow.contains("Crypto"));
@@ -79,6 +80,19 @@ mod tests {
         let text = render_to_text(&state, 120, 32);
 
         assert!(text.contains("profile: mainnet"));
+        assert!(text.contains("dry-run"));
+    }
+
+    #[test]
+    fn live_writes_confirmation_overlay_renders_explicit_gate() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(crate::state::Action::Execute(ActionId::ToggleLiveWrites));
+
+        let text = render_to_text_grid(&state, 120, 32);
+
+        assert!(text.contains("Enable Live Writes"));
+        assert!(text.contains("Enter: enable live writes for this session"));
+        assert!(text.contains("Esc: keep live writes disabled"));
     }
 
     #[test]
