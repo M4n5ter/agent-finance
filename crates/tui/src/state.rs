@@ -12,6 +12,7 @@ use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel
 use crate::search::SymbolSearchState;
 use crate::task_failure::TaskFailures;
 use crate::task_log::TaskLog;
+use crate::theme::ThemeConfig;
 
 mod interaction;
 mod lifecycle;
@@ -42,6 +43,7 @@ pub struct AppState {
     pub research: SelectedSymbolLoad<ResearchContextSnapshot>,
     pub task_failures: TaskFailures,
     pub scheduler_error: Option<String>,
+    pub theme: ThemeConfig,
 }
 
 impl AppState {
@@ -66,6 +68,7 @@ impl AppState {
             research: SelectedSymbolLoad::new(),
             task_failures: TaskFailures::default(),
             scheduler_error: None,
+            theme: config.theme,
         };
         state.ensure_visible_focus();
         state
@@ -91,6 +94,7 @@ impl AppState {
                 .collect(),
         };
         config.keymap = self.keymap.clone();
+        config.theme = self.theme.clone();
         config.normalize();
         config
     }

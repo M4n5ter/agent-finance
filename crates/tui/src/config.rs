@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::keymap::KeymapConfig;
 use crate::model::{DockedPanels, FloatingPane, FloatingSize, Panel, WorkspaceKind};
+use crate::theme::ThemeConfig;
 
 pub const MIN_LEFT_RATIO: u16 = 15;
 pub const MAX_LEFT_RATIO: u16 = 35;
@@ -138,6 +139,8 @@ pub struct TuiConfig {
     pub refresh: RefreshConfig,
     #[serde(default)]
     pub providers: ProviderConfig,
+    #[serde(default)]
+    pub theme: ThemeConfig,
     #[serde(default, skip_serializing_if = "KeymapConfig::is_empty")]
     pub keymap: KeymapConfig,
 }
@@ -152,6 +155,7 @@ impl Default for TuiConfig {
             floating: FloatingConfig::default(),
             refresh: RefreshConfig::default(),
             providers: ProviderConfig::default(),
+            theme: ThemeConfig::default(),
             keymap: KeymapConfig::default(),
         }
     }
@@ -188,6 +192,7 @@ impl TuiConfig {
         self.panels.normalize();
         self.floating.normalize();
         self.refresh.normalize();
+        self.theme.normalize();
         self.keymap.normalize();
     }
 }
@@ -596,6 +601,7 @@ mod tests {
                 equity: EquityProvider::Yahoo,
                 crypto: CryptoProvider::Binance,
             },
+            theme: ThemeConfig::default(),
             keymap: KeymapConfig::default(),
         };
         config.normalize();
@@ -618,9 +624,11 @@ mod tests {
         assert_eq!(decoded.refresh.research_seconds, 60);
         assert_eq!(decoded.providers.equity, EquityProvider::Yahoo);
         assert_eq!(decoded.providers.crypto, CryptoProvider::Binance);
+        assert_eq!(decoded.theme, ThemeConfig::default());
         assert_eq!(decoded.keymap.normal, KeymapConfig::default().normal);
         assert!(encoded.contains("equity = \"yahoo\""));
         assert!(encoded.contains("crypto = \"binance\""));
+        assert!(encoded.contains("[theme]"));
         assert!(!encoded.contains("[keymap]"));
     }
 

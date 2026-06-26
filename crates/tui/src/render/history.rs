@@ -1,13 +1,14 @@
-use ratatui::style::{Color, Style};
 use ratatui::widgets::{Axis, Chart, Dataset, GraphType};
 
-pub(super) fn chart(points: &[(f64, f64)]) -> Chart<'_> {
+use crate::theme::ThemeConfig;
+
+pub(super) fn chart<'a>(points: &'a [(f64, f64)], theme: &ThemeConfig) -> Chart<'a> {
     let bounds = chart_bounds(points);
     let dataset = Dataset::default()
         .name("close")
         .marker(ratatui::symbols::Marker::Braille)
         .graph_type(GraphType::Area)
-        .style(Style::default().fg(Color::Green))
+        .style(theme.success_style())
         .fill_to_y(bounds.y[0])
         .data(points);
     Chart::new(vec![dataset])

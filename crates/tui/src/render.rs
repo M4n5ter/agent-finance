@@ -34,11 +34,14 @@ mod tests {
     use crate::command::ActionId;
     use crate::config::TuiConfig;
     use crate::model::{FloatingKind, WorkspaceKind};
+    use crate::theme::{ThemeColor, ThemeConfig};
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::research_snapshot::{ResearchContextSnapshot, ResearchNewsSnapshot};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+    use ratatui::style::Color;
     use ratatui::symbols;
 
     #[test]
@@ -206,6 +209,27 @@ mod tests {
         assert!(text.contains(symbols::shade::DARK));
     }
 
+    #[test]
+    fn command_palette_selection_uses_configured_theme_style() {
+        let mut state = AppState::from_config(TuiConfig {
+            theme: ThemeConfig {
+                selection_foreground: ThemeColor::White,
+                selection_background: ThemeColor::Magenta,
+                ..ThemeConfig::default()
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(crate::state::Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+
+        let buffer = render_to_buffer(&state, 100, 30);
+
+        assert!(buffer.content().iter().any(|cell| {
+            cell.symbol() == ">" && cell.fg == Color::White && cell.bg == Color::Magenta
+        }));
+    }
+
     fn research_snapshot() -> ResearchContextSnapshot {
         ResearchContextSnapshot {
             requested_symbol: "CRDO".to_string(),
@@ -258,10 +282,7 @@ mod tests {
     }
 
     fn render_to_text_grid(state: &AppState, width: u16, height: u16) -> String {
-        let backend = TestBackend::new(width, height);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(frame, state)).unwrap();
-        let buffer = terminal.backend().buffer();
+        let buffer = render_to_buffer(state, width, height);
 
         (0..height)
             .map(|y| {
@@ -275,13 +296,15 @@ mod tests {
             .join("\n")
     }
 
-    fn render_to_text(state: &AppState, width: u16, height: u16) -> String {
+    fn render_to_buffer(state: &AppState, width: u16, height: u16) -> Buffer {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| render(frame, state)).unwrap();
-        terminal
-            .backend()
-            .buffer()
+        terminal.backend().buffer().clone()
+    }
+
+    fn render_to_text(state: &AppState, width: u16, height: u16) -> String {
+        render_to_buffer(state, width, height)
             .content()
             .iter()
             .map(|cell| cell.symbol())

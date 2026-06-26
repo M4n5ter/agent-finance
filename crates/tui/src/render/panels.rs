@@ -4,7 +4,7 @@ use agent_finance_market::snapshot::QuoteSnapshot;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 
@@ -13,6 +13,7 @@ use crate::model::Panel;
 use crate::provider_health::ProviderHealthReport;
 use crate::state::AppState;
 use crate::task_log::TaskStatus;
+use crate::theme::ThemeConfig;
 
 use super::history;
 use super::provider_health;
@@ -48,9 +49,7 @@ fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 " "
             };
             let style = if index == state.selected_symbol {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                state.theme.accent_style().add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -87,9 +86,7 @@ fn render_quote(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut text = vec![Line::from(vec![
         Span::styled(
             symbol,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
         ),
         Span::raw(if state.refresh_loading() {
             " refreshing..."
@@ -110,7 +107,7 @@ fn render_quote(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         for error in snapshot.errors.iter().take(2) {
             text.push(Line::from(Span::styled(
                 format!("provider error: {error}"),
-                Style::default().fg(Color::Yellow),
+                state.theme.warning_style(),
             )));
         }
     }
@@ -137,9 +134,7 @@ fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = vec![Line::from(vec![
         Span::styled(
             symbol,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
         ),
         Span::raw(if state.history.loading() {
             " history loading..."
@@ -179,7 +174,7 @@ fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             for error in snapshot.errors.iter().take(1) {
                 lines.push(Line::from(Span::styled(
                     format!("history warning: {error}"),
-                    Style::default().fg(Color::Yellow),
+                    state.theme.warning_style(),
                 )));
             }
         }
@@ -200,7 +195,7 @@ fn render_history(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         })
         .unwrap_or_default();
     let points = history::chart_points(&closes);
-    let chart = history::chart(&points);
+    let chart = history::chart(&points, &state.theme);
     frame.render_widget(chart, chunks[1]);
 }
 
@@ -210,9 +205,7 @@ fn render_evidence(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = vec![Line::from(vec![
         Span::styled(
             symbol,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
         ),
         Span::raw(if state.evidence.loading() {
             " evidence loading..."
@@ -222,7 +215,7 @@ fn render_evidence(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     ])];
 
     match snapshot {
-        Some(snapshot) => lines.extend(evidence_lines(snapshot)),
+        Some(snapshot) => lines.extend(evidence_lines(snapshot, &state.theme)),
         None => lines.push(Line::from(
             "No crypto evidence loaded yet. Waiting for the selected symbol.",
         )),
@@ -242,9 +235,7 @@ fn render_research(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = vec![Line::from(vec![
         Span::styled(
             symbol,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
         ),
         Span::raw(if state.research.loading() {
             " research loading..."
@@ -254,7 +245,7 @@ fn render_research(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     ])];
 
     match snapshot {
-        Some(snapshot) => lines.extend(research_lines(snapshot)),
+        Some(snapshot) => lines.extend(research_lines(snapshot, &state.theme)),
         None => lines.push(Line::from(
             "No research context loaded yet. Waiting for the selected symbol.",
         )),
@@ -274,9 +265,7 @@ fn render_polymarket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = vec![Line::from(vec![
         Span::styled(
             symbol,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
         ),
         Span::raw(if state.research.loading() {
             " prediction signals loading..."
@@ -286,7 +275,7 @@ fn render_polymarket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     ])];
 
     match snapshot {
-        Some(snapshot) => lines.extend(prediction_market_lines(snapshot)),
+        Some(snapshot) => lines.extend(prediction_market_lines(snapshot, &state.theme)),
         None => lines.push(Line::from(
             "No prediction market context loaded yet. Waiting for research refresh.",
         )),
@@ -309,8 +298,7 @@ fn render_provider_health(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             .take(8)
             .map(|profile| {
                 Row::new([
-                    Cell::from(profile.provider.clone())
-                        .style(Style::default().fg(Color::DarkGray)),
+                    Cell::from(profile.provider.clone()).style(state.theme.muted_style()),
                     Cell::from("capability"),
                     Cell::from(profile.best_for.clone()),
                     Cell::from("-"),
@@ -318,13 +306,13 @@ fn render_provider_health(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             })
             .collect::<Vec<_>>()
     } else {
-        provider_health::table_rows(report, area.height.saturating_sub(3) as usize)
+        provider_health::table_rows(report, area.height.saturating_sub(3) as usize, &state.theme)
     };
     frame.render_widget(
         Table::new(rows, provider_health::table_widths())
             .header(
                 Row::new(["provider", "status", "detail", "freshness"])
-                    .style(Style::default().fg(Color::Cyan)),
+                    .style(state.theme.accent_style()),
             )
             .block(panel_block(Panel::ProviderHealth, state)),
         area,
@@ -338,7 +326,7 @@ fn render_task_log(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         .rev()
         .take(area.height.saturating_sub(3) as usize)
         .map(|entry| {
-            let style = task_status_style(entry.status);
+            let style = task_status_style(entry.status, &state.theme);
             Row::new([
                 Cell::from(entry.status.label()).style(style),
                 Cell::from(entry.message.clone()),
@@ -347,19 +335,19 @@ fn render_task_log(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         .collect::<Vec<_>>();
     frame.render_widget(
         Table::new(rows, [Constraint::Length(10), Constraint::Min(10)])
-            .header(Row::new(["status", "event"]).style(Style::default().fg(Color::Cyan)))
+            .header(Row::new(["status", "event"]).style(state.theme.accent_style()))
             .block(panel_block(Panel::TaskLog, state)),
         area,
     );
 }
 
-fn task_status_style(status: TaskStatus) -> Style {
+fn task_status_style(status: TaskStatus, theme: &ThemeConfig) -> Style {
     match status {
-        TaskStatus::Info => Style::default().fg(Color::Gray),
-        TaskStatus::Running => Style::default().fg(Color::Yellow),
-        TaskStatus::Succeeded => Style::default().fg(Color::Green),
-        TaskStatus::Warning => Style::default().fg(Color::Yellow),
-        TaskStatus::Failed => Style::default().fg(Color::Red),
+        TaskStatus::Info => theme.neutral_style(),
+        TaskStatus::Running => theme.warning_style(),
+        TaskStatus::Succeeded => theme.success_style(),
+        TaskStatus::Warning => theme.warning_style(),
+        TaskStatus::Failed => theme.danger_style(),
     }
 }
 
@@ -414,7 +402,10 @@ fn quote_lines(quote: &QuoteSnapshot) -> Vec<Line<'static>> {
     ]
 }
 
-fn evidence_lines(snapshot: &CryptoQuoteEvidenceSnapshot) -> Vec<Line<'static>> {
+fn evidence_lines(
+    snapshot: &CryptoQuoteEvidenceSnapshot,
+    theme: &ThemeConfig,
+) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(format!(
             "quote / {}  providers={}/{}",
@@ -430,7 +421,7 @@ fn evidence_lines(snapshot: &CryptoQuoteEvidenceSnapshot) -> Vec<Line<'static>> 
         for error in snapshot.errors.iter().take(2) {
             lines.push(Line::from(Span::styled(
                 error.clone(),
-                Style::default().fg(Color::Yellow),
+                theme.warning_style(),
             )));
         }
         return lines;
@@ -438,9 +429,9 @@ fn evidence_lines(snapshot: &CryptoQuoteEvidenceSnapshot) -> Vec<Line<'static>> 
 
     for provider in snapshot.providers.iter().take(4) {
         let style = if provider.ok {
-            Style::default().fg(Color::Green)
+            theme.success_style()
         } else {
-            Style::default().fg(Color::Yellow)
+            theme.warning_style()
         };
         lines.push(Line::from(vec![
             Span::styled(provider.provider.clone(), style),
@@ -452,14 +443,14 @@ fn evidence_lines(snapshot: &CryptoQuoteEvidenceSnapshot) -> Vec<Line<'static>> 
         if let Some(error) = provider.first_error.as_ref() {
             lines.push(Line::from(Span::styled(
                 format!("  {error}"),
-                Style::default().fg(Color::DarkGray),
+                theme.muted_style(),
             )));
         }
     }
     lines
 }
 
-fn research_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
+fn research_lines(snapshot: &ResearchContextSnapshot, theme: &ThemeConfig) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(format!(
         "freshness: {}  news={}",
         snapshot.fetched_at_local.as_deref().unwrap_or("-"),
@@ -468,7 +459,7 @@ fn research_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
 
     for item in snapshot.news.iter().take(3) {
         lines.push(Line::from(vec![
-            Span::styled("news ", Style::default().fg(Color::Green)),
+            Span::styled("news ", theme.success_style()),
             Span::raw(compact_text(&item.title, 96)),
         ]));
     }
@@ -479,14 +470,17 @@ fn research_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
     {
         lines.push(Line::from(Span::styled(
             format!("research warning: {error}"),
-            Style::default().fg(Color::Yellow),
+            theme.warning_style(),
         )));
     }
 
     lines
 }
 
-fn prediction_market_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'static>> {
+fn prediction_market_lines(
+    snapshot: &ResearchContextSnapshot,
+    theme: &ThemeConfig,
+) -> Vec<Line<'static>> {
     let errors = scoped_errors(snapshot, ResearchErrorScope::Polymarket);
     let mut lines = vec![Line::from(format!(
         "freshness: {}  markets={}",
@@ -498,7 +492,7 @@ fn prediction_market_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'stat
         lines.extend(errors.into_iter().take(2).map(|error| {
             Line::from(Span::styled(
                 format!("polymarket warning: {error}"),
-                Style::default().fg(Color::Yellow),
+                theme.warning_style(),
             ))
         }));
     } else if snapshot.prediction_markets.is_empty() {
@@ -512,7 +506,7 @@ fn prediction_market_lines(snapshot: &ResearchContextSnapshot) -> Vec<Line<'stat
             .prediction_markets
             .iter()
             .take(5)
-            .map(prediction_market_line),
+            .map(|market| prediction_market_line(market, theme)),
     );
 
     lines
@@ -542,7 +536,7 @@ fn scoped_errors(snapshot: &ResearchContextSnapshot, scope: ResearchErrorScope) 
         .collect()
 }
 
-fn prediction_market_line(market: &PredictionMarketSnapshot) -> Line<'static> {
+fn prediction_market_line(market: &PredictionMarketSnapshot, theme: &ThemeConfig) -> Line<'static> {
     let probability = market
         .probability
         .map(|value| format!("{:.0}%", value * 100.0))
@@ -562,7 +556,7 @@ fn prediction_market_line(market: &PredictionMarketSnapshot) -> Line<'static> {
         .unwrap_or_default();
 
     Line::from(vec![
-        Span::styled("poly ", Style::default().fg(Color::Magenta)),
+        Span::styled("poly ", theme.prediction_style()),
         Span::raw(format!(
             "{probability} vol={volume} liq={liquidity} {}{url}",
             compact_text(&market.title, 72)
@@ -573,12 +567,13 @@ fn prediction_market_line(market: &PredictionMarketSnapshot) -> Line<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::ThemeConfig;
     use agent_finance_market::research_snapshot::ResearchNewsSnapshot;
 
     #[test]
     fn research_lines_do_not_duplicate_prediction_market_signals() {
         let snapshot = research_snapshot();
-        let text = joined_lines(research_lines(&snapshot));
+        let text = joined_lines(research_lines(&snapshot, &ThemeConfig::default()));
 
         assert!(text.contains("news=1"));
         assert!(text.contains("news AI optics demand"));
@@ -589,7 +584,7 @@ mod tests {
     #[test]
     fn prediction_market_lines_show_probability_and_market_depth() {
         let snapshot = research_snapshot();
-        let text = joined_lines(prediction_market_lines(&snapshot));
+        let text = joined_lines(prediction_market_lines(&snapshot, &ThemeConfig::default()));
 
         assert!(text.contains("markets=1"));
         assert!(text.contains("63%"));
@@ -606,8 +601,9 @@ mod tests {
             "polymarket: clob unavailable".to_string(),
         ];
 
-        let research = joined_lines(research_lines(&snapshot));
-        let polymarket = joined_lines(prediction_market_lines(&snapshot));
+        let theme = ThemeConfig::default();
+        let research = joined_lines(research_lines(&snapshot, &theme));
+        let polymarket = joined_lines(prediction_market_lines(&snapshot, &theme));
 
         assert!(research.contains("research warning: provider timeout"));
         assert!(!research.contains("clob unavailable"));

@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders};
 
 use crate::model::Panel;
@@ -37,9 +37,9 @@ pub(super) fn format_volume(value: f64) -> String {
 pub(super) fn panel_block(panel: Panel, state: &AppState) -> Block<'static> {
     let status = pane_health(state, panel).status;
     let style = if state.panels.focused() == panel {
-        Style::default().fg(Color::Cyan)
+        state.theme.accent_style()
     } else {
-        Style::default().fg(status_color(status))
+        status_style(state, status)
     };
     let title = format!("{} [{}]", panel.title(), status.label());
     Block::default()
@@ -48,11 +48,13 @@ pub(super) fn panel_block(panel: Panel, state: &AppState) -> Block<'static> {
         .border_style(style)
 }
 
-fn status_color(status: TuiPaneStatus) -> Color {
+fn status_style(state: &AppState, status: TuiPaneStatus) -> Style {
     match status {
-        TuiPaneStatus::Fresh => Color::Green,
-        TuiPaneStatus::Loading => Color::Yellow,
-        TuiPaneStatus::Partial | TuiPaneStatus::Empty | TuiPaneStatus::Stale => Color::Gray,
-        TuiPaneStatus::Error => Color::Red,
+        TuiPaneStatus::Fresh => state.theme.success_style(),
+        TuiPaneStatus::Loading => state.theme.warning_style(),
+        TuiPaneStatus::Partial | TuiPaneStatus::Empty | TuiPaneStatus::Stale => {
+            state.theme.neutral_style()
+        }
+        TuiPaneStatus::Error => state.theme.danger_style(),
     }
 }

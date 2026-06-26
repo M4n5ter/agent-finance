@@ -1,17 +1,22 @@
 use std::cmp::Reverse;
 
 use ratatui::layout::Constraint;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::widgets::{Cell, Row};
 
 use crate::provider_health::{
     ProviderHealthProvider, ProviderHealthReport, ProviderHealthSeverity, ProviderHealthTask,
 };
+use crate::theme::ThemeConfig;
 
-pub(super) fn table_rows(report: ProviderHealthReport, limit: usize) -> Vec<Row<'static>> {
+pub(super) fn table_rows(
+    report: ProviderHealthReport,
+    limit: usize,
+    theme: &ThemeConfig,
+) -> Vec<Row<'static>> {
     display_rows(report, limit)
         .into_iter()
-        .map(table_row)
+        .map(|row| table_row(row, theme))
         .collect()
 }
 
@@ -114,13 +119,13 @@ fn task_display_row(task: ProviderHealthTask) -> DisplayRow {
     }
 }
 
-fn table_row(row: DisplayRow) -> Row<'static> {
-    let style = status_style(row.severity);
+fn table_row(row: DisplayRow, theme: &ThemeConfig) -> Row<'static> {
+    let style = status_style(row.severity, theme);
     Row::new([
         Cell::from(row.provider).style(style),
         Cell::from(row.status).style(style),
         Cell::from(row.detail),
-        Cell::from(row.freshness).style(Style::default().fg(Color::DarkGray)),
+        Cell::from(row.freshness).style(theme.muted_style()),
     ])
 }
 
@@ -132,11 +137,11 @@ fn status_label(status: ProviderHealthSeverity) -> &'static str {
     }
 }
 
-fn status_style(status: ProviderHealthSeverity) -> Style {
+fn status_style(status: ProviderHealthSeverity, theme: &ThemeConfig) -> Style {
     match status {
-        ProviderHealthSeverity::Ok => Style::default().fg(Color::Green),
-        ProviderHealthSeverity::Warning => Style::default().fg(Color::Yellow),
-        ProviderHealthSeverity::Loading => Style::default().fg(Color::Cyan),
+        ProviderHealthSeverity::Ok => theme.success_style(),
+        ProviderHealthSeverity::Warning => theme.warning_style(),
+        ProviderHealthSeverity::Loading => theme.accent_style(),
     }
 }
 

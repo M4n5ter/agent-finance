@@ -2,13 +2,14 @@ use std::ops::Range;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Offset, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, Wrap};
 
 use crate::hints;
 use crate::model::{FloatingKind, InteractionMode, WorkspaceKind};
 use crate::state::AppState;
+use crate::theme::ThemeConfig;
 
 pub(super) fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     if area.is_empty() {
@@ -25,11 +26,12 @@ pub(super) fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect)
             .collect::<Vec<_>>(),
     )
     .select(workspace_index(state.workspace))
-    .style(Style::default().bg(Color::DarkGray).fg(Color::Gray))
+    .style(state.theme.chrome_style())
     .highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .fg(Color::Cyan)
+        state
+            .theme
+            .chrome_style()
+            .fg(state.theme.accent.color())
             .add_modifier(Modifier::BOLD),
     )
     .divider("|")
@@ -48,7 +50,7 @@ pub(super) fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect)
         .unwrap_or(0);
     let text = status_detail(state, symbol, errors, detail_area.width);
     frame.render_widget(
-        Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White)),
+        Paragraph::new(text).style(state.theme.chrome_style().fg(state.theme.text.color())),
         detail_area,
     );
 }
@@ -109,7 +111,7 @@ pub(super) fn render_floating(
     };
     frame.render_widget(
         Paragraph::new(text)
-            .block(floating_block(kind.title()))
+            .block(floating_block(kind.title(), &state.theme))
             .wrap(Wrap { trim: true }),
         area,
     );
@@ -130,15 +132,13 @@ fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             noun: "matches",
             empty: "No matching commands",
         },
+        &state.theme,
         |index, is_selected| {
             let command = state.command_palette.command_at(index)?;
             let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                state.theme.text_style()
             };
             Some(ListItem::new(Line::from(vec![
                 Span::styled(if is_selected { "> " } else { "  " }, style),
@@ -165,21 +165,17 @@ fn render_symbol_search(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             noun: "symbols",
             empty: "No matching symbols",
         },
+        &state.theme,
         |index, is_selected| {
             let symbol_index = state.symbol_search.symbol_index_at(index)?;
             let symbol = state.watchlist.get(symbol_index)?;
             let is_current = symbol_index == state.selected_symbol;
             let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
             } else if is_current {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                state.theme.accent_style().add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                state.theme.text_style()
             };
             Some(ListItem::new(Line::from(vec![
                 Span::styled(if is_selected { "> " } else { "  " }, style),
@@ -205,11 +201,12 @@ fn render_search_floating(
     frame: &mut Frame<'_>,
     area: Rect,
     floating: SearchFloating<'_>,
+    theme: &ThemeConfig,
     mut item_at: impl FnMut(usize, bool) -> Option<ListItem<'static>>,
 ) {
     if area.height < 4 {
         frame.render_widget(
-            Paragraph::new(floating.title).block(floating_block(floating.title)),
+            Paragraph::new(floating.title).block(floating_block(floating.title, theme)),
             area,
         );
         return;
@@ -224,11 +221,11 @@ fn render_search_floating(
     frame.render_widget(
         Paragraph::new(input)
             .style(if floating.query.is_empty() {
-                Style::default().fg(Color::DarkGray)
+                theme.muted_style()
             } else {
-                Style::default().fg(Color::Cyan)
+                theme.accent_style()
             })
-            .block(dynamic_floating_block(floating.input_title)),
+            .block(dynamic_floating_block(floating.input_title, theme)),
         input_area,
     );
 
@@ -257,13 +254,13 @@ fn render_search_floating(
     let items = if items.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
             floating.empty,
-            Style::default().fg(Color::DarkGray),
+            theme.muted_style(),
         )))]
     } else {
         items
     };
     frame.render_widget(
-        List::new(items).block(dynamic_floating_block(title)),
+        List::new(items).block(dynamic_floating_block(title, theme)),
         list_area,
     );
 }
@@ -332,18 +329,18 @@ fn command_window(total: usize, selected: usize, capacity: usize) -> Range<usize
     start..end
 }
 
-fn floating_block(title: &'static str) -> Block<'static> {
-    shadowed_block(simple_block(title))
+fn floating_block(title: &'static str, theme: &ThemeConfig) -> Block<'static> {
+    shadowed_block(simple_block(title), theme)
 }
 
-fn dynamic_floating_block(title: String) -> Block<'static> {
-    shadowed_block(Block::default().title(title).borders(Borders::ALL))
+fn dynamic_floating_block(title: String, theme: &ThemeConfig) -> Block<'static> {
+    shadowed_block(Block::default().title(title).borders(Borders::ALL), theme)
 }
 
-fn shadowed_block(block: Block<'static>) -> Block<'static> {
+fn shadowed_block(block: Block<'static>, theme: &ThemeConfig) -> Block<'static> {
     block.shadow(
         Shadow::dark_shade()
-            .style(Style::default().fg(Color::Black).bg(Color::DarkGray))
+            .style(theme.shadow_style())
             .offset(Offset::new(1, 1)),
     )
 }
