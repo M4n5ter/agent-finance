@@ -16,6 +16,7 @@ use crate::search::SymbolSearchState;
 use crate::task_failure::TaskFailures;
 use crate::task_log::TaskLog;
 use crate::theme::ThemeConfig;
+use crate::transfer_ticket::{TransferTicket, TransferTicketPreview};
 
 mod interaction;
 mod lifecycle;
@@ -29,7 +30,7 @@ pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 pub use staged_change::StagedChangeStage;
 pub use staged_change::{
     CancelReview, OrderTicketReview, StagedChangeEvent, StagedChangeRequest, StagedChangeSubject,
-    StagedChangeView, StagedSubmitRequest,
+    StagedChangeView, StagedSubmitRequest, TransferReview,
 };
 use staged_change::{
     CloseStagedChangeResult, OpenStagedChangeResult, QueueSubmitResult, StagedChanges,
@@ -65,6 +66,7 @@ pub struct AppState {
     pub live_writes_enabled: bool,
     pub trading_profile: Option<String>,
     pub order_ticket: OrderTicket,
+    pub transfer_ticket: TransferTicket,
     staged_changes: StagedChanges,
     pending_staged_submit: Option<StagedSubmitRequest>,
 }
@@ -99,6 +101,7 @@ impl AppState {
             live_writes_enabled: false,
             trading_profile: config.trading.default_profile,
             order_ticket: OrderTicket::default(),
+            transfer_ticket: TransferTicket::default(),
             staged_changes: StagedChanges::default(),
             pending_staged_submit: None,
         };
@@ -166,6 +169,14 @@ impl AppState {
         )
     }
 
+    pub fn transfer_ticket_preview(&self) -> TransferTicketPreview {
+        self.transfer_ticket.preview(
+            self.trading_profile.as_deref(),
+            self.live_writes_enabled,
+            self.effective_submit_mode(),
+        )
+    }
+
     fn stage_order_ticket(&mut self) {
         let preview = self.order_ticket_preview();
         self.focus_panel(Panel::IntentReview);
@@ -198,6 +209,42 @@ impl AppState {
             OpenStagedChangeResult::Rejected => {
                 self.task_log.warning_event(
                     "order ticket cannot replace an active staged change".to_string(),
+                );
+            }
+        }
+    }
+
+    fn stage_transfer_ticket(&mut self) {
+        let preview = self.transfer_ticket_preview();
+        self.focus_panel(Panel::IntentReview);
+        if !preview.ready {
+            self.task_log.warning_event(format!(
+                "transfer ticket is not ready: {}",
+                preview.blockers.join("; ")
+            ));
+            return;
+        }
+
+        let Some(review) = transfer_review(&preview) else {
+            self.task_log
+                .warning_event("transfer review snapshot could not be built".to_string());
+            return;
+        };
+        let request = StagedChangeRequest {
+            id: transfer_staged_change_id(&review),
+            subject: StagedChangeSubject::Transfer(review),
+        };
+        let change_id = request.id.clone();
+        match self
+            .staged_changes
+            .open_ready(request, self.effective_submit_mode())
+        {
+            OpenStagedChangeResult::Opened => {
+                self.task_log.info(format!("staged transfer {change_id}"));
+            }
+            OpenStagedChangeResult::Rejected => {
+                self.task_log.warning_event(
+                    "transfer ticket cannot replace an active staged change".to_string(),
                 );
             }
         }
@@ -295,8 +342,15 @@ impl AppState {
                 self.order_ticket
                     .adjust_selected_field(direction, self.selected_quote_price());
             }
+            Action::MoveTransferTicketField(direction) => {
+                self.transfer_ticket.move_field(direction);
+            }
+            Action::AdjustTransferTicketField(direction) => {
+                self.transfer_ticket.adjust_selected_field(direction);
+            }
             Action::MoveOpenOrderSelection(direction) => self.move_open_order_selection(direction),
             Action::StageOrderTicket => self.stage_order_ticket(),
+            Action::StageTransferTicket => self.stage_transfer_ticket(),
             Action::StageSelectedOpenOrderCancel => self.stage_selected_open_order_cancel(),
             Action::SubmitStagedChange => self.submit_next_staged_change(),
             Action::Execute(action) => self.execute(action),
@@ -508,6 +562,24 @@ fn order_ticket_staged_change_id(review: &OrderTicketReview) -> String {
     sanitize_staged_change_id(&parts.join("-"))
 }
 
+fn transfer_review(preview: &TransferTicketPreview) -> Option<TransferReview> {
+    Some(TransferReview {
+        profile: preview.profile.clone()?,
+        direction: preview.direction,
+        asset: preview.asset.clone(),
+        amount: preview.amount.clone()?,
+        parsed_amount: preview.parsed_amount.clone()?,
+        effective_mode: preview.effective_mode,
+    })
+}
+
+fn transfer_staged_change_id(review: &TransferReview) -> String {
+    sanitize_staged_change_id(&format!(
+        "transfer-{}-{}-{}-{}-{}",
+        review.profile, review.effective_mode, review.direction, review.asset, review.amount
+    ))
+}
+
 fn cancel_staged_change_id(review: &CancelReview) -> String {
     sanitize_staged_change_id(&format!(
         "cancel-{}-{}-{}-{}-{}",
@@ -557,8 +629,11 @@ pub enum Action {
     AcceptSymbolSearch,
     MoveOrderTicketField(isize),
     AdjustOrderTicketField(isize),
+    MoveTransferTicketField(isize),
+    AdjustTransferTicketField(isize),
     MoveOpenOrderSelection(isize),
     StageOrderTicket,
+    StageTransferTicket,
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
     Execute(ActionId),

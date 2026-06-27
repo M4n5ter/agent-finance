@@ -11,6 +11,7 @@ pub(super) use collection::{
 };
 pub use subject::{
     CancelReview, OrderTicketReview, StagedChangeRequest, StagedChangeSubject, StagedSubmitRequest,
+    TransferReview,
 };
 #[cfg(test)]
 pub use workflow::StagedChangeStage;

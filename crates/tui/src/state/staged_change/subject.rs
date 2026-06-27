@@ -1,5 +1,6 @@
 use agent_finance_core::{
     DecimalValue, Market, OrderIdentifier, OrderKind, OrderSide, OrderSpec, TimeInForce,
+    TransferDirection,
     submit::{SubmitIntentKind, SubmitMode},
 };
 use serde::Serialize;
@@ -35,6 +36,7 @@ pub struct StagedSubmitRequest {
 pub enum StagedChangeSubject {
     OrderTicket(OrderTicketReview),
     Cancel(CancelReview),
+    Transfer(TransferReview),
     #[cfg(test)]
     Text {
         intent_kind: SubmitIntentKind,
@@ -47,6 +49,7 @@ impl StagedChangeSubject {
         match self {
             Self::OrderTicket(_) => SubmitIntentKind::Order,
             Self::Cancel(_) => SubmitIntentKind::Cancel,
+            Self::Transfer(_) => SubmitIntentKind::Transfer,
             #[cfg(test)]
             Self::Text { intent_kind, .. } => *intent_kind,
         }
@@ -56,6 +59,7 @@ impl StagedChangeSubject {
         match self {
             Self::OrderTicket(review) => review.summary(),
             Self::Cancel(review) => review.summary(),
+            Self::Transfer(review) => review.summary(),
             #[cfg(test)]
             Self::Text { summary, .. } => summary.clone(),
         }
@@ -65,6 +69,7 @@ impl StagedChangeSubject {
         match self {
             Self::OrderTicket(_) => "order",
             Self::Cancel(_) => "cancel",
+            Self::Transfer(_) => "transfer",
             #[cfg(test)]
             Self::Text { .. } => "text",
         }
@@ -72,14 +77,32 @@ impl StagedChangeSubject {
 
     pub fn submit_request(&self, id: String, mode: SubmitMode) -> Option<StagedSubmitRequest> {
         match self {
-            Self::OrderTicket(_) | Self::Cancel(_) => Some(StagedSubmitRequest {
-                id,
-                subject: self.clone(),
-                mode,
-            }),
+            Self::OrderTicket(_) | Self::Cancel(_) | Self::Transfer(_) => {
+                Some(StagedSubmitRequest {
+                    id,
+                    subject: self.clone(),
+                    mode,
+                })
+            }
             #[cfg(test)]
             Self::Text { .. } => None,
         }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct TransferReview {
+    pub profile: String,
+    pub direction: TransferDirection,
+    pub asset: String,
+    pub amount: String,
+    pub parsed_amount: DecimalValue,
+    pub effective_mode: SubmitMode,
+}
+
+impl TransferReview {
+    pub fn summary(&self) -> String {
+        format!("transfer {} {} {}", self.direction, self.amount, self.asset)
     }
 }
 

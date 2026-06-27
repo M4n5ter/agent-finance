@@ -154,6 +154,7 @@ function smokeDumpState() {
     "panes",
     "provider_health",
     "tasks",
+    "transfer_ticket",
     "staged_changes",
   ];
   for (const key of requiredKeys) {
@@ -164,7 +165,7 @@ function smokeDumpState() {
   if (dump.workspace !== "crypto") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
   }
-  if (dump.schema_version !== 2) {
+  if (dump.schema_version !== 3) {
     fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
   }
   if (Object.prototype.hasOwnProperty.call(dump, "write_sessions")) {
@@ -172,6 +173,9 @@ function smokeDumpState() {
   }
   if (!Array.isArray(dump.staged_changes)) {
     fail("dump-state JSON staged_changes is not an array");
+  }
+  if (!dump.transfer_ticket || dump.transfer_ticket.asset !== "USDT" || dump.transfer_ticket.direction !== "spot-to-usds-futures") {
+    fail("dump-state JSON is missing the default transfer_ticket contract");
   }
   if (!Array.isArray(dump.panes) || !dump.panes.some((pane) => pane.panel === "history" && pane.visible)) {
     fail("dump-state JSON is missing a visible history pane");

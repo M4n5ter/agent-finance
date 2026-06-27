@@ -8,6 +8,7 @@ use crate::order_ticket::OrderTicketPreview;
 use crate::pane_status::{TuiPaneStatus, pane_health};
 use crate::provider_health::{ProviderHealthReport, ProviderHealthTask};
 use crate::state::{AppState, StagedChangeView};
+use crate::transfer_ticket::TransferTicketPreview;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
@@ -25,6 +26,7 @@ pub struct TuiDump {
     pub trading_profile: Option<String>,
     pub account: Option<AccountSnapshot>,
     pub order_ticket: OrderTicketPreview,
+    pub transfer_ticket: TransferTicketPreview,
     pub staged_changes: Vec<StagedChangeView>,
     pub errors: Vec<String>,
     pub key_hints: Vec<String>,
@@ -45,7 +47,7 @@ impl TuiDump {
     pub fn from_state(state: &AppState, partial: bool) -> Self {
         let provider_health = ProviderHealthReport::from_state(state);
         Self {
-            schema_version: 2,
+            schema_version: 3,
             workspace: state.workspace,
             mode: state.interaction_mode(),
             selected_symbol: state.selected_symbol().map(ToString::to_string),
@@ -61,6 +63,7 @@ impl TuiDump {
             trading_profile: state.trading_profile.clone(),
             account: state.account_snapshot.clone(),
             order_ticket: state.order_ticket_preview(),
+            transfer_ticket: state.transfer_ticket_preview(),
             staged_changes: state.staged_change_views(),
             errors: dump_errors(state),
             provider_health,
@@ -223,7 +226,7 @@ mod tests {
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
-        assert_eq!(value["schema_version"], 2);
+        assert_eq!(value["schema_version"], 3);
         assert_eq!(value["default_submit_mode"], "live");
         assert_eq!(value["live_writes_enabled"], false);
         assert_eq!(value["effective_submit_mode"], "dry-run");
@@ -305,6 +308,30 @@ mod tests {
                 .iter()
                 .any(|pane| pane["panel"] == "order-ticket" && pane["visible"] == true)
         );
+    }
+
+    #[test]
+    fn dump_exposes_transfer_ticket_readiness_for_agents() {
+        let mut state = AppState::from_config(TuiConfig {
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Account,
+            },
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.transfer_ticket.set_amount_text(Some("5".to_string()));
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
+
+        assert_eq!(
+            value["transfer_ticket"]["direction"],
+            "spot-to-usds-futures"
+        );
+        assert_eq!(value["transfer_ticket"]["asset"], "USDT");
+        assert_eq!(value["transfer_ticket"]["amount"], "5");
+        assert_eq!(value["transfer_ticket"]["ready"], true);
     }
 
     #[test]

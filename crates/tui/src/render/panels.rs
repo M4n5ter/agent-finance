@@ -133,52 +133,51 @@ fn render_order_ticket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
 }
 
 fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let preview = state.order_ticket_preview();
     let mut lines = Vec::new();
-    lines.push(Line::from(vec![
-        Span::styled(
-            "candidate",
-            state.theme.accent_style().add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(if preview.ready {
-            " ready to stage"
-        } else {
-            " blocked"
-        }),
-    ]));
-    if preview.ready {
-        lines.push(Line::from(format!(
-            "{} {} {} {} @ {}",
-            preview.side,
-            preview.quantity.as_deref().unwrap_or("-"),
-            preview.symbol.as_deref().unwrap_or("-"),
-            preview.kind,
-            preview.price.as_deref().unwrap_or("market")
-        )));
-    } else {
-        for blocker in preview.blockers.iter().take(3) {
-            lines.push(Line::from(Span::styled(
-                format!("blocked: {blocker}"),
-                state.theme.warning_style(),
-            )));
-        }
-    }
 
     let changes = state.staged_change_views();
     if changes.is_empty() {
+        let preview = state.order_ticket_preview();
+        lines.push(Line::from(vec![
+            Span::styled(
+                "order ticket candidate",
+                state.theme.accent_style().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(if preview.ready {
+                " ready to stage"
+            } else {
+                " blocked"
+            }),
+        ]));
+        if preview.ready {
+            lines.push(Line::from(format!(
+                "{} {} {} {} @ {}",
+                preview.side,
+                preview.quantity.as_deref().unwrap_or("-"),
+                preview.symbol.as_deref().unwrap_or("-"),
+                preview.kind,
+                preview.price.as_deref().unwrap_or("market")
+            )));
+        } else {
+            for blocker in preview.blockers.iter().take(3) {
+                lines.push(Line::from(Span::styled(
+                    format!("blocked: {blocker}"),
+                    state.theme.warning_style(),
+                )));
+            }
+        }
         lines.push(Line::from(""));
         lines.push(Line::from("No staged changes."));
     } else {
-        lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "staged changes",
+            "staged intents",
             state.theme.accent_style().add_modifier(Modifier::BOLD),
         )));
         for change in changes.iter().take(8) {
             lines.push(Line::from(format_staged_change_review(change)));
         }
         lines.push(Line::from(""));
-        lines.push(Line::from("Enter submit first ready staged order"));
+        lines.push(Line::from("Enter submits the first ready staged intent"));
     }
 
     frame.render_widget(
@@ -218,6 +217,16 @@ fn format_staged_change_review(change: &crate::state::StagedChangeView) -> Strin
             review.market,
             review.symbol,
             review.identifier(),
+            review.profile
+        ),
+        StagedChangeSubject::Transfer(review) => format!(
+            "{}  {}  {}  transfer {} {} {} [{}]",
+            change.stage,
+            change.mode,
+            change.intent_kind,
+            review.direction,
+            review.amount,
+            review.asset,
             review.profile
         ),
         #[cfg(test)]

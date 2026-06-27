@@ -234,6 +234,9 @@ mod tests {
         assert!(text.contains("USD-M open orders: ok"));
         assert!(text.contains("spot -> USD-M transfers: ok"));
         assert!(text.contains("USD-M -> spot transfers: ok"));
+        assert!(text.contains("transfer ticket"));
+        assert!(text.contains("direction: spot-to-usds-futures"));
+        assert!(text.contains("blocked: amount is required"));
         assert!(text.contains("open orders (5)"));
         assert!(text.contains("> spot BUY 0.06 BTCUSDT @ 64000 [spot-1]"));
         assert!(text.contains("+1 more open orders"));
@@ -290,9 +293,29 @@ mod tests {
         let text = render_to_text_grid(&state, 160, 44);
 
         assert!(text.contains("Intent Review"));
-        assert!(text.contains("staged changes"));
+        assert!(text.contains("staged intents"));
         assert!(text.contains("ready  dry-run  order"));
         assert!(text.contains("buy 0.05 CRDO spot limit-maker @ 204"));
+    }
+
+    #[test]
+    fn account_workspace_keeps_transfer_ticket_visible_without_snapshot() {
+        let state = AppState::from_config(TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            workspace: crate::config::WorkspaceConfig {
+                current: WorkspaceKind::Account,
+            },
+            ..TuiConfig::default()
+        });
+
+        let text = render_to_text_grid(&state, 120, 32);
+
+        assert!(text.contains("transfer ticket"));
+        assert!(text.contains("direction: spot-to-usds-futures"));
+        assert!(text.contains("blocked: amount is required"));
+        assert!(text.contains("No account snapshot loaded yet"));
     }
 
     #[test]

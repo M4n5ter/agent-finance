@@ -152,6 +152,69 @@ fn submitting_ready_order_change_queues_submit_request() {
 }
 
 #[test]
+fn transfer_ticket_staging_creates_transfer_review_change() {
+    let mut state = AppState::from_config(TuiConfig {
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::StageTransferTicket);
+
+    assert_eq!(state.panels.focused(), Panel::IntentReview);
+    assert!(state.staged_change_views().is_empty());
+
+    state.transfer_ticket.set_amount_text(Some("5".to_string()));
+    state.reduce(Action::StageTransferTicket);
+
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].intent_kind, SubmitIntentKind::Transfer);
+    assert_eq!(changes[0].stage, StagedChangeStage::Ready);
+    assert_eq!(changes[0].mode, SubmitMode::DryRun);
+    assert!(changes[0].summary.contains("spot-to-usds-futures"));
+    let StagedChangeSubject::Transfer(review) = &changes[0].subject else {
+        panic!("staged transfer");
+    };
+    assert_eq!(review.profile, "mainnet");
+    assert_eq!(review.asset, "USDT");
+    assert_eq!(review.amount, "5");
+    assert_eq!(review.parsed_amount.to_string(), "5");
+}
+
+#[test]
+fn submitting_ready_transfer_change_queues_transfer_submit_request() {
+    let mut state = AppState::from_config(TuiConfig {
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.transfer_ticket.set_amount_text(Some("5".to_string()));
+    state.reduce(Action::StageTransferTicket);
+
+    state.reduce(Action::SubmitStagedChange);
+
+    let request = state
+        .take_pending_staged_submit()
+        .expect("pending staged submit");
+    let StagedChangeSubject::Transfer(review) = &request.subject else {
+        panic!("expected transfer submit");
+    };
+    assert_eq!(review.asset, "USDT");
+    assert_eq!(request.mode, SubmitMode::DryRun);
+    let change = state.staged_change_views().pop().unwrap();
+    assert_eq!(change.stage, StagedChangeStage::SubmitQueued);
+}
+
+#[test]
 fn selected_open_order_can_be_staged_as_cancel_request() {
     let mut state = AppState::from_config(TuiConfig {
         workspace: WorkspaceConfig {

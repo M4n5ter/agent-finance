@@ -7,6 +7,7 @@ use ratatui::widgets::{Paragraph, Wrap};
 use crate::account::ACCOUNT_READ_PLAN;
 use crate::model::Panel;
 use crate::state::AppState;
+use crate::transfer_ticket::TransferTicketPreview;
 
 use super::widgets::{compact_text, panel_block};
 
@@ -15,6 +16,7 @@ const VISIBLE_TRANSFER_LIMIT: usize = 4;
 
 pub(super) fn render_account(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = profile_lines(state);
+    lines.extend(transfer_ticket_lines(state));
 
     match state.account_snapshot.as_ref() {
         Some(snapshot) => {
@@ -81,6 +83,84 @@ fn account_read_lines(snapshot: &crate::AccountSnapshot) -> Vec<Line<'static>> {
         lines.push(Line::from(format!("{}: {label}", plan.label())));
     }
     lines
+}
+
+fn transfer_ticket_lines(state: &AppState) -> Vec<Line<'static>> {
+    let preview = state.transfer_ticket_preview();
+    let selected = state.transfer_ticket.selected_field_label();
+    let readiness = if preview.ready {
+        Span::styled("ready", state.theme.accent_style())
+    } else {
+        Span::styled(
+            format!(
+                "blocked: {}",
+                preview
+                    .blockers
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("not ready")
+            ),
+            state.theme.warning_style(),
+        )
+    };
+    let lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "transfer ticket",
+                state.theme.accent_style().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "  {} / {}",
+                if preview.live_writes_enabled {
+                    "live:on"
+                } else {
+                    "live:off"
+                },
+                preview.effective_mode
+            )),
+        ]),
+        transfer_fields_line(state, &preview, selected),
+        Line::from(vec![
+            readiness,
+            Span::raw("  [/] field  left/right adjust  t stage transfer  c cancel order"),
+        ]),
+    ];
+    lines
+}
+
+fn transfer_fields_line(
+    state: &AppState,
+    preview: &TransferTicketPreview,
+    selected: &'static str,
+) -> Line<'static> {
+    Line::from(vec![
+        transfer_field_span(state, "direction", preview.direction.to_string(), selected),
+        Span::raw("  "),
+        transfer_field_span(state, "asset", preview.asset.clone(), selected),
+        Span::raw("  "),
+        transfer_field_span(
+            state,
+            "amount",
+            preview.amount.as_deref().unwrap_or("-").to_string(),
+            selected,
+        ),
+    ])
+}
+
+fn transfer_field_span(
+    state: &AppState,
+    label: &'static str,
+    value: String,
+    selected: &'static str,
+) -> Span<'static> {
+    let marker = if label == selected { ">" } else { "" };
+    let style = if label == selected {
+        state.theme.selected_style().add_modifier(Modifier::BOLD)
+    } else {
+        state.theme.text_style()
+    };
+    Span::styled(format!("{marker}{label}: {value}"), style)
 }
 
 fn open_order_lines(state: &AppState, snapshot: &crate::AccountSnapshot) -> Vec<Line<'static>> {
