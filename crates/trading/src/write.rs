@@ -2,6 +2,77 @@ use anyhow::{Result, anyhow};
 use chrono::Utc;
 use serde_json::json;
 
+#[derive(Debug)]
+pub struct SubmitFailure {
+    stage: SubmitFailureStage,
+    error: anyhow::Error,
+}
+
+impl SubmitFailure {
+    fn pre_claim(error: anyhow::Error) -> Self {
+        Self {
+            stage: SubmitFailureStage::PreClaim,
+            error,
+        }
+    }
+
+    fn claimed(error: anyhow::Error) -> Self {
+        Self {
+            stage: SubmitFailureStage::ClaimedBeforeExchange,
+            error,
+        }
+    }
+
+    fn exchange_attempted(error: anyhow::Error) -> Self {
+        Self {
+            stage: SubmitFailureStage::ExchangeAttempted,
+            error,
+        }
+    }
+
+    fn exchange_accepted_local_finalize_failed(error: anyhow::Error) -> Self {
+        Self {
+            stage: SubmitFailureStage::ExchangeAcceptedLocalFinalizeFailed,
+            error,
+        }
+    }
+
+    pub fn exchange_was_attempted(&self) -> bool {
+        matches!(
+            self.stage,
+            SubmitFailureStage::ExchangeAttempted
+                | SubmitFailureStage::ExchangeAcceptedLocalFinalizeFailed
+        )
+    }
+
+    pub fn exchange_was_accepted(&self) -> bool {
+        matches!(
+            self.stage,
+            SubmitFailureStage::ExchangeAcceptedLocalFinalizeFailed
+        )
+    }
+
+    pub fn into_error(self) -> anyhow::Error {
+        self.error
+    }
+}
+
+impl std::fmt::Display for SubmitFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{:#}", self.error)
+    }
+}
+
+impl std::error::Error for SubmitFailure {}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum SubmitFailureStage {
+    PreClaim,
+    ClaimedBeforeExchange,
+    ExchangeAttempted,
+    ExchangeAcceptedLocalFinalizeFailed,
+}
+
 #[derive(Debug, Clone)]
 pub struct TradingRuntime {
     timeout_seconds: u64,
@@ -53,12 +124,23 @@ impl TradingRuntime {
         intent_id: &str,
         mode: agent_finance_core::SubmitMode,
     ) -> Result<agent_finance_core::SubmitSnapshot> {
+        self.submit_order_intent_classified(profile, intent_id, mode)
+            .await
+            .map_err(SubmitFailure::into_error)
+    }
+
+    pub async fn submit_order_intent_classified(
+        &self,
+        profile: &agent_finance_core::Profile,
+        intent_id: &str,
+        mode: agent_finance_core::SubmitMode,
+    ) -> std::result::Result<agent_finance_core::SubmitSnapshot, SubmitFailure> {
         submit_intent(
             profile,
             intent_id,
             ExpectedIntentKind::Order,
             mode,
-            self.timeout_seconds,
+            self.http_policy(),
         )
         .await
     }
@@ -74,9 +156,10 @@ impl TradingRuntime {
             intent_id,
             ExpectedIntentKind::Transfer,
             mode,
-            self.timeout_seconds,
+            self.http_policy(),
         )
         .await
+        .map_err(SubmitFailure::into_error)
     }
 
     pub async fn submit_futures_state_intent(
@@ -90,9 +173,10 @@ impl TradingRuntime {
             intent_id,
             ExpectedIntentKind::State,
             mode,
-            self.timeout_seconds,
+            self.http_policy(),
         )
         .await
+        .map_err(SubmitFailure::into_error)
     }
 
     pub fn check_order_with_runtime_limits(
@@ -123,16 +207,6 @@ impl TradingRuntime {
             self.no_proxy,
         )
     }
-}
-
-pub(crate) fn binance_client(
-    profile: &agent_finance_core::Profile,
-    timeout_seconds: u64,
-) -> Result<agent_finance_binance::BinanceClient> {
-    binance_client_with_policy(
-        profile,
-        agent_finance_binance::BinanceHttpPolicy::new(timeout_seconds, None, false),
-    )
 }
 
 pub(crate) fn binance_client_with_policy(
@@ -297,17 +371,20 @@ async fn submit_intent(
     intent_id: &str,
     expected_kind: ExpectedIntentKind,
     mode: agent_finance_core::SubmitMode,
-    timeout_seconds: u64,
-) -> Result<agent_finance_core::SubmitSnapshot> {
-    let store = agent_finance_core::IntentStore::from_default_dir()?;
+    http_policy: agent_finance_binance::BinanceHttpPolicy,
+) -> std::result::Result<agent_finance_core::SubmitSnapshot, SubmitFailure> {
+    let store =
+        agent_finance_core::IntentStore::from_default_dir().map_err(SubmitFailure::pre_claim)?;
     submit_intent_from_store(
         profile,
         &store,
         intent_id,
         expected_kind,
         mode.into(),
-        LivePermissionSource::Binance { timeout_seconds },
-        timeout_seconds,
+        LivePermissionSource::Binance {
+            policy: http_policy.clone(),
+        },
+        http_policy,
     )
     .await
 }
@@ -319,83 +396,111 @@ async fn submit_intent_from_store(
     expected_kind: ExpectedIntentKind,
     mode: WriteMode,
     permission_source: LivePermissionSource,
-    timeout_seconds: u64,
-) -> Result<agent_finance_core::SubmitSnapshot> {
-    let envelope = store.load_for_submit(intent_id)?;
-    expected_kind.validate(&envelope.kind)?;
+    http_policy: agent_finance_binance::BinanceHttpPolicy,
+) -> std::result::Result<agent_finance_core::SubmitSnapshot, SubmitFailure> {
+    let envelope = store
+        .load_for_submit(intent_id)
+        .map_err(SubmitFailure::pre_claim)?;
+    expected_kind
+        .validate(&envelope.kind)
+        .map_err(SubmitFailure::pre_claim)?;
     if matches!(mode, WriteMode::Test)
         && !matches!(envelope.kind, agent_finance_core::IntentKind::Order(_))
     {
-        return Err(anyhow!(
+        return Err(SubmitFailure::pre_claim(anyhow!(
             "--test is only supported for order intents with Binance test endpoints"
-        ));
+        )));
     }
-    let risk = check_intent(profile, &envelope.kind, mode.is_live())?;
+    let risk =
+        check_intent(profile, &envelope.kind, mode.is_live()).map_err(SubmitFailure::pre_claim)?;
     if !risk.allowed {
         let error = anyhow!("risk policy blocked intent submit");
-        return Err(error);
+        return Err(SubmitFailure::pre_claim(error));
     }
-    check_live_permissions(profile, &envelope.kind, mode, permission_source).await?;
+    check_live_permissions(profile, &envelope.kind, mode, permission_source)
+        .await
+        .map_err(SubmitFailure::pre_claim)?;
     if !mode.consumes_intent() {
-        let response = execute_intent(profile, &envelope.kind, mode, timeout_seconds).await?;
-        let snapshot = submit_snapshot(profile, &envelope, mode, risk.clone(), response)?;
+        let response = execute_intent(profile, &envelope.kind, mode, http_policy.clone())
+            .await
+            .map_err(SubmitFailure::pre_claim)?;
+        let snapshot = submit_snapshot(profile, &envelope, mode, risk.clone(), response)
+            .map_err(SubmitFailure::pre_claim)?;
         append_audit(
             profile,
             Some(envelope.id.clone()),
             mode.audit_kind(&envelope.kind),
             format!("planned intent {}", envelope.id),
             json!({ "risk": risk, "execution": snapshot.execution }),
-        )?;
+        )
+        .map_err(SubmitFailure::pre_claim)?;
         return Ok(snapshot);
     }
-    let envelope = store.claim_for_submit(&envelope.id)?;
-    expected_kind.validate(&envelope.kind)?;
-    let _audit_lock = live_order_audit_lock(profile, &envelope.kind, mode)?;
-    let risk = check_intent(profile, &envelope.kind, mode.is_live())?;
+    let envelope = store
+        .claim_for_submit(&envelope.id)
+        .map_err(SubmitFailure::pre_claim)?;
+    expected_kind
+        .validate(&envelope.kind)
+        .map_err(SubmitFailure::claimed)?;
+    let _audit_lock =
+        live_order_audit_lock(profile, &envelope.kind, mode).map_err(SubmitFailure::claimed)?;
+    let risk =
+        check_intent(profile, &envelope.kind, mode.is_live()).map_err(SubmitFailure::claimed)?;
     if !risk.allowed {
         let error = anyhow!("risk policy blocked claimed intent submit");
-        store.mark_failed(&envelope.id)?;
+        store
+            .mark_failed(&envelope.id)
+            .map_err(SubmitFailure::claimed)?;
         append_audit(
             profile,
             Some(envelope.id.clone()),
             agent_finance_core::AuditEventKind::Error,
             format!("blocked live intent {}", envelope.id),
             json!({ "risk": risk, "error": format!("{error:#}") }),
-        )?;
-        return Err(error);
+        )
+        .map_err(SubmitFailure::claimed)?;
+        return Err(SubmitFailure::claimed(error));
     }
-    let response = execute_intent(profile, &envelope.kind, mode, timeout_seconds).await;
+    let response = execute_intent(profile, &envelope.kind, mode, http_policy).await;
     match response {
         Ok(response) => {
-            let snapshot = submit_snapshot(profile, &envelope, mode, risk.clone(), response)?;
-            let payload = submit_audit_payload(&envelope.kind, &risk, &snapshot.execution)?;
+            let snapshot = submit_snapshot(profile, &envelope, mode, risk.clone(), response)
+                .map_err(SubmitFailure::exchange_accepted_local_finalize_failed)?;
+            let payload = submit_audit_payload(&envelope.kind, &risk, &snapshot.execution)
+                .map_err(SubmitFailure::exchange_accepted_local_finalize_failed)?;
             append_audit(
                 profile,
                 Some(envelope.id.clone()),
                 mode.audit_kind(&envelope.kind),
                 format!("submitted intent {}", envelope.id),
                 payload,
-            )?;
-            store.mark_submitted(&envelope.id)?;
+            )
+            .map_err(SubmitFailure::exchange_accepted_local_finalize_failed)?;
+            store
+                .mark_submitted(&envelope.id)
+                .map_err(SubmitFailure::exchange_accepted_local_finalize_failed)?;
             Ok(snapshot)
         }
         Err(error) => {
-            store.mark_failed(&envelope.id)?;
+            store
+                .mark_failed(&envelope.id)
+                .map_err(SubmitFailure::claimed)?;
             append_audit(
                 profile,
                 Some(envelope.id.clone()),
                 agent_finance_core::AuditEventKind::Error,
                 format!("failed to submit intent {}", envelope.id),
                 json!({ "risk": risk, "error": format!("{error:#}") }),
-            )?;
-            Err(error)
+            )
+            .map_err(SubmitFailure::claimed)?;
+            Err(SubmitFailure::exchange_attempted(error))
         }
     }
 }
 
 enum LivePermissionSource {
     Binance {
-        timeout_seconds: u64,
+        policy: agent_finance_binance::BinanceHttpPolicy,
     },
     #[cfg(test)]
     Static(serde_json::Value),
@@ -412,8 +517,8 @@ async fn check_live_permissions(
     }
     let payload;
     let payload = match source {
-        LivePermissionSource::Binance { timeout_seconds } => {
-            payload = binance_client(profile, timeout_seconds)?
+        LivePermissionSource::Binance { policy } => {
+            payload = binance_client_with_policy(profile, policy)?
                 .account_permissions()
                 .await?;
             &payload
@@ -538,7 +643,7 @@ async fn execute_intent(
     profile: &agent_finance_core::Profile,
     intent: &agent_finance_core::IntentKind,
     mode: WriteMode,
-    timeout_seconds: u64,
+    http_policy: agent_finance_binance::BinanceHttpPolicy,
 ) -> Result<SubmitExecution> {
     if matches!(mode, WriteMode::DryRun) {
         return plan_intent(profile, intent);
@@ -546,7 +651,7 @@ async fn execute_intent(
     let Some(binance_mode) = mode.binance_mode() else {
         unreachable!("dry-run returned above");
     };
-    let client = binance_client(profile, timeout_seconds)?;
+    let client = binance_client_with_policy(profile, http_policy)?;
     match intent {
         agent_finance_core::IntentKind::Order(intent) => Ok(SubmitExecution::Order(
             client.submit_order(intent, binance_mode).await?,
@@ -671,7 +776,7 @@ mod tests {
                 "enableFutures": false,
                 "permitsUniversalTransfer": true
             })),
-            10,
+            agent_finance_binance::BinanceHttpPolicy::new(10, None, false),
         )
         .await;
         let error = match result {

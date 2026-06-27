@@ -233,7 +233,7 @@ mod tests {
         assert!(value["staged_changes"][0]["intent_status"].is_null());
         state.reduce(Action::ApplyStagedChangeEvent {
             id: staged_change_id.clone(),
-            event: StagedChangeEvent::ConfirmationRequested,
+            event: StagedChangeEvent::SubmitQueued,
         });
         state.reduce(Action::ApplyStagedChangeEvent {
             id: staged_change_id.clone(),
@@ -263,7 +263,7 @@ mod tests {
 
         state.reduce(Action::ApplyStagedChangeEvent {
             id: staged_change_id,
-            event: StagedChangeEvent::LiveSubmitStarted {
+            event: StagedChangeEvent::LiveIntentClaimed {
                 intent_id: "intent-1".to_string(),
             },
         });

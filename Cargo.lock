@@ -104,6 +104,7 @@ dependencies = [
  "agent-finance-market",
  "agent-finance-trading",
  "anyhow",
+ "chrono",
  "crossterm",
  "insta",
  "nucleo-matcher",

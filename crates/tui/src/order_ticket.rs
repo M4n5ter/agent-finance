@@ -137,9 +137,13 @@ impl OrderTicket {
                 None
             }
         };
-        if let Err(error) = self.order_spec(reference_price) {
-            blockers.push(error);
-        }
+        let order_spec = match self.order_spec(reference_price) {
+            Ok(spec) => Some(spec),
+            Err(error) => {
+                blockers.push(error);
+                None
+            }
+        };
         if effective_mode == SubmitMode::Live && !live_writes_enabled {
             blockers.push("live writes must be enabled".to_string());
         }
@@ -154,6 +158,8 @@ impl OrderTicket {
             price: self.effective_price(reference_price),
             time_in_force: self.time_in_force,
             reduce_only: self.reduce_only,
+            parsed_quantity: quantity.clone(),
+            order_spec,
             live_writes_enabled,
             effective_mode,
             ready: blockers.is_empty() && quantity.is_some(),
@@ -260,6 +266,8 @@ pub struct OrderTicketPreview {
     pub price: Option<String>,
     pub time_in_force: TimeInForce,
     pub reduce_only: bool,
+    pub parsed_quantity: Option<DecimalValue>,
+    pub order_spec: Option<OrderSpec>,
     pub live_writes_enabled: bool,
     pub effective_mode: SubmitMode,
     pub ready: bool,

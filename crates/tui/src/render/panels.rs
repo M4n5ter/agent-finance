@@ -177,6 +177,8 @@ fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         for change in changes.iter().take(8) {
             lines.push(Line::from(format_staged_change_review(change)));
         }
+        lines.push(Line::from(""));
+        lines.push(Line::from("Enter submit first ready staged order"));
     }
 
     frame.render_widget(

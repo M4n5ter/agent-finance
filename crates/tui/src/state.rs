@@ -28,11 +28,12 @@ pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
 pub use staged_change::StagedChangeStage;
 use staged_change::{
-    CloseStagedChangeResult, OpenStagedChangeResult, OrderTicketReview, StagedChanges,
+    CloseStagedChangeResult, OpenStagedChangeResult, QueueOrderSubmitResult, StagedChanges,
     TransitionResult,
 };
 pub use staged_change::{
-    StagedChangeEvent, StagedChangeRequest, StagedChangeSubject, StagedChangeView,
+    OrderTicketReview, StagedChangeEvent, StagedChangeRequest, StagedChangeSubject,
+    StagedChangeView, StagedOrderSubmitRequest,
 };
 
 #[derive(Debug, Clone)]
@@ -64,6 +65,7 @@ pub struct AppState {
     pub trading_profile: Option<String>,
     pub order_ticket: OrderTicket,
     staged_changes: StagedChanges,
+    pending_staged_order_submit: Option<StagedOrderSubmitRequest>,
 }
 
 impl AppState {
@@ -96,6 +98,7 @@ impl AppState {
             trading_profile: config.trading.default_profile,
             order_ticket: OrderTicket::default(),
             staged_changes: StagedChanges::default(),
+            pending_staged_order_submit: None,
         };
         state.ensure_visible_focus();
         state
@@ -137,6 +140,10 @@ impl AppState {
 
     pub fn staged_change_views(&self) -> Vec<StagedChangeView> {
         self.staged_changes.views()
+    }
+
+    pub fn take_pending_staged_order_submit(&mut self) -> Option<StagedOrderSubmitRequest> {
+        self.pending_staged_order_submit.take()
     }
 
     pub const fn effective_submit_mode(&self) -> SubmitMode {
@@ -225,6 +232,7 @@ impl AppState {
                     .adjust_selected_field(direction, self.selected_quote_price());
             }
             Action::StageOrderTicket => self.stage_order_ticket(),
+            Action::SubmitStagedChange => self.submit_next_staged_change(),
             Action::Execute(action) => self.execute(action),
             Action::CloseFocusedPanel => {
                 self.panels.close_focused();
@@ -378,6 +386,24 @@ impl AppState {
             Action::Log(message) => self.task_log.info(message),
         }
     }
+
+    fn submit_next_staged_change(&mut self) {
+        match self.staged_changes.queue_next_order_submit() {
+            QueueOrderSubmitResult::Queued(request) => {
+                self.task_log.info(format!(
+                    "submitting staged {} change {} as {}",
+                    request.review.symbol, request.id, request.mode
+                ));
+                self.pending_staged_order_submit = Some(request);
+            }
+            QueueOrderSubmitResult::Missing => self
+                .task_log
+                .warning_event("no ready staged order change to submit".to_string()),
+            QueueOrderSubmitResult::Rejected { current } => self.task_log.warning_event(format!(
+                "staged change cannot submit from current state {current}"
+            )),
+        }
+    }
 }
 
 fn order_ticket_review(preview: &OrderTicketPreview) -> Option<OrderTicketReview> {
@@ -391,6 +417,8 @@ fn order_ticket_review(preview: &OrderTicketPreview) -> Option<OrderTicketReview
         price: preview.price.clone(),
         time_in_force: preview.time_in_force,
         reduce_only: preview.reduce_only,
+        parsed_quantity: preview.parsed_quantity.clone()?,
+        order_spec: preview.order_spec.clone()?,
         effective_mode: preview.effective_mode,
     })
 }
@@ -443,6 +471,7 @@ pub enum Action {
     MoveOrderTicketField(isize),
     AdjustOrderTicketField(isize),
     StageOrderTicket,
+    SubmitStagedChange,
     Execute(ActionId),
     FocusPanelBy(isize),
     ToggleFocusedZoom,
@@ -535,13 +564,6 @@ pub enum Action {
         )
     )]
     OpenStagedChange(StagedChangeRequest),
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "staged change actions are part of the state contract before staged change panels bind them"
-        )
-    )]
     ApplyStagedChangeEvent {
         id: String,
         event: StagedChangeEvent,

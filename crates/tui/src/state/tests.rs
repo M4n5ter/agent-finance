@@ -6,7 +6,7 @@ use crate::model::InteractionMode;
 use crate::task_log::TaskStatus;
 use agent_finance_core::intent::IntentStatus;
 use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
-use agent_finance_core::{Environment, Provider, SignedReadSnapshot};
+use agent_finance_core::{Environment, OrderSpec, Provider, SignedReadSnapshot};
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::research_snapshot::ResearchContextSnapshot;
@@ -106,6 +106,44 @@ fn order_ticket_staging_requires_core_valid_preview_before_review_change() {
     assert_eq!(changes[0].mode, SubmitMode::DryRun);
     assert!(changes[0].intent_id.is_none());
     assert!(changes[0].summary.contains("CRDO"));
+    let StagedChangeSubject::OrderTicket(review) = &changes[0].subject else {
+        panic!("staged order ticket");
+    };
+    assert_eq!(review.parsed_quantity.to_string(), "0.05");
+    assert!(matches!(
+        review.order_spec,
+        OrderSpec::PostOnlyLimit { ref price } if price.to_string() == "204"
+    ));
+}
+
+#[test]
+fn submitting_ready_order_change_queues_submit_request() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Trade,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state
+        .order_ticket
+        .set_quantity_text(Some("0.05".to_string()));
+    state.order_ticket.set_price_text(Some("204".to_string()));
+    state.reduce(Action::StageOrderTicket);
+
+    state.reduce(Action::SubmitStagedChange);
+
+    let request = state
+        .take_pending_staged_order_submit()
+        .expect("pending staged order submit");
+    assert_eq!(request.review.symbol, "CRDO");
+    assert_eq!(request.mode, SubmitMode::DryRun);
+    assert!(state.take_pending_staged_order_submit().is_none());
+    let change = state.staged_change_views().pop().unwrap();
+    assert_eq!(change.stage, StagedChangeStage::SubmitQueued);
 }
 
 #[test]
@@ -166,11 +204,11 @@ fn reducer_tracks_staged_change_workflow_without_accepting_unsafe_jumps() {
     for event in [
         StagedChangeEvent::ValidationStarted,
         StagedChangeEvent::ValidationReady,
-        StagedChangeEvent::ConfirmationRequested,
+        StagedChangeEvent::SubmitQueued,
         StagedChangeEvent::IntentCreated {
             intent_id: "intent-1".to_string(),
         },
-        StagedChangeEvent::LiveSubmitStarted {
+        StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         },
         StagedChangeEvent::LiveSubmitSucceeded {
@@ -193,7 +231,7 @@ fn reducer_tracks_staged_change_workflow_without_accepting_unsafe_jumps() {
 }
 
 #[test]
-fn reducer_keeps_live_submitting_staged_change_until_terminal_event() {
+fn reducer_keeps_live_claimed_staged_change_until_terminal_event() {
     let mut state = AppState::from_config(TuiConfig::default());
     state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
     state.reduce(Action::SetLiveWritesEnabled(true));
@@ -205,11 +243,11 @@ fn reducer_keeps_live_submitting_staged_change_until_terminal_event() {
     for event in [
         StagedChangeEvent::ValidationStarted,
         StagedChangeEvent::ValidationReady,
-        StagedChangeEvent::ConfirmationRequested,
+        StagedChangeEvent::SubmitQueued,
         StagedChangeEvent::IntentCreated {
             intent_id: "intent-1".to_string(),
         },
-        StagedChangeEvent::LiveSubmitStarted {
+        StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         },
     ] {
@@ -221,7 +259,7 @@ fn reducer_keeps_live_submitting_staged_change_until_terminal_event() {
 
     state.reduce(Action::CloseStagedChange("order-1".to_string()));
     let view = state.staged_change_views().pop().unwrap();
-    assert_eq!(view.stage, StagedChangeStage::LiveSubmitting);
+    assert_eq!(view.stage, StagedChangeStage::LiveIntentClaimed);
 
     state.reduce(Action::ApplyStagedChangeEvent {
         id: "order-1".to_string(),
@@ -231,6 +269,37 @@ fn reducer_keeps_live_submitting_staged_change_until_terminal_event() {
     });
     let view = state.staged_change_views().pop().unwrap();
     assert_eq!(view.stage, StagedChangeStage::LiveSubmitted);
+}
+
+#[test]
+fn reducer_keeps_submit_queued_staged_change_until_worker_progress() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
+        "order-1",
+        SubmitIntentKind::Order,
+        "Buy BTCUSDT",
+    )));
+    for event in [
+        StagedChangeEvent::ValidationStarted,
+        StagedChangeEvent::ValidationReady,
+        StagedChangeEvent::SubmitQueued,
+    ] {
+        state.reduce(Action::ApplyStagedChangeEvent {
+            id: "order-1".to_string(),
+            event,
+        });
+    }
+
+    state.reduce(Action::CloseStagedChange("order-1".to_string()));
+    let view = state.staged_change_views().pop().unwrap();
+    assert_eq!(view.stage, StagedChangeStage::SubmitQueued);
+
+    state.reduce(Action::ApplyStagedChangeEvent {
+        id: "order-1".to_string(),
+        event: StagedChangeEvent::FailedBeforeIntent,
+    });
+    let view = state.staged_change_views().pop().unwrap();
+    assert_eq!(view.stage, StagedChangeStage::FailedBeforeIntent);
 }
 
 #[test]

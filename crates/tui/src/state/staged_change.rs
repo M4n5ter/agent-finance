@@ -1,5 +1,5 @@
 use agent_finance_core::{
-    Market, OrderKind, OrderSide, TimeInForce,
+    DecimalValue, Market, OrderKind, OrderSide, OrderSpec, TimeInForce,
     intent::IntentStatus,
     submit::{SubmitIntentKind, SubmitMode},
 };
@@ -31,7 +31,7 @@ impl StagedChange {
     }
 
     pub fn apply(&mut self, event: StagedChangeEvent) -> bool {
-        if matches!(event, StagedChangeEvent::LiveSubmitStarted { .. })
+        if matches!(event, StagedChangeEvent::LiveIntentClaimed { .. })
             && self.default_mode != SubmitMode::Live
         {
             return false;
@@ -70,6 +70,13 @@ impl StagedChangeRequest {
             },
         }
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct StagedOrderSubmitRequest {
+    pub id: String,
+    pub review: OrderTicketReview,
+    pub mode: SubmitMode,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
@@ -112,6 +119,8 @@ pub struct OrderTicketReview {
     pub price: Option<String>,
     pub time_in_force: TimeInForce,
     pub reduce_only: bool,
+    pub parsed_quantity: DecimalValue,
+    pub order_spec: OrderSpec,
     pub effective_mode: SubmitMode,
 }
 
@@ -142,7 +151,7 @@ impl OrderTicketReview {
 pub enum StagedChangeEvent {
     ValidationStarted,
     ValidationReady,
-    ConfirmationRequested,
+    SubmitQueued,
     #[cfg_attr(
         not(test),
         expect(
@@ -162,7 +171,7 @@ pub enum StagedChangeEvent {
         intent_id: String,
         attempted_mode: SubmitMode,
     },
-    LiveSubmitStarted {
+    LiveIntentClaimed {
         intent_id: String,
     },
     LiveSubmitSucceeded {
@@ -180,7 +189,7 @@ enum StagedChangeState {
     Draft,
     Validating,
     Ready,
-    Confirming,
+    SubmitQueued,
     IntentCreated {
         intent_id: String,
     },
@@ -192,7 +201,7 @@ enum StagedChangeState {
         intent_id: String,
         attempted_mode: SubmitMode,
     },
-    LiveSubmitting {
+    LiveIntentClaimed {
         intent_id: String,
     },
     LiveSubmitted {
@@ -215,15 +224,15 @@ impl StagedChangeState {
                 Some(Self::FailedBeforeIntent)
             }
             (Self::Validating, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
-            (Self::Ready, StagedChangeEvent::ConfirmationRequested) => Some(Self::Confirming),
+            (Self::Ready, StagedChangeEvent::SubmitQueued) => Some(Self::SubmitQueued),
             (Self::Ready, StagedChangeEvent::FailedBeforeIntent) => Some(Self::FailedBeforeIntent),
             (Self::Ready, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
-            (Self::Confirming, StagedChangeEvent::ReturnedToReady) => Some(Self::Ready),
-            (Self::Confirming, StagedChangeEvent::FailedBeforeIntent) => {
+            (Self::SubmitQueued, StagedChangeEvent::ReturnedToReady) => Some(Self::Ready),
+            (Self::SubmitQueued, StagedChangeEvent::FailedBeforeIntent) => {
                 Some(Self::FailedBeforeIntent)
             }
-            (Self::Confirming, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
-            (Self::Confirming, StagedChangeEvent::IntentCreated { intent_id }) => {
+            (Self::SubmitQueued, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
+            (Self::SubmitQueued, StagedChangeEvent::IntentCreated { intent_id }) => {
                 Some(Self::IntentCreated { intent_id })
             }
             (
@@ -253,18 +262,18 @@ impl StagedChangeState {
                 Self::IntentCreated { intent_id }
                 | Self::NonConsumingCompleted { intent_id, .. }
                 | Self::PreflightFailed { intent_id, .. },
-                StagedChangeEvent::LiveSubmitStarted { intent_id: next_id },
-            ) if intent_id == &next_id => Some(Self::LiveSubmitting { intent_id: next_id }),
+                StagedChangeEvent::LiveIntentClaimed { intent_id: next_id },
+            ) if intent_id == &next_id => Some(Self::LiveIntentClaimed { intent_id: next_id }),
             (
                 Self::NonConsumingCompleted { .. } | Self::PreflightFailed { .. },
                 StagedChangeEvent::Abandoned,
             ) => Some(Self::Abandoned),
             (
-                Self::LiveSubmitting { intent_id },
+                Self::LiveIntentClaimed { intent_id },
                 StagedChangeEvent::LiveSubmitSucceeded { intent_id: next_id },
             ) if intent_id == &next_id => Some(Self::LiveSubmitted { intent_id: next_id }),
             (
-                Self::LiveSubmitting { intent_id },
+                Self::LiveIntentClaimed { intent_id },
                 StagedChangeEvent::LiveSubmitFailed { intent_id: next_id },
             ) if intent_id == &next_id => Some(Self::IntentFailed { intent_id: next_id }),
             _ => None,
@@ -276,7 +285,7 @@ impl StagedChangeState {
             Self::Draft => StagedChangeStage::Draft,
             Self::Validating => StagedChangeStage::Validating,
             Self::Ready => StagedChangeStage::Ready,
-            Self::Confirming => StagedChangeStage::Confirming,
+            Self::SubmitQueued => StagedChangeStage::SubmitQueued,
             Self::IntentCreated { .. } => StagedChangeStage::IntentCreated,
             Self::NonConsumingCompleted {
                 mode: NonConsumingMode::DryRun,
@@ -298,7 +307,7 @@ impl StagedChangeState {
                 attempted_mode: SubmitMode::Live,
                 ..
             } => StagedChangeStage::LivePreflightFailed,
-            Self::LiveSubmitting { .. } => StagedChangeStage::LiveSubmitting,
+            Self::LiveIntentClaimed { .. } => StagedChangeStage::LiveIntentClaimed,
             Self::LiveSubmitted { .. } => StagedChangeStage::LiveSubmitted,
             Self::FailedBeforeIntent => StagedChangeStage::FailedBeforeIntent,
             Self::IntentFailed { .. } => StagedChangeStage::IntentFailed,
@@ -310,7 +319,7 @@ impl StagedChangeState {
         match self {
             Self::NonConsumingCompleted { mode, .. } => mode.submit_mode(),
             Self::PreflightFailed { attempted_mode, .. } => *attempted_mode,
-            Self::LiveSubmitting { .. }
+            Self::LiveIntentClaimed { .. }
             | Self::LiveSubmitted { .. }
             | Self::IntentFailed { .. } => SubmitMode::Live,
             _ => default_mode,
@@ -330,7 +339,7 @@ impl StagedChangeState {
             Self::IntentCreated { intent_id }
             | Self::NonConsumingCompleted { intent_id, .. }
             | Self::PreflightFailed { intent_id, .. }
-            | Self::LiveSubmitting { intent_id }
+            | Self::LiveIntentClaimed { intent_id }
             | Self::LiveSubmitted { intent_id }
             | Self::IntentFailed { intent_id } => Some(intent_id),
             _ => None,
@@ -345,13 +354,13 @@ impl StagedChangeState {
     }
 
     fn blocks_close(&self) -> bool {
-        matches!(self, Self::LiveSubmitting { .. })
+        matches!(self, Self::SubmitQueued | Self::LiveIntentClaimed { .. })
     }
 
     fn can_disable_live(&self) -> bool {
         !matches!(
             self,
-            Self::LiveSubmitting { .. } | Self::LiveSubmitted { .. }
+            Self::LiveIntentClaimed { .. } | Self::LiveSubmitted { .. }
         )
     }
 }
@@ -387,6 +396,31 @@ pub struct StagedChanges {
 impl StagedChanges {
     pub(super) fn views(&self) -> Vec<StagedChangeView> {
         self.changes.iter().map(StagedChangeView::from).collect()
+    }
+
+    pub(super) fn queue_next_order_submit(&mut self) -> QueueOrderSubmitResult {
+        let Some(change) = self.changes.iter_mut().find(|change| {
+            change.state.stage() == StagedChangeStage::Ready
+                && matches!(change.subject, StagedChangeSubject::OrderTicket(_))
+        }) else {
+            return QueueOrderSubmitResult::Missing;
+        };
+        let request = match &change.subject {
+            StagedChangeSubject::OrderTicket(review) => StagedOrderSubmitRequest {
+                id: change.id.clone(),
+                review: review.clone(),
+                mode: change.state.mode(change.default_mode),
+            },
+            #[cfg(test)]
+            StagedChangeSubject::Text { .. } => return QueueOrderSubmitResult::Missing,
+        };
+        if change.apply(StagedChangeEvent::SubmitQueued) {
+            QueueOrderSubmitResult::Queued(request)
+        } else {
+            QueueOrderSubmitResult::Rejected {
+                current: format!("{:?}", change.state),
+            }
+        }
     }
 
     pub(super) fn open(
@@ -485,6 +519,13 @@ pub(super) enum CloseStagedChangeResult {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub(super) enum QueueOrderSubmitResult {
+    Queued(StagedOrderSubmitRequest),
+    Missing,
+    Rejected { current: String },
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(super) enum TransitionResult {
     Applied,
     Missing,
@@ -500,14 +541,14 @@ pub enum StagedChangeStage {
     Draft,
     Validating,
     Ready,
-    Confirming,
+    SubmitQueued,
     IntentCreated,
     DryRunCompleted,
     TestCompleted,
     DryRunFailed,
     TestFailed,
     LivePreflightFailed,
-    LiveSubmitting,
+    LiveIntentClaimed,
     LiveSubmitted,
     FailedBeforeIntent,
     IntentFailed,
@@ -520,14 +561,14 @@ impl StagedChangeStage {
             Self::Draft => "draft",
             Self::Validating => "validating",
             Self::Ready => "ready",
-            Self::Confirming => "confirming",
+            Self::SubmitQueued => "submit-queued",
             Self::IntentCreated => "intent-created",
             Self::DryRunCompleted => "dry-run-completed",
             Self::TestCompleted => "test-completed",
             Self::DryRunFailed => "dry-run-failed",
             Self::TestFailed => "test-failed",
             Self::LivePreflightFailed => "live-preflight-failed",
-            Self::LiveSubmitting => "live-submitting",
+            Self::LiveIntentClaimed => "live-intent-claimed",
             Self::LiveSubmitted => "live-submitted",
             Self::FailedBeforeIntent => "failed-before-intent",
             Self::IntentFailed => "intent-failed",
@@ -597,7 +638,7 @@ mod tests {
             [
                 StagedChangeEvent::ValidationStarted,
                 StagedChangeEvent::ValidationReady,
-                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::SubmitQueued,
                 StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
@@ -619,17 +660,17 @@ mod tests {
             [
                 StagedChangeEvent::ValidationStarted,
                 StagedChangeEvent::ValidationReady,
-                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::SubmitQueued,
                 StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
             ],
         );
 
-        assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
+        assert!(!change.apply(StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-2".to_string(),
         }));
-        assert!(change.apply(StagedChangeEvent::LiveSubmitStarted {
+        assert!(change.apply(StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         }));
         assert!(!change.apply(StagedChangeEvent::LiveSubmitFailed {
@@ -648,7 +689,7 @@ mod tests {
             [
                 StagedChangeEvent::ValidationStarted,
                 StagedChangeEvent::ValidationReady,
-                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::SubmitQueued,
                 StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
@@ -663,7 +704,7 @@ mod tests {
         assert_eq!(view.intent_id.as_deref(), Some("intent-1"));
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::DryRun);
-        assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
+        assert!(!change.apply(StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         }));
     }
@@ -676,7 +717,7 @@ mod tests {
             [
                 StagedChangeEvent::ValidationStarted,
                 StagedChangeEvent::ValidationReady,
-                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::SubmitQueued,
                 StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
@@ -690,13 +731,13 @@ mod tests {
         let view = StagedChangeView::from(&change);
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::Test);
-        assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
+        assert!(!change.apply(StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         }));
     }
 
     #[test]
-    fn only_live_mode_changes_can_start_live_submission() {
+    fn only_live_mode_changes_can_claim_live_intent() {
         for mode in [SubmitMode::DryRun, SubmitMode::Test] {
             let mut change = StagedChange::from_request(request("change-1"), mode);
             apply_all(
@@ -704,14 +745,14 @@ mod tests {
                 [
                     StagedChangeEvent::ValidationStarted,
                     StagedChangeEvent::ValidationReady,
-                    StagedChangeEvent::ConfirmationRequested,
+                    StagedChangeEvent::SubmitQueued,
                     StagedChangeEvent::IntentCreated {
                         intent_id: "intent-1".to_string(),
                     },
                 ],
             );
 
-            assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
+            assert!(!change.apply(StagedChangeEvent::LiveIntentClaimed {
                 intent_id: "intent-1".to_string(),
             }));
             assert_eq!(StagedChangeView::from(&change).mode, mode);
@@ -723,14 +764,14 @@ mod tests {
             [
                 StagedChangeEvent::ValidationStarted,
                 StagedChangeEvent::ValidationReady,
-                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::SubmitQueued,
                 StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
             ],
         );
 
-        assert!(live.apply(StagedChangeEvent::LiveSubmitStarted {
+        assert!(live.apply(StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         }));
     }
@@ -743,7 +784,7 @@ mod tests {
             [
                 StagedChangeEvent::ValidationStarted,
                 StagedChangeEvent::ValidationReady,
-                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::SubmitQueued,
                 StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
@@ -758,7 +799,7 @@ mod tests {
         assert_eq!(view.stage, StagedChangeStage::LivePreflightFailed);
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::Live);
-        assert!(change.apply(StagedChangeEvent::LiveSubmitStarted {
+        assert!(change.apply(StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         }));
     }
@@ -781,11 +822,11 @@ mod tests {
         for event in [
             StagedChangeEvent::ValidationStarted,
             StagedChangeEvent::ValidationReady,
-            StagedChangeEvent::ConfirmationRequested,
+            StagedChangeEvent::SubmitQueued,
             StagedChangeEvent::IntentCreated {
                 intent_id: "intent-1".to_string(),
             },
-            StagedChangeEvent::LiveSubmitStarted {
+            StagedChangeEvent::LiveIntentClaimed {
                 intent_id: "intent-1".to_string(),
             },
         ] {
@@ -819,13 +860,13 @@ mod tests {
             [
                 StagedChangeEvent::ValidationStarted,
                 StagedChangeEvent::ValidationReady,
-                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::SubmitQueued,
                 StagedChangeEvent::ReturnedToReady,
             ],
         );
 
         assert_eq!(change.state(), &StagedChangeState::Ready);
-        assert!(change.apply(StagedChangeEvent::ConfirmationRequested));
+        assert!(change.apply(StagedChangeEvent::SubmitQueued));
         assert!(change.apply(StagedChangeEvent::IntentCreated {
             intent_id: "intent-1".to_string(),
         }));
@@ -872,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn disabling_live_abandons_pending_live_changes_but_keeps_submitting_changes() {
+    fn disabling_live_abandons_pending_live_changes_but_keeps_claimed_changes() {
         let mut changes = StagedChanges::default();
         assert_eq!(
             changes.open(request("pending"), SubmitMode::Live),
@@ -885,11 +926,11 @@ mod tests {
         for event in [
             StagedChangeEvent::ValidationStarted,
             StagedChangeEvent::ValidationReady,
-            StagedChangeEvent::ConfirmationRequested,
+            StagedChangeEvent::SubmitQueued,
             StagedChangeEvent::IntentCreated {
                 intent_id: "intent-1".to_string(),
             },
-            StagedChangeEvent::LiveSubmitStarted {
+            StagedChangeEvent::LiveIntentClaimed {
                 intent_id: "intent-1".to_string(),
             },
         ] {
@@ -912,7 +953,7 @@ mod tests {
 
         assert_eq!(pending.stage, StagedChangeStage::Abandoned);
         assert_eq!(pending.mode, SubmitMode::DryRun);
-        assert_eq!(submitting.stage, StagedChangeStage::LiveSubmitting);
+        assert_eq!(submitting.stage, StagedChangeStage::LiveIntentClaimed);
         assert_eq!(submitting.mode, SubmitMode::Live);
     }
 }

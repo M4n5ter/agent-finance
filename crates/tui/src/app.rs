@@ -20,7 +20,7 @@ use crate::input::{self, MouseDrag};
 use crate::model::Panel;
 use crate::render;
 use crate::scheduler::{Scheduler, SchedulerEvent, SymbolTaskKind};
-use crate::state::{Action, AppState, SelectedSymbolLoad, SymbolSnapshot};
+use crate::state::{Action, AppState, SelectedSymbolLoad, StagedChangeEvent, SymbolSnapshot};
 use crate::task_failure::TaskFailureSource;
 
 type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
@@ -143,6 +143,7 @@ fn run_loop(
                 Event::Key(key) => {
                     if let Some(action) = input::key_action(state, key) {
                         state.reduce(action);
+                        request_pending_staged_order_submit(context.scheduler, state);
                         request_account_load(context.scheduler, state, context.account_load, false);
                         request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
                     }
@@ -251,7 +252,33 @@ fn apply_scheduler_event(state: &mut AppState, event: SchedulerEvent) {
             profile,
             error,
         }),
+        SchedulerEvent::StagedChangeProgress { id, event, message } => {
+            state.reduce(Action::ApplyStagedChangeEvent { id, event });
+            if let Some(message) = message {
+                state.reduce(Action::Log(message));
+            }
+        }
         SchedulerEvent::Fatal(error) => state.reduce(Action::SchedulerFailed(error)),
+    }
+}
+
+fn request_pending_staged_order_submit(scheduler: &Scheduler, state: &mut AppState) {
+    let Some(request) = state.take_pending_staged_order_submit() else {
+        return;
+    };
+    let id = request.id.clone();
+    match scheduler.request_staged_order_submit(request) {
+        Ok(()) => state.reduce(Action::ApplyStagedChangeEvent {
+            id,
+            event: StagedChangeEvent::SubmitQueued,
+        }),
+        Err(error) => {
+            state.reduce(Action::ApplyStagedChangeEvent {
+                id,
+                event: StagedChangeEvent::FailedBeforeIntent,
+            });
+            state.reduce(Action::Log(error.to_string()));
+        }
     }
 }
 

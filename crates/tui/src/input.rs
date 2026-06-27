@@ -5,7 +5,7 @@ use ratatui::layout::Rect;
 use tui_input::backend::crossterm::to_input_request;
 
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
-use crate::model::FloatingKind;
+use crate::model::{FloatingKind, Panel};
 use crate::state::{Action, AppState};
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -29,8 +29,13 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     if live_writes_confirmation_is_top(state) {
         return live_writes_confirmation_key_action(key);
     }
-    if state.panels.focused() == crate::model::Panel::OrderTicket
+    if state.panels.focused() == Panel::OrderTicket
         && let Some(action) = order_ticket_key_action(key)
+    {
+        return Some(action);
+    }
+    if state.panels.focused() == Panel::IntentReview
+        && let Some(action) = intent_review_key_action(key)
     {
         return Some(action);
     }
@@ -153,6 +158,13 @@ fn order_ticket_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Left => Some(Action::AdjustOrderTicketField(-1)),
         KeyCode::Right | KeyCode::Enter => Some(Action::AdjustOrderTicketField(1)),
         KeyCode::Char('s') => Some(Action::StageOrderTicket),
+        _ => None,
+    }
+}
+
+fn intent_review_key_action(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Enter => Some(Action::SubmitStagedChange),
         _ => None,
     }
 }
@@ -304,6 +316,20 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('j'))),
             Some(Action::Execute(ActionId::SelectSymbolBy(1)))
+        );
+    }
+
+    #[test]
+    fn intent_review_focus_routes_enter_to_staged_submit() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Trade,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(Panel::IntentReview)));
+
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Enter)),
+            Some(Action::SubmitStagedChange)
         );
     }
 

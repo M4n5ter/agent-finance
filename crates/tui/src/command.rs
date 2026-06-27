@@ -102,6 +102,7 @@ pub enum ActionId {
     TogglePanel(Panel),
     ToggleLiveWrites,
     StageOrderTicket,
+    SubmitStagedChange,
     CloseCommandPalette,
 }
 
@@ -158,7 +159,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 42] = [
+pub const ACTION_REGISTRY: [ActionSpec; 43] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -248,6 +249,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 42] = [
         ActionId::StageOrderTicket,
         "Stage order ticket",
         "Move the current valid order ticket into intent review"
+    ),
+    action!(
+        "submit-staged-change",
+        ActionId::SubmitStagedChange,
+        "Submit staged change",
+        "Create an intent for the first ready staged order and submit it through the trading runtime"
     ),
     action!(
         "next-workspace",

@@ -17,6 +17,11 @@ use anyhow::{Result, anyhow};
 
 use crate::account::{ACCOUNT_READ_PLAN, AccountReadError, AccountSnapshot};
 use crate::config::{EquityProvider, ProviderConfig, TuiLaunch};
+use crate::state::{StagedChangeEvent, StagedOrderSubmitRequest};
+
+mod write;
+
+use write::{WriteCommand, spawn_write_worker};
 
 #[derive(Debug)]
 pub struct Scheduler {
@@ -25,6 +30,7 @@ pub struct Scheduler {
     evidence_commands: Sender<EvidenceCommand>,
     research_commands: Sender<ResearchCommand>,
     account_commands: Sender<AccountCommand>,
+    write_commands: Sender<WriteCommand>,
     events: Receiver<SchedulerEvent>,
     disconnected_reported: Cell<bool>,
 }
@@ -36,6 +42,7 @@ impl Scheduler {
         let (evidence_commands, evidence_command_rx) = mpsc::channel();
         let (research_commands, research_command_rx) = mpsc::channel();
         let (account_commands, account_command_rx) = mpsc::channel();
+        let (write_commands, write_command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let runtime = MarketRuntime::new(
             launch.proxy.as_deref(),
@@ -82,7 +89,8 @@ impl Scheduler {
             event_tx.clone(),
             handle_research_command,
         );
-        spawn_account_worker(launch, account_command_rx, event_tx);
+        spawn_account_worker(launch, account_command_rx, event_tx.clone());
+        spawn_write_worker(launch, write_command_rx, event_tx);
 
         Self {
             refresh_commands,
@@ -90,6 +98,7 @@ impl Scheduler {
             evidence_commands,
             research_commands,
             account_commands,
+            write_commands,
             events,
             disconnected_reported: Cell::new(false),
         }
@@ -135,6 +144,12 @@ impl Scheduler {
                 profile,
             })
             .map_err(|error| anyhow!("failed to request TUI account snapshot: {error}"))
+    }
+
+    pub fn request_staged_order_submit(&self, request: StagedOrderSubmitRequest) -> Result<()> {
+        self.write_commands
+            .send(WriteCommand::SubmitStagedOrder(request))
+            .map_err(|error| anyhow!("failed to request TUI staged order submit: {error}"))
     }
 
     pub fn try_recv(&self) -> Option<SchedulerEvent> {
@@ -238,6 +253,11 @@ pub enum SchedulerEvent {
         generation: u64,
         profile: String,
         error: String,
+    },
+    StagedChangeProgress {
+        id: String,
+        event: StagedChangeEvent,
+        message: Option<String>,
     },
     Fatal(String),
 }
@@ -532,8 +552,9 @@ impl TuiProviderPolicy {
 
 #[cfg(test)]
 mod tests {
+    use agent_finance_market::args::{CryptoProvider, Provider as MarketDataProvider};
+
     use super::*;
-    use agent_finance_market::args::{CryptoProvider, Provider};
 
     #[test]
     fn request_builders_carry_tui_provider_preferences_into_market_requests() {
@@ -546,9 +567,9 @@ mod tests {
         let history = policy.history_request("CRDO".to_string());
         let evidence = policy.crypto_evidence_request("BTCUSDT".to_string());
 
-        assert_eq!(quote.equity_provider, Provider::Robinhood);
+        assert_eq!(quote.equity_provider, MarketDataProvider::Robinhood);
         assert_eq!(quote.crypto_provider, CryptoProvider::Okx);
-        assert_eq!(history.provider, Provider::Robinhood);
+        assert_eq!(history.provider, MarketDataProvider::Robinhood);
         assert_eq!(history.crypto_provider, CryptoProvider::Okx);
         assert_eq!(evidence.provider, CryptoProvider::Okx);
     }

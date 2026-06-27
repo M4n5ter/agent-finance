@@ -1,0 +1,222 @@
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
+
+use agent_finance_core::{OrderIntent, Profile, SubmitMode};
+use agent_finance_trading::TradingRuntime;
+use anyhow::Result;
+use chrono::Utc;
+
+use crate::config::TuiLaunch;
+use crate::state::{StagedChangeEvent, StagedOrderSubmitRequest};
+
+use super::{SchedulerEvent, scheduler_runtime};
+
+#[derive(Debug)]
+pub(super) enum WriteCommand {
+    SubmitStagedOrder(StagedOrderSubmitRequest),
+}
+
+pub(super) fn spawn_write_worker(
+    launch: &TuiLaunch,
+    commands: Receiver<WriteCommand>,
+    events: Sender<SchedulerEvent>,
+) {
+    let runtime = TradingRuntime::with_http_policy(
+        launch.timeout_seconds,
+        launch.proxy.clone(),
+        launch.no_proxy,
+    );
+    thread::Builder::new()
+        .name("agent-finance-tui-write".to_string())
+        .spawn(move || {
+            let Some(tokio) = scheduler_runtime("write", &events) else {
+                return;
+            };
+
+            while let Ok(command) = commands.recv() {
+                if !handle_write_command(&tokio, &runtime, command, &events) {
+                    break;
+                }
+            }
+        })
+        .unwrap_or_else(|error| panic!("failed to spawn TUI write scheduler thread: {error}"));
+}
+
+fn handle_write_command(
+    tokio: &tokio::runtime::Runtime,
+    runtime: &TradingRuntime,
+    command: WriteCommand,
+    events: &Sender<SchedulerEvent>,
+) -> bool {
+    match command {
+        WriteCommand::SubmitStagedOrder(request) => {
+            handle_staged_order_submit(tokio, runtime, request, events)
+        }
+    }
+}
+
+fn handle_staged_order_submit(
+    tokio: &tokio::runtime::Runtime,
+    runtime: &TradingRuntime,
+    request: StagedOrderSubmitRequest,
+    events: &Sender<SchedulerEvent>,
+) -> bool {
+    let created = create_staged_order_intent(runtime, &request);
+    let (profile, intent_id) = match created {
+        Ok((profile, intent_id)) => {
+            if !send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::IntentCreated {
+                    intent_id: intent_id.clone(),
+                },
+                Some(format!("created order intent {intent_id}")),
+            ) {
+                return false;
+            }
+            (profile, intent_id)
+        }
+        Err(error) => {
+            return send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::FailedBeforeIntent,
+                Some(format!("{error:#}")),
+            );
+        }
+    };
+
+    let result =
+        tokio.block_on(runtime.submit_order_intent_classified(&profile, &intent_id, request.mode));
+    match (request.mode, result) {
+        (SubmitMode::DryRun | SubmitMode::Test, Ok(_)) => send_staged_change_progress(
+            events,
+            &request.id,
+            StagedChangeEvent::NonConsumingFinished {
+                intent_id,
+                mode: request.mode,
+            },
+            Some(format!("{} submit completed", request.mode)),
+        ),
+        (SubmitMode::DryRun | SubmitMode::Test, Err(error)) => send_staged_change_progress(
+            events,
+            &request.id,
+            StagedChangeEvent::PreflightFailed {
+                intent_id,
+                attempted_mode: request.mode,
+            },
+            Some(error.to_string()),
+        ),
+        (SubmitMode::Live, Ok(_)) => {
+            send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::LiveIntentClaimed {
+                    intent_id: intent_id.clone(),
+                },
+                None,
+            ) && send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::LiveSubmitSucceeded { intent_id },
+                Some("live submit completed".to_string()),
+            )
+        }
+        (SubmitMode::Live, Err(error)) if error.exchange_was_accepted() => {
+            send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::LiveIntentClaimed {
+                    intent_id: intent_id.clone(),
+                },
+                None,
+            ) && send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::LiveSubmitSucceeded { intent_id },
+                Some(format!(
+                    "exchange accepted the live submit, but local finalization failed: {error}"
+                )),
+            )
+        }
+        (SubmitMode::Live, Err(error)) if error.exchange_was_attempted() => {
+            send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::LiveIntentClaimed {
+                    intent_id: intent_id.clone(),
+                },
+                None,
+            ) && send_staged_change_progress(
+                events,
+                &request.id,
+                StagedChangeEvent::LiveSubmitFailed { intent_id },
+                Some(error.to_string()),
+            )
+        }
+        (SubmitMode::Live, Err(error)) => send_staged_change_progress(
+            events,
+            &request.id,
+            StagedChangeEvent::PreflightFailed {
+                intent_id,
+                attempted_mode: SubmitMode::Live,
+            },
+            Some(error.to_string()),
+        ),
+    }
+}
+
+fn send_staged_change_progress(
+    events: &Sender<SchedulerEvent>,
+    id: &str,
+    event: StagedChangeEvent,
+    message: Option<String>,
+) -> bool {
+    events
+        .send(SchedulerEvent::StagedChangeProgress {
+            id: id.to_string(),
+            event,
+            message,
+        })
+        .is_ok()
+}
+
+fn create_staged_order_intent(
+    runtime: &TradingRuntime,
+    request: &StagedOrderSubmitRequest,
+) -> Result<(Profile, String)> {
+    let profile = runtime.load_profile(&request.review.profile)?;
+    let intent = order_intent_from_review(&profile, &request.review)?;
+    let risk = runtime.check_order_with_runtime_limits(
+        &profile,
+        &intent,
+        request.mode == SubmitMode::Live,
+    )?;
+    let envelope = agent_finance_core::create_order_intent(intent, 300)?;
+    runtime.save_intent_with_audit(
+        &profile,
+        &envelope,
+        &risk,
+        format!("created TUI order intent {}", envelope.id),
+    )?;
+    Ok((profile, envelope.id))
+}
+
+fn order_intent_from_review(
+    profile: &Profile,
+    review: &crate::state::OrderTicketReview,
+) -> Result<OrderIntent> {
+    Ok(OrderIntent {
+        profile: profile.name.clone(),
+        provider: profile.provider.provider,
+        environment: profile.provider.environment,
+        market: review.market,
+        symbol: review.symbol.to_ascii_uppercase(),
+        side: review.side,
+        quantity: review.parsed_quantity.clone(),
+        spec: review.order_spec.clone(),
+        reduce_only: review.reduce_only,
+        position_side: None,
+        client_order_id: format!("af-tui-{}", Utc::now().timestamp_millis()),
+    })
+}

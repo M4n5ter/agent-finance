@@ -58,6 +58,10 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::StageOrderTicket);
             }
+            ActionId::SubmitStagedChange => {
+                self.close_text_input_floatings();
+                self.reduce(Action::SubmitStagedChange);
+            }
             ActionId::CloseCommandPalette => {
                 self.close_floating(FloatingKind::CommandPalette);
             }

@@ -208,7 +208,7 @@ impl fmt::Display for TransferDirection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DecimalValue(#[serde(with = "rust_decimal::serde::str")] pub Decimal);
 
 impl DecimalValue {
@@ -248,7 +248,7 @@ impl FromStr for DecimalValue {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct OrderIntent {
     pub profile: String,
     pub provider: Provider,
@@ -273,7 +273,7 @@ impl OrderIntent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum OrderSpec {
     Market {
