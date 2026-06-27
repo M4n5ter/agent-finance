@@ -48,6 +48,12 @@ From npm:
 npm install -g agent-finance-cli
 ```
 
+Install the discovery skill into compatible agent environments:
+
+```bash
+npx skills add https://github.com/M4n5ter/agent-finance
+```
+
 The project is `agent-finance`. The npm package is published as `agent-finance-cli` because `agent-finance` is not available on npm.
 
 The npm package installs a prebuilt binary on supported platforms:
@@ -87,12 +93,6 @@ skills/agent-finance/SKILL.md
 ```
 
 That stub points agents back to the runtime skills, so command guidance stays aligned with the installed binary.
-
-You can also install the repository skill into compatible agent environments:
-
-```bash
-npx skills add https://github.com/M4n5ter/agent-finance
-```
 
 Use the installed skill as the coarse entry point, then let `agent-finance skills get ...` provide command-specific guidance from the local binary.
 

@@ -48,6 +48,12 @@ npm から：
 npm install -g agent-finance-cli
 ```
 
+対応しているエージェント環境には discovery skill も追加できます。
+
+```bash
+npx skills add https://github.com/M4n5ter/agent-finance
+```
+
 プロジェクト名は `agent-finance` です。npm では `agent-finance` という名前を使えないため、パッケージ名だけ `agent-finance-cli` として公開しています。
 
 npm パッケージは、対応プラットフォームではビルド済みバイナリをインストールします。
@@ -87,12 +93,6 @@ skills/agent-finance/SKILL.md
 ```
 
 この stub はエージェントを runtime skills に戻すため、コマンドの説明がインストール済みバイナリと一致します。
-
-互換性のあるエージェント環境では、リポジトリ内の skill を直接追加することもできます。
-
-```bash
-npx skills add https://github.com/M4n5ter/agent-finance
-```
 
 追加した skill は大まかな入口として使い、具体的なコマンドの使い方はローカルの `agent-finance skills get ...` から取得します。
 

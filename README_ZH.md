@@ -48,6 +48,12 @@ agent-finance skills get core
 npm install -g agent-finance-cli
 ```
 
+把 discovery skill 安装到兼容的 Agent 环境：
+
+```bash
+npx skills add https://github.com/M4n5ter/agent-finance
+```
+
 项目名是 `agent-finance`。npm 包发布为 `agent-finance-cli`，只是因为 `agent-finance` 这个 npm 名称不可用。
 
 npm 包会在支持的平台安装预构建二进制：
@@ -87,12 +93,6 @@ skills/agent-finance/SKILL.md
 ```
 
 这个 stub 会把 Agent 引回 runtime skills，确保使用说明和已安装的二进制保持一致。
-
-也可以把仓库里的 skill 安装到兼容的 Agent 环境中：
-
-```bash
-npx skills add https://github.com/M4n5ter/agent-finance
-```
 
 把安装后的 skill 当作粗粒度入口，再让 `agent-finance skills get ...` 从本地二进制输出更具体的命令说明。
 
