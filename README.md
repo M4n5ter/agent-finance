@@ -43,15 +43,10 @@ Finance research agents fail when they rely on a single quote, a search snippet,
 
 ## Install
 
-From npm:
+Install the CLI and the discovery skill:
 
 ```bash
 npm install -g agent-finance-cli
-```
-
-Install the discovery skill into compatible agent environments:
-
-```bash
 npx skills add https://github.com/M4n5ter/agent-finance
 ```
 

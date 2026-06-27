@@ -43,15 +43,10 @@ agent-finance skills get core
 
 ## 安装
 
-通过 npm：
+安装 CLI 和 discovery skill：
 
 ```bash
 npm install -g agent-finance-cli
-```
-
-把 discovery skill 安装到兼容的 Agent 环境：
-
-```bash
 npx skills add https://github.com/M4n5ter/agent-finance
 ```
 

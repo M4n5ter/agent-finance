@@ -43,15 +43,10 @@ agent-finance skills get core
 
 ## 설치
 
-npm:
+CLI와 discovery skill을 함께 설치합니다.
 
 ```bash
 npm install -g agent-finance-cli
-```
-
-호환되는 에이전트 환경에는 discovery skill도 함께 추가할 수 있습니다.
-
-```bash
 npx skills add https://github.com/M4n5ter/agent-finance
 ```
 
