@@ -1,6 +1,10 @@
-use agent_finance_core::intent::IntentStatus;
-use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
+use agent_finance_core::{
+    Market, OrderKind, OrderSide, TimeInForce,
+    intent::IntentStatus,
+    submit::{SubmitIntentKind, SubmitMode},
+};
 use serde::Serialize;
+use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WriteSession {
@@ -8,7 +12,7 @@ pub struct WriteSession {
     intent_kind: SubmitIntentKind,
     default_mode: SubmitMode,
     state: WriteSessionState,
-    summary: String,
+    subject: WriteSessionSubject,
 }
 
 impl WriteSession {
@@ -18,7 +22,17 @@ impl WriteSession {
             intent_kind: request.intent_kind,
             default_mode,
             state: WriteSessionState::Draft,
-            summary: request.summary,
+            subject: request.subject,
+        }
+    }
+
+    fn ready_from_request(request: WriteSessionRequest, default_mode: SubmitMode) -> Self {
+        Self {
+            id: request.id,
+            intent_kind: request.intent_kind,
+            default_mode,
+            state: WriteSessionState::Ready,
+            subject: request.subject,
         }
     }
 
@@ -54,7 +68,81 @@ impl WriteSession {
 pub struct WriteSessionRequest {
     pub id: String,
     pub intent_kind: SubmitIntentKind,
-    pub summary: String,
+    pub subject: WriteSessionSubject,
+}
+
+impl WriteSessionRequest {
+    #[cfg(test)]
+    pub fn text(id: &str, intent_kind: SubmitIntentKind, summary: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            intent_kind,
+            subject: WriteSessionSubject::Text {
+                summary: summary.to_string(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum WriteSessionSubject {
+    OrderTicket(OrderTicketReview),
+    #[cfg(test)]
+    Text {
+        summary: String,
+    },
+}
+
+impl WriteSessionSubject {
+    fn summary(&self) -> String {
+        match self {
+            Self::OrderTicket(review) => review.summary(),
+            #[cfg(test)]
+            Self::Text { summary } => summary.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub struct OrderTicketReview {
+    pub symbol: String,
+    pub profile: String,
+    pub market: Market,
+    pub side: OrderSide,
+    pub kind: OrderKind,
+    pub quantity: String,
+    pub price: Option<String>,
+    pub time_in_force: TimeInForce,
+    pub reduce_only: bool,
+    pub effective_mode: SubmitMode,
+}
+
+impl OrderTicketReview {
+    pub fn summary(&self) -> String {
+        format!(
+            "{} {} {} {} {} @ {} {}{}",
+            self.side,
+            self.quantity,
+            self.symbol,
+            self.market,
+            self.kind,
+            self.price.as_deref().unwrap_or("market"),
+            self.time_in_force,
+            if self.reduce_only { " reduce-only" } else { "" }
+        )
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ValidatedWriteSessionRequest {
+    pub request: WriteSessionRequest,
+}
+
+impl ValidatedWriteSessionRequest {
+    pub fn new(request: WriteSessionRequest) -> Self {
+        Self { request }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -335,6 +423,27 @@ impl WriteSessions {
         OpenSessionResult::Opened
     }
 
+    pub(super) fn open_ready(
+        &mut self,
+        request: ValidatedWriteSessionRequest,
+        mode: SubmitMode,
+    ) -> OpenSessionResult {
+        let request = request.request;
+        if self
+            .sessions
+            .iter()
+            .any(|session| session.id == request.id && !session.state.accepts_replacement())
+        {
+            return OpenSessionResult::Rejected;
+        }
+
+        self.sessions
+            .retain(|session| session.id != request.id || !session.state.accepts_replacement());
+        self.sessions
+            .push(WriteSession::ready_from_request(request, mode));
+        OpenSessionResult::Opened
+    }
+
     pub(super) fn apply(&mut self, id: &str, event: WriteSessionEvent) -> TransitionResult {
         let Some(session) = self.sessions.iter_mut().find(|session| session.id == id) else {
             return TransitionResult::Missing;
@@ -419,6 +528,34 @@ pub enum WriteSessionStage {
     Abandoned,
 }
 
+impl WriteSessionStage {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Validating => "validating",
+            Self::Ready => "ready",
+            Self::Confirming => "confirming",
+            Self::IntentCreated => "intent-created",
+            Self::DryRunCompleted => "dry-run-completed",
+            Self::TestCompleted => "test-completed",
+            Self::DryRunFailed => "dry-run-failed",
+            Self::TestFailed => "test-failed",
+            Self::LivePreflightFailed => "live-preflight-failed",
+            Self::LiveSubmitting => "live-submitting",
+            Self::LiveSubmitted => "live-submitted",
+            Self::FailedBeforeIntent => "failed-before-intent",
+            Self::IntentFailed => "intent-failed",
+            Self::Abandoned => "abandoned",
+        }
+    }
+}
+
+impl fmt::Display for WriteSessionStage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 pub struct WriteSessionView {
     pub id: String,
@@ -428,6 +565,7 @@ pub struct WriteSessionView {
     pub intent_id: Option<String>,
     pub intent_status: Option<IntentStatus>,
     pub summary: String,
+    pub subject: WriteSessionSubject,
 }
 
 impl From<&WriteSession> for WriteSessionView {
@@ -439,7 +577,8 @@ impl From<&WriteSession> for WriteSessionView {
             mode: session.state.mode(session.default_mode),
             intent_id: session.state.intent_id().map(ToString::to_string),
             intent_status: session.state.intent_status(),
-            summary: session.summary.clone(),
+            summary: session.subject.summary(),
+            subject: session.subject.clone(),
         }
     }
 }
@@ -449,11 +588,7 @@ mod tests {
     use super::*;
 
     fn request(id: &str) -> WriteSessionRequest {
-        WriteSessionRequest {
-            id: id.to_string(),
-            intent_kind: SubmitIntentKind::Order,
-            summary: "Buy BTCUSDT".to_string(),
-        }
+        WriteSessionRequest::text(id, SubmitIntentKind::Order, "Buy BTCUSDT")
     }
 
     fn apply_all(session: &mut WriteSession, events: impl IntoIterator<Item = WriteSessionEvent>) {

@@ -282,7 +282,8 @@ impl PanelConfig {
     }
 }
 
-const PANELS_ADDED_AFTER_LEGACY_DEFAULT: [Panel; 2] = [Panel::Account, Panel::OrderTicket];
+const PANELS_ADDED_AFTER_LEGACY_DEFAULT: [Panel; 3] =
+    [Panel::Account, Panel::OrderTicket, Panel::IntentReview];
 
 fn add_new_panels_to_legacy_default(open: &mut Vec<Panel>) {
     let legacy_default = Panel::ALL
@@ -716,6 +717,7 @@ mod tests {
 
         assert!(config.panels.open.contains(&Panel::Account));
         assert!(config.panels.open.contains(&Panel::OrderTicket));
+        assert!(config.panels.open.contains(&Panel::IntentReview));
     }
 
     #[test]

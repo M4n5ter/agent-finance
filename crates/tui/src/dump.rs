@@ -210,11 +210,11 @@ mod tests {
     fn dump_includes_default_submit_mode_and_write_sessions() {
         let mut state = AppState::from_config(TuiConfig::default());
         state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
-        state.reduce(Action::OpenWriteSession(WriteSessionRequest {
-            id: "watchlist-add-crdo".to_string(),
-            intent_kind: SubmitIntentKind::Order,
-            summary: "Add CRDO to watchlist".to_string(),
-        }));
+        state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+            "watchlist-add-crdo",
+            SubmitIntentKind::Order,
+            "Add CRDO to watchlist",
+        )));
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 

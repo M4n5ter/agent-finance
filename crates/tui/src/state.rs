@@ -1,4 +1,4 @@
-use agent_finance_core::submit::SubmitMode;
+use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::model::ProviderProfile;
@@ -27,8 +27,13 @@ use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
 pub use write_session::WriteSessionStage;
-use write_session::{CloseSessionResult, OpenSessionResult, TransitionResult, WriteSessions};
-pub use write_session::{WriteSessionEvent, WriteSessionRequest, WriteSessionView};
+use write_session::{
+    CloseSessionResult, OpenSessionResult, OrderTicketReview, TransitionResult,
+    ValidatedWriteSessionRequest, WriteSessions,
+};
+pub use write_session::{
+    WriteSessionEvent, WriteSessionRequest, WriteSessionSubject, WriteSessionView,
+};
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -152,6 +157,44 @@ impl AppState {
         )
     }
 
+    fn stage_order_ticket(&mut self) {
+        let preview = self.order_ticket_preview();
+        self.focus_panel(Panel::IntentReview);
+        if !preview.ready {
+            self.task_log.warning_event(format!(
+                "order ticket is not ready: {}",
+                preview.blockers.join("; ")
+            ));
+            return;
+        }
+
+        let Some(review) = order_ticket_review(&preview) else {
+            self.task_log
+                .warning_event("order ticket review snapshot could not be built".to_string());
+            return;
+        };
+        let request = WriteSessionRequest {
+            id: order_ticket_session_id(&review),
+            intent_kind: SubmitIntentKind::Order,
+            subject: WriteSessionSubject::OrderTicket(review),
+        };
+        let session_id = request.id.clone();
+        match self.write_sessions.open_ready(
+            ValidatedWriteSessionRequest::new(request),
+            self.effective_submit_mode(),
+        ) {
+            OpenSessionResult::Opened => {
+                self.task_log
+                    .info(format!("staged order ticket {session_id}"));
+            }
+            OpenSessionResult::Rejected => {
+                self.task_log.warning_event(
+                    "order ticket cannot replace an active review session".to_string(),
+                );
+            }
+        }
+    }
+
     pub fn reduce(&mut self, action: Action) {
         match action {
             Action::Focus(panel) => {
@@ -182,6 +225,7 @@ impl AppState {
                 self.order_ticket
                     .adjust_selected_field(direction, self.selected_quote_price());
             }
+            Action::StageOrderTicket => self.stage_order_ticket(),
             Action::Execute(action) => self.execute(action),
             Action::CloseFocusedPanel => {
                 self.panels.close_focused();
@@ -337,6 +381,58 @@ impl AppState {
     }
 }
 
+fn order_ticket_review(preview: &OrderTicketPreview) -> Option<OrderTicketReview> {
+    Some(OrderTicketReview {
+        symbol: preview.symbol.clone()?,
+        profile: preview.profile.clone()?,
+        market: preview.market,
+        side: preview.side,
+        kind: preview.kind,
+        quantity: preview.quantity.clone()?,
+        price: preview.price.clone(),
+        time_in_force: preview.time_in_force,
+        reduce_only: preview.reduce_only,
+        effective_mode: preview.effective_mode,
+    })
+}
+
+fn order_ticket_session_id(review: &OrderTicketReview) -> String {
+    let mut parts = vec![
+        "order-ticket".to_string(),
+        review.profile.clone(),
+        review.effective_mode.to_string(),
+        review.market.to_string(),
+        review.side.to_string(),
+        review.kind.to_string(),
+        review.time_in_force.to_string(),
+        review.reduce_only.to_string(),
+        review.symbol.clone(),
+        review.quantity.clone(),
+    ];
+    parts.extend(review.price.clone());
+    sanitize_session_id(&parts.join("-"))
+}
+
+fn sanitize_session_id(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .fold(String::new(), |mut normalized, character| {
+            if character != '-' || !normalized.ends_with('-') {
+                normalized.push(character);
+            }
+            normalized
+        })
+        .trim_matches('-')
+        .to_string()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Focus(Panel),
@@ -347,6 +443,7 @@ pub enum Action {
     AcceptSymbolSearch,
     MoveOrderTicketField(isize),
     AdjustOrderTicketField(isize),
+    StageOrderTicket,
     Execute(ActionId),
     FocusPanelBy(isize),
     ToggleFocusedZoom,

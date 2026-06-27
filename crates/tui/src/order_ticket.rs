@@ -63,6 +63,11 @@ impl OrderTicket {
         self.price = price;
     }
 
+    #[cfg(test)]
+    pub fn set_reduce_only(&mut self, reduce_only: bool) {
+        self.reduce_only = reduce_only;
+    }
+
     pub fn move_field(&mut self, direction: isize) {
         self.selected_field = self.selected_field.shift(direction);
     }

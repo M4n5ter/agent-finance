@@ -11,9 +11,10 @@ const MIN_PANEL_HEIGHT: u16 = 4;
 const STATUS_HEIGHT: u16 = 1;
 const MIDDLE_COLUMN_SPECS: [ColumnSpec; 3] = [
     ColumnSpec::new(
-        &[Panel::OrderTicket],
+        &[Panel::OrderTicket, Panel::IntentReview],
         &[
             (Panel::OrderTicket, 42),
+            (Panel::IntentReview, 28),
             (Panel::Account, 28),
             (Panel::Quote, 18),
             (Panel::History, 12),
@@ -264,6 +265,7 @@ fn active_docked_groups(config: &LayoutConfig, open_panels: &[Panel]) -> Vec<(Do
             config.main_ratio,
             &[
                 Panel::OrderTicket,
+                Panel::IntentReview,
                 Panel::Account,
                 Panel::Quote,
                 Panel::History,
@@ -452,9 +454,11 @@ impl ColumnSpec {
     }
 
     fn matches(self, open_panels: &[Panel]) -> bool {
-        self.anchor_panels
-            .iter()
-            .all(|panel| open_panels.contains(panel))
+        self.anchor_panels.is_empty()
+            || self
+                .anchor_panels
+                .iter()
+                .any(|panel| open_panels.contains(panel))
     }
 }
 
@@ -725,8 +729,9 @@ mod tests {
 
         assert_eq!(layout.panel_at(2, 2), Some(Panel::Watchlist));
         assert_eq!(layout.panel_at(80, 2), Some(Panel::OrderTicket));
-        assert_eq!(layout.panel_at(80, 22), Some(Panel::Account));
-        assert_eq!(layout.panel_at(80, 35), Some(Panel::Quote));
+        assert_eq!(layout.panel_at(80, 22), Some(Panel::IntentReview));
+        assert_eq!(layout.panel_at(80, 30), Some(Panel::Account));
+        assert_eq!(layout.panel_at(80, 40), Some(Panel::Quote));
         assert_eq!(layout.panel_at(150, 36), Some(Panel::Research));
         assert_eq!(layout.panel_at(150, 22), Some(Panel::Polymarket));
 
@@ -758,6 +763,26 @@ mod tests {
         let quote = layout.panel_rect(Panel::Quote).expect("quote is open");
         assert!(quote.height > 30);
         assert_ne!(layout.panel_at(150, 36), Some(Panel::Research));
+    }
+
+    #[test]
+    fn intent_review_keeps_middle_layout_when_order_ticket_is_closed() {
+        let open = [Panel::Watchlist, Panel::IntentReview, Panel::Evidence];
+        let layout = build(
+            Rect::new(0, 0, 160, 48),
+            &LayoutConfig::default(),
+            &[],
+            &open,
+        );
+
+        let review = layout
+            .panel_rect(Panel::IntentReview)
+            .expect("intent review should be visible");
+        assert_eq!(
+            layout.panel_at(review.x + 1, review.y + 1),
+            Some(Panel::IntentReview)
+        );
+        assert_eq!(layout.panel_rect(Panel::OrderTicket), None);
     }
 
     #[test]

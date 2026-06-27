@@ -101,6 +101,7 @@ pub enum ActionId {
     FocusPanel(Panel),
     TogglePanel(Panel),
     ToggleLiveWrites,
+    StageOrderTicket,
     CloseCommandPalette,
 }
 
@@ -157,7 +158,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 39] = [
+pub const ACTION_REGISTRY: [ActionSpec; 42] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -243,6 +244,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 39] = [
         "Enable live writes after confirmation or disable them for this session"
     ),
     action!(
+        "stage-order-ticket",
+        ActionId::StageOrderTicket,
+        "Stage order ticket",
+        "Move the current valid order ticket into intent review"
+    ),
+    action!(
         "next-workspace",
         ActionId::ShiftWorkspace(1),
         "Next workspace",
@@ -297,6 +304,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 39] = [
         "Move keyboard focus to the staged order ticket"
     ),
     action!(
+        "focus-intent-review",
+        ActionId::FocusPanel(Panel::IntentReview),
+        "Focus intent review",
+        "Move keyboard focus to staged write sessions"
+    ),
+    action!(
         "focus-history",
         ActionId::FocusPanel(Panel::History),
         "Focus history",
@@ -349,6 +362,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 39] = [
         ActionId::TogglePanel(Panel::OrderTicket),
         "Toggle order ticket",
         "Show or hide the staged order ticket"
+    ),
+    action!(
+        "toggle-intent-review",
+        ActionId::TogglePanel(Panel::IntentReview),
+        "Toggle intent review",
+        "Show or hide staged write sessions"
     ),
     action!(
         "toggle-history",

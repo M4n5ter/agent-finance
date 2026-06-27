@@ -152,6 +152,7 @@ fn order_ticket_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Down => Some(Action::MoveOrderTicketField(1)),
         KeyCode::Left => Some(Action::AdjustOrderTicketField(-1)),
         KeyCode::Right | KeyCode::Enter => Some(Action::AdjustOrderTicketField(1)),
+        KeyCode::Char('s') => Some(Action::StageOrderTicket),
         _ => None,
     }
 }
@@ -295,6 +296,10 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Right)),
             Some(Action::AdjustOrderTicketField(1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('s'))),
+            Some(Action::StageOrderTicket)
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('j'))),

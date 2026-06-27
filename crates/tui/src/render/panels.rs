@@ -12,7 +12,7 @@ use crate::account::ACCOUNT_READ_PLAN;
 use crate::layout::CockpitLayout;
 use crate::model::Panel;
 use crate::provider_health::ProviderHealthReport;
-use crate::state::AppState;
+use crate::state::{AppState, WriteSessionSubject};
 use crate::task_log::TaskStatus;
 use crate::theme::ThemeConfig;
 
@@ -29,6 +29,7 @@ pub(super) fn render_docked(frame: &mut Frame<'_>, state: &AppState, layout: &Co
             Panel::Watchlist => render_watchlist(frame, state, area),
             Panel::Quote => render_quote(frame, state, area),
             Panel::OrderTicket => render_order_ticket(frame, state, area),
+            Panel::IntentReview => render_intent_review(frame, state, area),
             Panel::Account => render_account(frame, state, area),
             Panel::History => render_history(frame, state, area),
             Panel::Evidence => render_evidence(frame, state, area),
@@ -121,7 +122,7 @@ fn render_order_ticket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             )));
         }
     }
-    lines.push(Line::from("up/down field  left/right adjust  enter apply"));
+    lines.push(Line::from("up/down field  left/right adjust  s stage"));
 
     frame.render_widget(
         Paragraph::new(lines)
@@ -129,6 +130,90 @@ fn render_order_ticket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             .wrap(Wrap { trim: true }),
         area,
     );
+}
+
+fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let preview = state.order_ticket_preview();
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled(
+            "candidate",
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(if preview.ready {
+            " ready to stage"
+        } else {
+            " blocked"
+        }),
+    ]));
+    if preview.ready {
+        lines.push(Line::from(format!(
+            "{} {} {} {} @ {}",
+            preview.side,
+            preview.quantity.as_deref().unwrap_or("-"),
+            preview.symbol.as_deref().unwrap_or("-"),
+            preview.kind,
+            preview.price.as_deref().unwrap_or("market")
+        )));
+    } else {
+        for blocker in preview.blockers.iter().take(3) {
+            lines.push(Line::from(Span::styled(
+                format!("blocked: {blocker}"),
+                state.theme.warning_style(),
+            )));
+        }
+    }
+
+    let sessions = state.write_session_views();
+    if sessions.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from("No staged write sessions."));
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "sessions",
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
+        )));
+        for session in sessions.iter().take(8) {
+            lines.push(Line::from(format_session_review(session)));
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block(Panel::IntentReview, state))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn format_session_review(session: &crate::state::WriteSessionView) -> String {
+    match &session.subject {
+        WriteSessionSubject::OrderTicket(review) => format!(
+            "{}  {}  {}  {} {} {} {} {} @ {} {}{} [{}]",
+            session.stage,
+            session.mode,
+            session.intent_kind,
+            review.side,
+            review.quantity,
+            review.symbol,
+            review.market,
+            review.kind,
+            review.price.as_deref().unwrap_or("market"),
+            review.time_in_force,
+            if review.reduce_only {
+                " reduce-only"
+            } else {
+                ""
+            },
+            review.profile
+        ),
+        #[cfg(test)]
+        WriteSessionSubject::Text { .. } => format!(
+            "{}  {}  {}  {}",
+            session.stage, session.mode, session.intent_kind, session.summary
+        ),
+    }
 }
 
 fn ticket_field_line(

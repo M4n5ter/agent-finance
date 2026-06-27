@@ -54,6 +54,10 @@ impl AppState {
                     self.open_floating(FloatingKind::LiveWritesConfirmation);
                 }
             }
+            ActionId::StageOrderTicket => {
+                self.close_text_input_floatings();
+                self.reduce(Action::StageOrderTicket);
+            }
             ActionId::CloseCommandPalette => {
                 self.close_floating(FloatingKind::CommandPalette);
             }

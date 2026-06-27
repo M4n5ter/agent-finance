@@ -163,6 +163,32 @@ mod tests {
     }
 
     #[test]
+    fn intent_review_renders_staged_order_session() {
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec!["CRDO".to_string()],
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            workspace: crate::config::WorkspaceConfig {
+                current: WorkspaceKind::Trade,
+            },
+            ..TuiConfig::default()
+        });
+        state
+            .order_ticket
+            .set_quantity_text(Some("0.05".to_string()));
+        state.order_ticket.set_price_text(Some("204".to_string()));
+        state.reduce(crate::state::Action::StageOrderTicket);
+
+        let text = render_to_text_grid(&state, 160, 44);
+
+        assert!(text.contains("Intent Review"));
+        assert!(text.contains("sessions"));
+        assert!(text.contains("ready  dry-run  order"));
+        assert!(text.contains("buy 0.05 CRDO spot limit-maker @ 204"));
+    }
+
+    #[test]
     fn overview_workspace_matches_snapshot_at_100x30() {
         let mut state = snapshot_state();
         state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
