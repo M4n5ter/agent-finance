@@ -17,6 +17,7 @@ use anyhow::{Result, anyhow};
 
 use crate::account::{ACCOUNT_READ_PLAN, AccountReadError, AccountSnapshot};
 use crate::config::{EquityProvider, ProviderConfig, TuiLaunch};
+use crate::profile_snapshot::TradingProfileSnapshot;
 use crate::state::{StagedChangeEvent, StagedSubmitRequest};
 
 mod write;
@@ -498,9 +499,10 @@ async fn fetch_account(runtime: &TradingRuntime, profile_name: String) -> Result
     }
 
     Ok(AccountSnapshot::new(
-        profile.name,
+        profile.name.clone(),
         profile.provider.provider,
         profile.provider.environment,
+        TradingProfileSnapshot::from(&profile),
         reads,
         errors,
     ))

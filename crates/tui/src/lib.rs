@@ -13,6 +13,7 @@ mod model;
 mod order_ticket;
 mod pane_status;
 mod profile_editor;
+mod profile_snapshot;
 mod provider_health;
 mod render;
 mod scheduler;

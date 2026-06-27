@@ -783,7 +783,7 @@ impl ProfilePermissions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RiskPolicy {
     pub allow_live: bool,
     #[serde(default)]
@@ -814,7 +814,7 @@ impl RiskPolicy {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SymbolPolicy {
     #[serde(default)]
     pub markets: Vec<Market>,
@@ -823,14 +823,14 @@ pub struct SymbolPolicy {
     pub max_order_notional_usdt: DecimalValue,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TransferPolicy {
     pub direction: TransferDirection,
     pub asset: String,
     pub max_amount: DecimalValue,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum FuturesStatePolicy {
     Leverage {

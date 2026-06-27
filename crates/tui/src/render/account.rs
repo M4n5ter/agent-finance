@@ -4,6 +4,10 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
+use agent_finance_core::{
+    FuturesStatePolicy, Market, OrderKind, ProfilePermission, SymbolPolicy, TransferPolicy,
+};
+
 use crate::account::ACCOUNT_READ_PLAN;
 use crate::futures_state_ticket::FuturesStateTicketPreview;
 use crate::model::Panel;
@@ -21,6 +25,7 @@ pub(super) fn render_account(frame: &mut Frame<'_>, state: &AppState, area: Rect
 
     match state.account_snapshot.as_ref() {
         Some(snapshot) => {
+            lines.extend(profile_risk_lines(state, snapshot));
             lines.extend(account_read_lines(snapshot));
             lines.extend(open_order_lines(state, snapshot));
             lines.extend(transfer_history_lines(state, snapshot));
@@ -62,8 +67,147 @@ fn profile_lines(state: &AppState) -> Vec<Line<'static>> {
     lines
 }
 
+fn profile_risk_lines(state: &AppState, snapshot: &crate::AccountSnapshot) -> Vec<Line<'static>> {
+    let profile = &snapshot.profile_config;
+    let mut lines = vec![
+        Line::from(format!(
+            "risk: live:{}  daily order cap:{}",
+            if profile.risk.allow_live {
+                "allowed"
+            } else {
+                "blocked"
+            },
+            profile
+                .risk
+                .max_daily_order_notional_usdt
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "none".to_string())
+        )),
+        Line::from(format!(
+            "permissions: declared [{}]  required [{}]",
+            permission_list_or_none(&profile.declared_permissions),
+            permission_list_or_none(&profile.required_permissions)
+        )),
+    ];
+
+    if profile.risk.allowed_symbols.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "risk.allowed_symbols is empty",
+            state.theme.warning_style(),
+        )));
+    } else {
+        lines.push(Line::from(format!(
+            "allowed symbols: {}",
+            profile
+                .risk
+                .allowed_symbols
+                .iter()
+                .take(4)
+                .map(|(symbol, policy)| symbol_policy_label(symbol, policy))
+                .collect::<Vec<_>>()
+                .join("; ")
+        )));
+        if profile.risk.allowed_symbols.len() > 4 {
+            lines.push(Line::from(format!(
+                "+{} more risk symbols",
+                profile.risk.allowed_symbols.len() - 4
+            )));
+        }
+    }
+
+    if !profile.risk.allowed_transfers.is_empty() {
+        lines.push(Line::from(format!(
+            "transfers: {}",
+            profile
+                .risk
+                .allowed_transfers
+                .iter()
+                .take(3)
+                .map(transfer_policy_label)
+                .map(|line| compact_text(&line, 40))
+                .collect::<Vec<_>>()
+                .join("; ")
+        )));
+    }
+    if !profile.risk.allowed_futures_state_changes.is_empty() {
+        lines.push(Line::from(format!(
+            "futures state: {}",
+            profile
+                .risk
+                .allowed_futures_state_changes
+                .iter()
+                .take(3)
+                .map(futures_state_policy_label)
+                .map(|line| compact_text(&line, 40))
+                .collect::<Vec<_>>()
+                .join("; ")
+        )));
+    }
+
+    lines
+}
+
+fn permission_list_or_none(values: &[ProfilePermission]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+fn symbol_policy_label(symbol: &str, policy: &SymbolPolicy) -> String {
+    format!(
+        "{} {} {} <= {}",
+        symbol,
+        market_list_or_none(&policy.markets),
+        order_kind_list_or_none(&policy.order_kinds),
+        policy.max_order_notional_usdt
+    )
+}
+
+fn market_list_or_none(values: &[Market]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+fn order_kind_list_or_none(values: &[OrderKind]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+fn transfer_policy_label(policy: &TransferPolicy) -> String {
+    format!(
+        "{} {} <= {}",
+        policy.direction, policy.asset, policy.max_amount
+    )
+}
+
+fn futures_state_policy_label(policy: &FuturesStatePolicy) -> String {
+    policy.to_string()
+}
+
 fn account_read_lines(snapshot: &crate::AccountSnapshot) -> Vec<Line<'static>> {
     let mut lines = vec![
+        Line::from(""),
         Line::from(format!(
             "provider: {}  environment: {}",
             snapshot.provider, snapshot.environment

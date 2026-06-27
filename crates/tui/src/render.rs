@@ -119,6 +119,7 @@ mod tests {
                 "mainnet".to_string(),
                 Provider::Binance,
                 Environment::Live,
+                crate::profile_snapshot::test_trading_profile_snapshot(),
                 crate::account::ACCOUNT_READ_PLAN
                     .into_iter()
                     .map(|plan| {
@@ -221,11 +222,13 @@ mod tests {
             ),
         });
 
-        let text = render_to_text_grid(&state, 180, 40);
+        let text = render_to_text_grid(&state, 180, 52);
 
         assert!(text.contains("Account"));
         assert!(text.contains("provider: binance"));
         assert!(text.contains("environment: live"));
+        assert!(text.contains("risk: live:allowed"));
+        assert!(text.contains("allowed symbols: btcusdt spot limit <= 50"));
         assert!(text.contains(&format!(
             "signed reads: {} ok / 0 warning",
             crate::account::ACCOUNT_READ_PLAN.len()
@@ -248,7 +251,7 @@ mod tests {
         assert!(text.contains("usds-futures-to-spot 3 USDC CONFIRMED [futures-spot-1]"));
 
         state.selected_open_order = 4;
-        let text = render_to_text_grid(&state, 180, 40);
+        let text = render_to_text_grid(&state, 180, 52);
         assert!(text.contains("+1 earlier open orders"));
         assert!(text.contains("> usds-futures SELL 10 XRPUSDT @ 2 [futures-2]"));
     }

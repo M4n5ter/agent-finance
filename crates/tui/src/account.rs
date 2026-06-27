@@ -7,6 +7,8 @@ use serde::Serialize;
 use std::cmp::Reverse;
 use std::str::FromStr;
 
+use crate::profile_snapshot::TradingProfileSnapshot;
+
 pub const ACCOUNT_TRANSFER_HISTORY_PAGE_SIZE: usize = 10;
 
 pub const ACCOUNT_READ_PLAN: [AccountReadPlan; 7] = [
@@ -91,6 +93,7 @@ pub struct AccountSnapshot {
     pub profile: String,
     pub provider: Provider,
     pub environment: Environment,
+    pub profile_config: TradingProfileSnapshot,
     pub reads: Vec<SignedReadSnapshot>,
     pub errors: Vec<AccountReadError>,
 }
@@ -100,6 +103,7 @@ impl AccountSnapshot {
         profile: String,
         provider: Provider,
         environment: Environment,
+        profile_config: TradingProfileSnapshot,
         reads: Vec<SignedReadSnapshot>,
         errors: Vec<AccountReadError>,
     ) -> Self {
@@ -107,6 +111,7 @@ impl AccountSnapshot {
             profile,
             provider,
             environment,
+            profile_config,
             reads,
             errors,
         }
@@ -320,6 +325,7 @@ mod tests {
             "mainnet".to_string(),
             Provider::Binance,
             Environment::Live,
+            crate::profile_snapshot::test_trading_profile_snapshot(),
             vec![
                 SignedReadSnapshot::new(
                     "mainnet",
@@ -389,6 +395,7 @@ mod tests {
             "mainnet".to_string(),
             Provider::Binance,
             Environment::Live,
+            crate::profile_snapshot::test_trading_profile_snapshot(),
             vec![
                 SignedReadSnapshot::new(
                     "mainnet",
@@ -456,6 +463,7 @@ mod tests {
             "mainnet".to_string(),
             Provider::Binance,
             Environment::Live,
+            crate::profile_snapshot::test_trading_profile_snapshot(),
             vec![
                 SignedReadSnapshot::new(
                     "mainnet",

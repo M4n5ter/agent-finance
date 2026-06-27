@@ -456,7 +456,7 @@ fn trading_profile_change_invalidates_account_snapshot_before_cancel() {
     state.reduce(Action::StageSelectedOpenOrderCancel);
 
     assert_eq!(state.trading_profile.as_deref(), Some("hedge"));
-    assert_eq!(state.account_snapshot, None);
+    assert!(state.account_snapshot.is_none());
     assert!(state.staged_change_views().is_empty());
     assert!(
         state
@@ -1864,6 +1864,7 @@ fn account_snapshot(profile: &str) -> crate::account::AccountSnapshot {
         profile.to_string(),
         Provider::Binance,
         Environment::Live,
+        crate::profile_snapshot::test_trading_profile_snapshot(),
         account_reads(profile),
         Vec::new(),
     )
@@ -1874,6 +1875,7 @@ fn account_snapshot_with_open_orders(profile: &str) -> crate::account::AccountSn
         profile.to_string(),
         Provider::Binance,
         Environment::Live,
+        crate::profile_snapshot::test_trading_profile_snapshot(),
         vec![
             SignedReadSnapshot::new(
                 profile.to_string(),
@@ -1929,6 +1931,7 @@ fn account_snapshot_with_order_id_only_open_order(
         profile.to_string(),
         Provider::Binance,
         Environment::Live,
+        crate::profile_snapshot::test_trading_profile_snapshot(),
         vec![SignedReadSnapshot::new(
             profile.to_string(),
             Provider::Binance,
