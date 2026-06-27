@@ -74,6 +74,14 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::SubmitStagedChange);
             }
+            ActionId::DeleteSelectedWatchlistSymbol => {
+                self.close_text_input_floatings();
+                self.reduce(Action::DeleteSelectedWatchlistSymbol);
+            }
+            ActionId::MoveSelectedWatchlistSymbol(direction) => {
+                self.close_text_input_floatings();
+                self.reduce(Action::MoveSelectedWatchlistSymbol(direction));
+            }
             ActionId::CloseCommandPalette => {
                 self.close_floating(FloatingKind::CommandPalette);
             }

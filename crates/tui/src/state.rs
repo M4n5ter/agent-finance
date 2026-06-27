@@ -18,6 +18,7 @@ use crate::task_failure::TaskFailures;
 use crate::task_log::TaskLog;
 use crate::theme::ThemeConfig;
 use crate::transfer_ticket::{TransferTicket, TransferTicketPreview};
+use crate::watchlist_editor::WatchlistAddState;
 
 mod interaction;
 mod lifecycle;
@@ -42,6 +43,7 @@ use staged_change::{
 pub struct AppState {
     pub watchlist: Vec<String>,
     pub selected_symbol: usize,
+    pub config_changes: Vec<String>,
     pub workspace: WorkspaceKind,
     pub zoomed: bool,
     pub layout: LayoutConfig,
@@ -49,6 +51,7 @@ pub struct AppState {
     pub floating: Vec<FloatingPane>,
     pub command_palette: CommandPaletteState,
     pub symbol_search: SymbolSearchState,
+    pub watchlist_add: WatchlistAddState,
     pub keymap: KeymapConfig,
     pub task_log: TaskLog,
     pub provider_profiles: Vec<ProviderProfile>,
@@ -78,6 +81,7 @@ impl AppState {
         let mut state = Self {
             watchlist: config.watchlist,
             selected_symbol: 0,
+            config_changes: Vec::new(),
             workspace: config.workspace.current,
             zoomed: false,
             layout: config.layout,
@@ -85,6 +89,7 @@ impl AppState {
             floating: config.floating.panes,
             command_palette: CommandPaletteState::default(),
             symbol_search: SymbolSearchState::default(),
+            watchlist_add: WatchlistAddState::default(),
             keymap: config.keymap,
             task_log: TaskLog::default(),
             provider_profiles: service::provider_profiles(),
@@ -313,6 +318,81 @@ impl AppState {
             shift_index(self.selected_open_order.min(len - 1), len, direction);
     }
 
+    fn mark_config_changed(&mut self, section: &str) {
+        if !self.config_changes.iter().any(|change| change == section) {
+            self.config_changes.push(section.to_string());
+        }
+    }
+
+    fn add_watchlist_symbols(&mut self) {
+        let symbols = self.watchlist_add.symbols();
+        if symbols.is_empty() {
+            self.task_log
+                .warning_event("watchlist add requires a symbol".to_string());
+            return;
+        }
+
+        let mut added = Vec::new();
+        let mut selected = None;
+        for symbol in symbols {
+            if let Some(index) = self
+                .watchlist
+                .iter()
+                .position(|candidate| candidate == &symbol)
+            {
+                selected.get_or_insert(index);
+            } else {
+                self.watchlist.push(symbol.clone());
+                added.push(symbol);
+                selected.get_or_insert(self.watchlist.len() - 1);
+            }
+        }
+
+        if let Some(index) = selected {
+            self.selected_symbol = index;
+        }
+        if added.is_empty() {
+            self.task_log
+                .info("watchlist already contains symbol".to_string());
+        } else {
+            self.mark_config_changed("watchlist");
+            self.task_log
+                .info(format!("added {} to watchlist", added.join(", ")));
+        }
+        self.watchlist_add.reset();
+        self.close_floating(FloatingKind::WatchlistAdd);
+    }
+
+    fn delete_selected_watchlist_symbol(&mut self) {
+        if self.watchlist.len() <= 1 {
+            self.task_log
+                .warning_event("watchlist must keep at least one symbol".to_string());
+            return;
+        }
+        let index = self.selected_symbol.min(self.watchlist.len() - 1);
+        let removed = self.watchlist.remove(index);
+        self.selected_symbol = index.min(self.watchlist.len() - 1);
+        self.mark_config_changed("watchlist");
+        self.task_log
+            .info(format!("removed {removed} from watchlist"));
+    }
+
+    fn move_selected_watchlist_symbol(&mut self, direction: isize) {
+        if self.watchlist.len() < 2 {
+            return;
+        }
+        let current = self.selected_symbol.min(self.watchlist.len() - 1);
+        let next = current as isize + direction;
+        if next < 0 || next >= self.watchlist.len() as isize {
+            return;
+        }
+        let next = next as usize;
+        let symbol = self.watchlist.remove(current);
+        self.watchlist.insert(next, symbol);
+        self.selected_symbol = next;
+        self.mark_config_changed("watchlist");
+    }
+
     fn stage_selected_open_order_cancel(&mut self) {
         let Some(profile) = self.trading_profile.clone() else {
             self.task_log
@@ -378,11 +458,19 @@ impl AppState {
             Action::EditSymbolSearchQuery(request) => {
                 self.symbol_search.edit_query(&self.watchlist, request);
             }
+            Action::EditWatchlistAddQuery(request) => {
+                self.watchlist_add.edit_query(request);
+            }
             Action::AcceptSymbolSearch => {
                 if let Some(index) = self.symbol_search.selected_symbol_index() {
                     self.selected_symbol = index;
                     self.close_floating(FloatingKind::SymbolSearch);
                 }
+            }
+            Action::AcceptWatchlistAdd => self.add_watchlist_symbols(),
+            Action::DeleteSelectedWatchlistSymbol => self.delete_selected_watchlist_symbol(),
+            Action::MoveSelectedWatchlistSymbol(direction) => {
+                self.move_selected_watchlist_symbol(direction);
             }
             Action::MoveOrderTicketField(direction) => {
                 self.order_ticket.move_field(direction);
@@ -702,7 +790,11 @@ pub enum Action {
     EditCommandQuery(tui_input::InputRequest),
     MoveSymbolSearchSelection(isize),
     EditSymbolSearchQuery(tui_input::InputRequest),
+    EditWatchlistAddQuery(tui_input::InputRequest),
     AcceptSymbolSearch,
+    AcceptWatchlistAdd,
+    DeleteSelectedWatchlistSymbol,
+    MoveSelectedWatchlistSymbol(isize),
     MoveOrderTicketField(isize),
     AdjustOrderTicketField(isize),
     MoveTransferTicketField(isize),

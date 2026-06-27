@@ -1,13 +1,13 @@
 ---
 source: crates/tui/src/render.rs
-assertion_line: 150
+assertion_line: 333
 expression: "render_to_text_grid(&state, 100, 30)"
 ---
 ┌Watchlist [fresh]───────────────┐┌Quote / Sessions [partial]──────────────────────────────────────┐
 │> CRDO -                        ││CRDO market snapshot                                            │
 │  BTCUSDT -                     ││No quote loaded yet. Waiting for the next refresh.              │
 │                                ││                                                                │
-│                                ││                                                                │
+│a add  d delete  left/right move││                                                                │
 │                                ││                                                                │
 │                                ││                                                                │
 │                                ││                                                                │

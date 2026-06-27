@@ -403,7 +403,7 @@ fn normalize_profile_name(profile: Option<String>) -> Option<String> {
         .filter(|profile| !profile.is_empty())
 }
 
-fn normalize_symbols(symbols: &[String]) -> Vec<String> {
+pub(crate) fn normalize_symbols(symbols: &[String]) -> Vec<String> {
     let mut normalized = Vec::new();
     for symbol in symbols {
         for part in symbol.split(',') {

@@ -106,6 +106,8 @@ pub enum ActionId {
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
+    DeleteSelectedWatchlistSymbol,
+    MoveSelectedWatchlistSymbol(isize),
     CloseCommandPalette,
 }
 
@@ -162,7 +164,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 46] = [
+pub const ACTION_REGISTRY: [ActionSpec; 50] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -198,6 +200,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 46] = [
         ActionId::OpenFloating(FloatingKind::SymbolSearch),
         "Open symbol search",
         "Filter the watchlist and jump to a symbol"
+    ),
+    action!(
+        "open-watchlist-add",
+        ActionId::OpenFloating(FloatingKind::WatchlistAdd),
+        "Add symbols",
+        "Add comma-separated symbols to the watchlist"
     ),
     action!(
         "close-floating",
@@ -276,6 +284,24 @@ pub const ACTION_REGISTRY: [ActionSpec; 46] = [
         ActionId::SubmitStagedChange,
         "Submit staged change",
         "Create an intent for the first ready staged change and submit it through the trading runtime"
+    ),
+    action!(
+        "delete-selected-watchlist-symbol",
+        ActionId::DeleteSelectedWatchlistSymbol,
+        "Delete selected symbol",
+        "Remove the selected symbol from the persisted watchlist"
+    ),
+    action!(
+        "move-selected-watchlist-symbol-up",
+        ActionId::MoveSelectedWatchlistSymbol(-1),
+        "Move selected symbol up",
+        "Reorder the selected watchlist symbol upward"
+    ),
+    action!(
+        "move-selected-watchlist-symbol-down",
+        ActionId::MoveSelectedWatchlistSymbol(1),
+        "Move selected symbol down",
+        "Reorder the selected watchlist symbol downward"
     ),
     action!(
         "next-workspace",

@@ -17,6 +17,8 @@ pub struct TuiDump {
     pub workspace: WorkspaceKind,
     pub mode: InteractionMode,
     pub selected_symbol: Option<String>,
+    pub config_changes: Vec<String>,
+    pub watchlist_add_query: String,
     pub partial: bool,
     pub panes: Vec<TuiPaneDump>,
     pub provider_health: ProviderHealthReport,
@@ -49,10 +51,12 @@ impl TuiDump {
     pub fn from_state(state: &AppState, partial: bool) -> Self {
         let provider_health = ProviderHealthReport::from_state(state);
         Self {
-            schema_version: 5,
+            schema_version: 6,
             workspace: state.workspace,
             mode: state.interaction_mode(),
             selected_symbol: state.selected_symbol().map(ToString::to_string),
+            config_changes: state.config_changes.clone(),
+            watchlist_add_query: state.watchlist_add.query().to_string(),
             partial,
             panes: Panel::ALL
                 .into_iter()
@@ -229,7 +233,7 @@ mod tests {
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
-        assert_eq!(value["schema_version"], 5);
+        assert_eq!(value["schema_version"], 6);
         assert_eq!(value["default_submit_mode"], "live");
         assert_eq!(value["live_writes_enabled"], false);
         assert_eq!(value["effective_submit_mode"], "dry-run");
@@ -278,6 +282,33 @@ mod tests {
         assert_eq!(value["staged_changes"][0]["mode"], "dry-run");
         assert_eq!(value["staged_changes"][0]["intent_id"], "intent-1");
         assert!(value["staged_changes"][0]["intent_status"].is_null());
+    }
+
+    #[test]
+    fn dump_exposes_watchlist_edit_state_for_agents() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::WatchlistAdd,
+        )));
+        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
+        assert_eq!(value["watchlist_add_query"], "");
+        assert_eq!(
+            value["key_hints"],
+            serde_json::json!(["type symbols", "enter add", "esc close"])
+        );
+
+        for character in "lite".chars() {
+            state.reduce(Action::EditWatchlistAddQuery(
+                tui_input::InputRequest::InsertChar(character),
+            ));
+        }
+        state.reduce(Action::AcceptWatchlistAdd);
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
+
+        assert_eq!(value["config_changes"][0], "watchlist");
+        assert_eq!(value["selected_symbol"], "LITE");
+        assert_eq!(value["watchlist_add_query"], "");
     }
 
     #[test]

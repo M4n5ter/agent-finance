@@ -266,7 +266,7 @@ fn ticket_field_line(
 }
 
 fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let items = state
+    let mut items = state
         .watchlist
         .iter()
         .enumerate()
@@ -299,6 +299,15 @@ fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             ]))
         })
         .collect::<Vec<_>>();
+    items.push(ListItem::new(Line::from("")));
+    items.push(ListItem::new(Line::from(Span::styled(
+        if !state.config_changes.is_empty() {
+            "a add  d delete  left/right move  config: watchlist"
+        } else {
+            "a add  d delete  left/right move"
+        },
+        state.theme.muted_style(),
+    ))));
     frame.render_widget(
         List::new(items).block(panel_block(Panel::Watchlist, state)),
         area,

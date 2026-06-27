@@ -1212,6 +1212,71 @@ fn state_exports_user_layout_preferences_to_config() {
 }
 
 #[test]
+fn watchlist_edits_normalize_reorder_delete_and_export_config() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["AAPL".to_string(), "CRDO".to_string()],
+        ..TuiConfig::default()
+    });
+    for character in " lite,crdo ".chars() {
+        state.reduce(Action::EditWatchlistAddQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+
+    state.reduce(Action::AcceptWatchlistAdd);
+    assert_eq!(state.watchlist, ["AAPL", "CRDO", "LITE"]);
+    assert_eq!(state.selected_symbol(), Some("LITE"));
+    assert_eq!(state.config_changes, ["watchlist"]);
+
+    state.reduce(Action::MoveSelectedWatchlistSymbol(-1));
+    assert_eq!(state.watchlist, ["AAPL", "LITE", "CRDO"]);
+    assert_eq!(state.selected_symbol(), Some("LITE"));
+
+    state.reduce(Action::DeleteSelectedWatchlistSymbol);
+    assert_eq!(state.watchlist, ["AAPL", "CRDO"]);
+    assert_eq!(state.selected_symbol(), Some("CRDO"));
+
+    let config = state.export_config(&TuiConfig::default());
+    assert_eq!(config.watchlist, ["AAPL", "CRDO"]);
+}
+
+#[test]
+fn watchlist_delete_keeps_one_symbol() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["AAPL".to_string()],
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::DeleteSelectedWatchlistSymbol);
+
+    assert_eq!(state.watchlist, ["AAPL"]);
+    assert!(state.config_changes.is_empty());
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message.contains("at least one symbol"))
+    );
+}
+
+#[test]
+fn watchlist_reorder_stops_at_edges() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["AAPL".to_string(), "CRDO".to_string()],
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::MoveSelectedWatchlistSymbol(-1));
+    assert_eq!(state.watchlist, ["AAPL", "CRDO"]);
+    assert!(state.config_changes.is_empty());
+
+    state.reduce(Action::Execute(ActionId::SelectSymbolBy(1)));
+    state.reduce(Action::MoveSelectedWatchlistSymbol(1));
+    assert_eq!(state.watchlist, ["AAPL", "CRDO"]);
+    assert!(state.config_changes.is_empty());
+}
+
+#[test]
 fn reducer_resizes_and_resets_docked_layout() {
     let mut state = AppState::from_config(TuiConfig::default());
 

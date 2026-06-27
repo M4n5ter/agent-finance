@@ -14,11 +14,13 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
         ];
     }
 
+    if let Some(spec) = active_input_mode_spec(state) {
+        return spec.hints();
+    }
+
     match state.interaction_mode() {
         InteractionMode::Normal => normal_key_hints(state),
-        InteractionMode::Command | InteractionMode::Search => {
-            input_mode_spec(state.interaction_mode()).hints()
-        }
+        InteractionMode::Command | InteractionMode::Search => Vec::new(),
         InteractionMode::Help | InteractionMode::Inspect => vec![
             hint_for(state, ActionId::CloseFocusedFloating, "close")
                 .unwrap_or_else(|| "esc close".to_string()),
@@ -27,12 +29,18 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
     }
 }
 
-pub fn input_floating_title(mode: InteractionMode) -> Option<String> {
-    let spec = input_mode_spec(mode);
-    spec.valid().then(|| {
+pub fn input_floating_title_for_kind(kind: FloatingKind) -> Option<String> {
+    input_mode_spec_for_kind(kind).map(|spec| {
         let hints = spec.hints().join("  ");
         format!("{}  {}", spec.title, hints)
     })
+}
+
+fn active_input_mode_spec(state: &AppState) -> Option<InputModeSpec> {
+    state
+        .floating
+        .last()
+        .and_then(|pane| input_mode_spec_for_kind(pane.kind))
 }
 
 pub fn status_key_hints(state: &AppState, max_width: usize) -> String {
@@ -108,40 +116,32 @@ fn pair_hint(
 
 struct InputModeSpec {
     title: &'static str,
-    accept: &'static str,
+    hints: &'static [&'static str],
 }
 
 impl InputModeSpec {
-    const fn valid(&self) -> bool {
-        !self.title.is_empty()
-    }
-
     fn hints(&self) -> Vec<String> {
-        vec![
-            "type filter".to_string(),
-            format!("enter {}", self.accept),
-            "up/down move".to_string(),
-            "esc close".to_string(),
-        ]
+        self.hints.iter().map(|hint| (*hint).to_string()).collect()
     }
 }
 
-fn input_mode_spec(mode: InteractionMode) -> InputModeSpec {
-    match mode {
-        InteractionMode::Command => InputModeSpec {
+fn input_mode_spec_for_kind(kind: FloatingKind) -> Option<InputModeSpec> {
+    match kind {
+        FloatingKind::CommandPalette => Some(InputModeSpec {
             title: "Command Palette",
-            accept: "run",
-        },
-        InteractionMode::Search => InputModeSpec {
+            hints: &["type filter", "enter run", "up/down move", "esc close"],
+        }),
+        FloatingKind::SymbolSearch => Some(InputModeSpec {
             title: "Symbol Search",
-            accept: "select",
-        },
-        InteractionMode::Normal | InteractionMode::Help | InteractionMode::Inspect => {
-            InputModeSpec {
-                title: "",
-                accept: "",
-            }
-        }
+            hints: &["type filter", "enter select", "up/down move", "esc close"],
+        }),
+        FloatingKind::WatchlistAdd => Some(InputModeSpec {
+            title: "Add Symbols",
+            hints: &["type symbols", "enter add", "esc close"],
+        }),
+        FloatingKind::Help
+        | FloatingKind::LiveWritesConfirmation
+        | FloatingKind::ProviderDetails => None,
     }
 }
 
@@ -195,6 +195,19 @@ mod tests {
                 "type filter".to_string(),
                 "enter select".to_string(),
                 "up/down move".to_string(),
+                "esc close".to_string(),
+            ]
+        );
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::WatchlistAdd,
+        )));
+
+        assert_eq!(
+            mode_key_hints(&state),
+            vec![
+                "type symbols".to_string(),
+                "enter add".to_string(),
                 "esc close".to_string(),
             ]
         );

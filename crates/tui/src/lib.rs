@@ -21,6 +21,7 @@ mod task_failure;
 mod task_log;
 mod theme;
 mod transfer_ticket;
+mod watchlist_editor;
 
 pub use account::{AccountReadError, AccountSnapshot};
 pub use app::run;

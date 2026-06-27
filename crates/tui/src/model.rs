@@ -334,18 +334,25 @@ pub enum FloatingKind {
     LiveWritesConfirmation,
     ProviderDetails,
     SymbolSearch,
+    WatchlistAdd,
 }
 
 impl FloatingKind {
     pub const fn persistent(self) -> bool {
         match self {
-            Self::CommandPalette | Self::LiveWritesConfirmation | Self::SymbolSearch => false,
+            Self::CommandPalette
+            | Self::LiveWritesConfirmation
+            | Self::SymbolSearch
+            | Self::WatchlistAdd => false,
             Self::Help | Self::ProviderDetails => true,
         }
     }
 
     pub const fn text_input(self) -> bool {
-        matches!(self, Self::CommandPalette | Self::SymbolSearch)
+        matches!(
+            self,
+            Self::CommandPalette | Self::SymbolSearch | Self::WatchlistAdd
+        )
     }
 
     pub const fn title(self) -> &'static str {
@@ -355,6 +362,7 @@ impl FloatingKind {
             Self::LiveWritesConfirmation => "Enable Live Writes",
             Self::ProviderDetails => "Provider Details",
             Self::SymbolSearch => "Symbol Search",
+            Self::WatchlistAdd => "Add Symbols",
         }
     }
 }
@@ -386,7 +394,9 @@ impl FloatingSize {
 
     pub const fn default_for(kind: FloatingKind) -> Self {
         match kind {
-            FloatingKind::CommandPalette | FloatingKind::SymbolSearch => Self {
+            FloatingKind::CommandPalette
+            | FloatingKind::SymbolSearch
+            | FloatingKind::WatchlistAdd => Self {
                 width_ratio: 70,
                 height_ratio: 40,
             },

@@ -151,6 +151,8 @@ function smokeDumpState() {
     "workspace",
     "mode",
     "selected_symbol",
+    "config_changes",
+    "watchlist_add_query",
     "panes",
     "provider_health",
     "tasks",
@@ -166,7 +168,7 @@ function smokeDumpState() {
   if (dump.workspace !== "crypto") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
   }
-  if (dump.schema_version !== 5) {
+  if (dump.schema_version !== 6) {
     fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
   }
   if (Object.prototype.hasOwnProperty.call(dump, "write_sessions")) {
@@ -180,6 +182,9 @@ function smokeDumpState() {
   }
   if (!dump.futures_state_ticket || dump.futures_state_ticket.kind !== "leverage" || dump.futures_state_ticket.symbol !== null || dump.futures_state_ticket.ready !== false) {
     fail("dump-state JSON is missing the default futures_state_ticket contract");
+  }
+  if (!Array.isArray(dump.config_changes) || dump.config_changes.length !== 0 || dump.watchlist_add_query !== "") {
+    fail("dump-state JSON is missing the default watchlist edit contract");
   }
   if (!Array.isArray(dump.panes) || !dump.panes.some((pane) => pane.panel === "history" && pane.visible)) {
     fail("dump-state JSON is missing a visible history pane");

@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, Wrap};
 
 use crate::hints;
-use crate::model::{FloatingKind, InteractionMode, WorkspaceKind};
+use crate::model::{FloatingKind, WorkspaceKind};
 use crate::state::AppState;
 use crate::theme::ThemeConfig;
 
@@ -69,10 +69,15 @@ pub(super) fn render_floating(
         render_symbol_search(frame, state, area);
         return;
     }
+    if kind == FloatingKind::WatchlistAdd {
+        render_watchlist_add(frame, state, area);
+        return;
+    }
 
     let text = match kind {
         FloatingKind::CommandPalette => unreachable!("command palette is rendered separately"),
         FloatingKind::SymbolSearch => unreachable!("symbol search is rendered separately"),
+        FloatingKind::WatchlistAdd => unreachable!("watchlist add is rendered separately"),
         FloatingKind::Help => vec![
             Line::from("agent-finance cockpit"),
             Line::from("[/]: switch workspace"),
@@ -88,6 +93,7 @@ pub(super) fn render_floating(
             Line::from("0 restore all panels"),
             Line::from("r reset layout"),
             Line::from("mouse: focus panels, drag docked borders, resize floating corners"),
+            Line::from("watchlist focus: a add, d delete, left/right reorder"),
             Line::from("q quit"),
         ],
         FloatingKind::LiveWritesConfirmation => vec![
@@ -133,8 +139,8 @@ fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         area,
         SearchFloating {
             title: "Command Palette",
-            input_title: hints::input_floating_title(InteractionMode::Command)
-                .expect("command mode has an input title"),
+            input_title: hints::input_floating_title_for_kind(FloatingKind::CommandPalette)
+                .expect("command palette has an input title"),
             placeholder: "filter commands",
             query: state.command_palette.query(),
             selected: state.command_palette.selected(),
@@ -166,8 +172,8 @@ fn render_symbol_search(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         area,
         SearchFloating {
             title: "Symbol Search",
-            input_title: hints::input_floating_title(InteractionMode::Search)
-                .expect("search mode has an input title"),
+            input_title: hints::input_floating_title_for_kind(FloatingKind::SymbolSearch)
+                .expect("symbol search has an input title"),
             placeholder: "filter symbols",
             query: state.symbol_search.query(),
             selected: state.symbol_search.selected(),
@@ -191,6 +197,41 @@ fn render_symbol_search(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                 Span::styled(if is_selected { "> " } else { "  " }, style),
                 Span::styled(symbol.clone(), style),
                 Span::styled(if is_current { " current" } else { "" }, style),
+            ])))
+        },
+    );
+}
+
+fn render_watchlist_add(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    render_search_floating(
+        frame,
+        area,
+        SearchFloating {
+            title: "Add Symbols",
+            input_title: hints::input_floating_title_for_kind(FloatingKind::WatchlistAdd)
+                .expect("watchlist add has an input title"),
+            placeholder: "LITE, AAOI, BTCUSDT",
+            query: state.watchlist_add.query(),
+            selected: 0,
+            total: 2,
+            noun: "actions",
+            empty: "Enter adds symbols, Esc cancels",
+        },
+        &state.theme,
+        |index, is_selected| {
+            let style = if is_selected {
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
+            } else {
+                state.theme.text_style()
+            };
+            let text = match index {
+                0 => "Enter - add normalized symbols",
+                1 => "Esc - cancel",
+                _ => return None,
+            };
+            Some(ListItem::new(Line::from(vec![
+                Span::styled(if is_selected { "> " } else { "  " }, style),
+                Span::styled(text, style),
             ])))
         },
     );
@@ -286,24 +327,27 @@ fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> S
 
     if width < 42 {
         return format!(
-            " {symbol} {} live:{} {runtime} e:{errors} ",
+            " {symbol} {} live:{}{} {runtime} e:{errors} ",
             state.interaction_mode().label(),
-            live_label(state)
+            live_label(state),
+            compact_config_segment(state),
         );
     }
 
     if width < 82 {
         if let Some(profile) = state.trading_profile.as_deref() {
             return format!(
-                " {symbol} | profile: {profile} | live:{} | {} | {runtime} | e:{errors} ",
+                " {symbol} | profile: {profile} | live:{}{} | {} | {runtime} | e:{errors} ",
                 live_label(state),
+                config_segment(state),
                 state.effective_submit_mode()
             );
         }
         return format!(
-            " {symbol} | mode: {} | live:{} | {} | focus: {} | {runtime} | e:{errors} ",
+            " {symbol} | mode: {} | live:{}{} | {} | focus: {} | {runtime} | e:{errors} ",
             state.interaction_mode().label(),
             live_label(state),
+            config_segment(state),
             state.effective_submit_mode(),
             state.panels.focused().title(),
         );
@@ -315,8 +359,9 @@ fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> S
         .map(|profile| format!(" | profile: {profile}"))
         .unwrap_or_default();
     let prefix = format!(
-        " {symbol} | mode: {}{profile} | {} | focus: {} | visible: {}/{} | {runtime} | errors: {errors} | ",
+        " {symbol} | mode: {}{profile}{} | {} | focus: {} | visible: {}/{} | {runtime} | errors: {errors} | ",
         state.interaction_mode().label(),
+        config_segment(state),
         write_label(state),
         state.panels.focused().title(),
         state.visible_panels().len(),
@@ -339,6 +384,22 @@ fn live_label(state: &AppState) -> &'static str {
         "on"
     } else {
         "off"
+    }
+}
+
+fn compact_config_segment(state: &AppState) -> &'static str {
+    if state.config_changes.is_empty() {
+        ""
+    } else {
+        " cfg:watchlist"
+    }
+}
+
+fn config_segment(state: &AppState) -> &'static str {
+    if state.config_changes.is_empty() {
+        ""
+    } else {
+        " | cfg:watchlist"
     }
 }
 

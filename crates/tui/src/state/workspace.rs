@@ -58,7 +58,9 @@ impl AppState {
             Some(FloatingKind::LiveWritesConfirmation | FloatingKind::ProviderDetails) => {
                 InteractionMode::Inspect
             }
-            Some(FloatingKind::SymbolSearch) => InteractionMode::Search,
+            Some(FloatingKind::SymbolSearch | FloatingKind::WatchlistAdd) => {
+                InteractionMode::Search
+            }
             None => InteractionMode::Normal,
         }
     }
@@ -107,7 +109,11 @@ impl AppState {
     }
 
     pub(super) fn close_text_input_floatings_except(&mut self, except: FloatingKind) {
-        for kind in [FloatingKind::CommandPalette, FloatingKind::SymbolSearch] {
+        for kind in [
+            FloatingKind::CommandPalette,
+            FloatingKind::SymbolSearch,
+            FloatingKind::WatchlistAdd,
+        ] {
             if kind != except {
                 self.close_floating(kind);
             }
@@ -115,7 +121,11 @@ impl AppState {
     }
 
     pub(super) fn close_text_input_floatings(&mut self) {
-        for kind in [FloatingKind::CommandPalette, FloatingKind::SymbolSearch] {
+        for kind in [
+            FloatingKind::CommandPalette,
+            FloatingKind::SymbolSearch,
+            FloatingKind::WatchlistAdd,
+        ] {
             self.close_floating(kind);
         }
     }
@@ -135,6 +145,7 @@ impl AppState {
         match kind {
             FloatingKind::CommandPalette => self.command_palette.reset(),
             FloatingKind::SymbolSearch => self.symbol_search.reset(&self.watchlist),
+            FloatingKind::WatchlistAdd => self.watchlist_add.reset(),
             FloatingKind::Help
             | FloatingKind::LiveWritesConfirmation
             | FloatingKind::ProviderDetails => {}
