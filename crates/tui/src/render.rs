@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn intent_review_renders_staged_order_session() {
+    fn intent_review_renders_staged_order_change() {
         let mut state = AppState::from_config(TuiConfig {
             watchlist: vec!["CRDO".to_string()],
             trading: crate::config::TradingConfig {
@@ -183,7 +183,7 @@ mod tests {
         let text = render_to_text_grid(&state, 160, 44);
 
         assert!(text.contains("Intent Review"));
-        assert!(text.contains("sessions"));
+        assert!(text.contains("staged changes"));
         assert!(text.contains("ready  dry-run  order"));
         assert!(text.contains("buy 0.05 CRDO spot limit-maker @ 204"));
     }

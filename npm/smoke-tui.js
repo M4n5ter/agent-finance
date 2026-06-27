@@ -61,7 +61,15 @@ try {
     fail("TUI ignored the configured equity provider and rendered yahoo-boats");
   }
 
-  runTmux(["send-keys", "-t", session, "]"]);
+  runTmux(["send-keys", "-t", session, ":"]);
+  if (!waitForScreen(["Command Palette", "Open help"], 4_000)) {
+    fail("TUI did not open the command palette before workspace switch");
+  }
+  runTmux(["send-keys", "-t", session, "workspace research"]);
+  if (!waitForScreen(["workspace research", "Workspace research"], 4_000)) {
+    fail("TUI command palette did not filter the research workspace command");
+  }
+  runTmux(["send-keys", "-t", session, "Enter"]);
   if (!waitForScreen(["Research", "Polymarket"], 4_000)) {
     fail("TUI did not switch to the research workspace");
   }
@@ -82,12 +90,13 @@ try {
   }
 
   runTmux(["send-keys", "-t", session, "z"]);
-  if (!waitForScreen(["visible: 1/5", "focus: Quote / Sessions"], 4_000)) {
+  const zoomed = waitForScreen(["Quote / Sessions", "focus: Quote / Sessions"], 4_000);
+  if (!zoomed || zoomed.includes("Watchlist")) {
     fail("TUI did not zoom the focused pane");
   }
 
   runTmux(["send-keys", "-t", session, "z"]);
-  if (!waitForScreen(["visible: 5/5", "focus: Quote / Sessions"], 4_000)) {
+  if (!waitForScreen(["Watchlist", "Polymarket", "News / Research", "Quote / Sessions", "focus: Quote / Sessions"], 4_000)) {
     fail("TUI did not restore the workspace layout after zoom");
   }
 
@@ -137,7 +146,16 @@ function smokeDumpState() {
     fail(`dump-state did not emit valid JSON: ${error.message}\n${result.stdout}`);
   }
 
-  const requiredKeys = ["workspace", "mode", "selected_symbol", "panes", "provider_health", "tasks"];
+  const requiredKeys = [
+    "schema_version",
+    "workspace",
+    "mode",
+    "selected_symbol",
+    "panes",
+    "provider_health",
+    "tasks",
+    "staged_changes",
+  ];
   for (const key of requiredKeys) {
     if (!Object.prototype.hasOwnProperty.call(dump, key)) {
       fail(`dump-state JSON is missing ${key}`);
@@ -145,6 +163,15 @@ function smokeDumpState() {
   }
   if (dump.workspace !== "crypto") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
+  }
+  if (dump.schema_version !== 2) {
+    fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(dump, "write_sessions")) {
+    fail("dump-state JSON still exposes legacy write_sessions");
+  }
+  if (!Array.isArray(dump.staged_changes)) {
+    fail("dump-state JSON staged_changes is not an array");
   }
   if (!Array.isArray(dump.panes) || !dump.panes.some((pane) => pane.panel === "history" && pane.visible)) {
     fail("dump-state JSON is missing a visible history pane");

@@ -1,4 +1,4 @@
-use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
+use agent_finance_core::submit::SubmitMode;
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::model::ProviderProfile;
@@ -20,19 +20,19 @@ use crate::theme::ThemeConfig;
 mod interaction;
 mod lifecycle;
 mod load;
+mod staged_change;
 mod workspace;
-mod write_session;
 
 use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
-pub use write_session::WriteSessionStage;
-use write_session::{
-    CloseSessionResult, OpenSessionResult, OrderTicketReview, TransitionResult,
-    ValidatedWriteSessionRequest, WriteSessions,
+pub use staged_change::StagedChangeStage;
+use staged_change::{
+    CloseStagedChangeResult, OpenStagedChangeResult, OrderTicketReview, StagedChanges,
+    TransitionResult,
 };
-pub use write_session::{
-    WriteSessionEvent, WriteSessionRequest, WriteSessionSubject, WriteSessionView,
+pub use staged_change::{
+    StagedChangeEvent, StagedChangeRequest, StagedChangeSubject, StagedChangeView,
 };
 
 #[derive(Debug, Clone)]
@@ -63,7 +63,7 @@ pub struct AppState {
     pub live_writes_enabled: bool,
     pub trading_profile: Option<String>,
     pub order_ticket: OrderTicket,
-    write_sessions: WriteSessions,
+    staged_changes: StagedChanges,
 }
 
 impl AppState {
@@ -95,7 +95,7 @@ impl AppState {
             live_writes_enabled: false,
             trading_profile: config.trading.default_profile,
             order_ticket: OrderTicket::default(),
-            write_sessions: WriteSessions::default(),
+            staged_changes: StagedChanges::default(),
         };
         state.ensure_visible_focus();
         state
@@ -135,8 +135,8 @@ impl AppState {
         self.account.loading()
     }
 
-    pub fn write_session_views(&self) -> Vec<WriteSessionView> {
-        self.write_sessions.views()
+    pub fn staged_change_views(&self) -> Vec<StagedChangeView> {
+        self.staged_changes.views()
     }
 
     pub const fn effective_submit_mode(&self) -> SubmitMode {
@@ -173,23 +173,22 @@ impl AppState {
                 .warning_event("order ticket review snapshot could not be built".to_string());
             return;
         };
-        let request = WriteSessionRequest {
-            id: order_ticket_session_id(&review),
-            intent_kind: SubmitIntentKind::Order,
-            subject: WriteSessionSubject::OrderTicket(review),
+        let request = StagedChangeRequest {
+            id: order_ticket_staged_change_id(&review),
+            subject: StagedChangeSubject::OrderTicket(review),
         };
-        let session_id = request.id.clone();
-        match self.write_sessions.open_ready(
-            ValidatedWriteSessionRequest::new(request),
-            self.effective_submit_mode(),
-        ) {
-            OpenSessionResult::Opened => {
+        let change_id = request.id.clone();
+        match self
+            .staged_changes
+            .open_ready(request, self.effective_submit_mode())
+        {
+            OpenStagedChangeResult::Opened => {
                 self.task_log
-                    .info(format!("staged order ticket {session_id}"));
+                    .info(format!("staged order ticket {change_id}"));
             }
-            OpenSessionResult::Rejected => {
+            OpenStagedChangeResult::Rejected => {
                 self.task_log.warning_event(
-                    "order ticket cannot replace an active review session".to_string(),
+                    "order ticket cannot replace an active staged change".to_string(),
                 );
             }
         }
@@ -335,46 +334,46 @@ impl AppState {
                     "live writes disabled for this TUI session".to_string()
                 });
                 if !enabled {
-                    let abandoned = self.write_sessions.disable_live();
+                    let abandoned = self.staged_changes.disable_live();
                     if abandoned > 0 {
                         self.task_log.warning_event(format!(
-                            "abandoned {abandoned} pending live write session(s)"
+                            "abandoned {abandoned} pending live staged change(s)"
                         ));
                     }
                 }
             }
-            Action::OpenWriteSession(request) => {
+            Action::OpenStagedChange(request) => {
                 match self
-                    .write_sessions
+                    .staged_changes
                     .open(request, self.effective_submit_mode())
                 {
-                    OpenSessionResult::Opened => {}
-                    OpenSessionResult::Rejected => self.task_log.warning_event(
-                        "write session cannot replace an active session".to_string(),
-                    ),
+                    OpenStagedChangeResult::Opened => {}
+                    OpenStagedChangeResult::Rejected => self
+                        .task_log
+                        .warning_event("staged change cannot replace an active change".to_string()),
                 }
             }
-            Action::ApplyWriteSessionEvent { id, event } => {
-                match self.write_sessions.apply(&id, event) {
+            Action::ApplyStagedChangeEvent { id, event } => {
+                match self.staged_changes.apply(&id, event) {
                     TransitionResult::Applied => {}
                     TransitionResult::Missing => self
                         .task_log
-                        .warning_event(format!("write session {id} is no longer present")),
+                        .warning_event(format!("staged change {id} is no longer present")),
                     TransitionResult::Rejected { current, event } => {
                         self.task_log.warning_event(format!(
-                            "write session {id} cannot apply {event:?} from {current}"
+                            "staged change {id} cannot apply {event:?} from {current}"
                         ));
                     }
                 }
             }
-            Action::CloseWriteSession(id) => match self.write_sessions.close(&id) {
-                CloseSessionResult::Closed => {}
-                CloseSessionResult::Missing => self
+            Action::CloseStagedChange(id) => match self.staged_changes.close(&id) {
+                CloseStagedChangeResult::Closed => {}
+                CloseStagedChangeResult::Missing => self
                     .task_log
-                    .warning_event(format!("write session {id} is no longer present")),
-                CloseSessionResult::Rejected { current } => self
+                    .warning_event(format!("staged change {id} is no longer present")),
+                CloseStagedChangeResult::Rejected { current } => self
                     .task_log
-                    .warning_event(format!("write session {id} cannot close while {current}")),
+                    .warning_event(format!("staged change {id} cannot close while {current}")),
             },
             Action::Log(message) => self.task_log.info(message),
         }
@@ -396,7 +395,7 @@ fn order_ticket_review(preview: &OrderTicketPreview) -> Option<OrderTicketReview
     })
 }
 
-fn order_ticket_session_id(review: &OrderTicketReview) -> String {
+fn order_ticket_staged_change_id(review: &OrderTicketReview) -> String {
     let mut parts = vec![
         "order-ticket".to_string(),
         review.profile.clone(),
@@ -410,10 +409,10 @@ fn order_ticket_session_id(review: &OrderTicketReview) -> String {
         review.quantity.clone(),
     ];
     parts.extend(review.price.clone());
-    sanitize_session_id(&parts.join("-"))
+    sanitize_staged_change_id(&parts.join("-"))
 }
 
-fn sanitize_session_id(value: &str) -> String {
+fn sanitize_staged_change_id(value: &str) -> String {
     value
         .chars()
         .map(|character| {
@@ -532,29 +531,29 @@ pub enum Action {
         not(test),
         expect(
             dead_code,
-            reason = "write session actions are part of the state contract before write panels bind them"
+            reason = "staged change actions are part of the state contract before staged change panels bind them"
         )
     )]
-    OpenWriteSession(WriteSessionRequest),
+    OpenStagedChange(StagedChangeRequest),
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "write session actions are part of the state contract before write panels bind them"
+            reason = "staged change actions are part of the state contract before staged change panels bind them"
         )
     )]
-    ApplyWriteSessionEvent {
+    ApplyStagedChangeEvent {
         id: String,
-        event: WriteSessionEvent,
+        event: StagedChangeEvent,
     },
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "write session actions are part of the state contract before write panels bind them"
+            reason = "staged change actions are part of the state contract before staged change panels bind them"
         )
     )]
-    CloseWriteSession(String),
+    CloseStagedChange(String),
     Log(String),
 }
 

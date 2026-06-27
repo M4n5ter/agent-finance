@@ -7,42 +7,31 @@ use serde::Serialize;
 use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct WriteSession {
+pub struct StagedChange {
     id: String,
-    intent_kind: SubmitIntentKind,
     default_mode: SubmitMode,
-    state: WriteSessionState,
-    subject: WriteSessionSubject,
+    state: StagedChangeState,
+    subject: StagedChangeSubject,
 }
 
-impl WriteSession {
-    fn from_request(request: WriteSessionRequest, default_mode: SubmitMode) -> Self {
+impl StagedChange {
+    #[cfg(test)]
+    fn from_request(request: StagedChangeRequest, default_mode: SubmitMode) -> Self {
         Self {
             id: request.id,
-            intent_kind: request.intent_kind,
             default_mode,
-            state: WriteSessionState::Draft,
-            subject: request.subject,
-        }
-    }
-
-    fn ready_from_request(request: WriteSessionRequest, default_mode: SubmitMode) -> Self {
-        Self {
-            id: request.id,
-            intent_kind: request.intent_kind,
-            default_mode,
-            state: WriteSessionState::Ready,
+            state: StagedChangeState::Draft,
             subject: request.subject,
         }
     }
 
     #[cfg(test)]
-    fn state(&self) -> &WriteSessionState {
+    fn state(&self) -> &StagedChangeState {
         &self.state
     }
 
-    pub fn apply(&mut self, event: WriteSessionEvent) -> bool {
-        if matches!(event, WriteSessionEvent::LiveSubmitStarted { .. })
+    pub fn apply(&mut self, event: StagedChangeEvent) -> bool {
+        if matches!(event, StagedChangeEvent::LiveSubmitStarted { .. })
             && self.default_mode != SubmitMode::Live
         {
             return false;
@@ -59,25 +48,24 @@ impl WriteSession {
             return false;
         }
         self.default_mode = SubmitMode::DryRun;
-        self.state = WriteSessionState::Abandoned;
+        self.state = StagedChangeState::Abandoned;
         true
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct WriteSessionRequest {
+pub struct StagedChangeRequest {
     pub id: String,
-    pub intent_kind: SubmitIntentKind,
-    pub subject: WriteSessionSubject,
+    pub subject: StagedChangeSubject,
 }
 
-impl WriteSessionRequest {
+impl StagedChangeRequest {
     #[cfg(test)]
     pub fn text(id: &str, intent_kind: SubmitIntentKind, summary: &str) -> Self {
         Self {
             id: id.to_string(),
-            intent_kind,
-            subject: WriteSessionSubject::Text {
+            subject: StagedChangeSubject::Text {
+                intent_kind,
                 summary: summary.to_string(),
             },
         }
@@ -86,20 +74,29 @@ impl WriteSessionRequest {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum WriteSessionSubject {
+pub enum StagedChangeSubject {
     OrderTicket(OrderTicketReview),
     #[cfg(test)]
     Text {
+        intent_kind: SubmitIntentKind,
         summary: String,
     },
 }
 
-impl WriteSessionSubject {
+impl StagedChangeSubject {
+    fn intent_kind(&self) -> SubmitIntentKind {
+        match self {
+            Self::OrderTicket(_) => SubmitIntentKind::Order,
+            #[cfg(test)]
+            Self::Text { intent_kind, .. } => *intent_kind,
+        }
+    }
+
     fn summary(&self) -> String {
         match self {
             Self::OrderTicket(review) => review.summary(),
             #[cfg(test)]
-            Self::Text { summary } => summary.clone(),
+            Self::Text { summary, .. } => summary.clone(),
         }
     }
 }
@@ -135,25 +132,14 @@ impl OrderTicketReview {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ValidatedWriteSessionRequest {
-    pub request: WriteSessionRequest,
-}
-
-impl ValidatedWriteSessionRequest {
-    pub fn new(request: WriteSessionRequest) -> Self {
-        Self { request }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "write session events are consumed when write panels bind the session workflow"
+        reason = "staged change events are consumed when staged change panels bind the change workflow"
     )
 )]
-pub enum WriteSessionEvent {
+pub enum StagedChangeEvent {
     ValidationStarted,
     ValidationReady,
     ConfirmationRequested,
@@ -190,7 +176,7 @@ pub enum WriteSessionEvent {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-enum WriteSessionState {
+enum StagedChangeState {
     Draft,
     Validating,
     Ready,
@@ -219,30 +205,30 @@ enum WriteSessionState {
     Abandoned,
 }
 
-impl WriteSessionState {
-    fn next(&self, event: WriteSessionEvent) -> Option<Self> {
+impl StagedChangeState {
+    fn next(&self, event: StagedChangeEvent) -> Option<Self> {
         match (self, event) {
-            (Self::Draft, WriteSessionEvent::ValidationStarted) => Some(Self::Validating),
-            (Self::Draft, WriteSessionEvent::Abandoned) => Some(Self::Abandoned),
-            (Self::Validating, WriteSessionEvent::ValidationReady) => Some(Self::Ready),
-            (Self::Validating, WriteSessionEvent::FailedBeforeIntent) => {
+            (Self::Draft, StagedChangeEvent::ValidationStarted) => Some(Self::Validating),
+            (Self::Draft, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
+            (Self::Validating, StagedChangeEvent::ValidationReady) => Some(Self::Ready),
+            (Self::Validating, StagedChangeEvent::FailedBeforeIntent) => {
                 Some(Self::FailedBeforeIntent)
             }
-            (Self::Validating, WriteSessionEvent::Abandoned) => Some(Self::Abandoned),
-            (Self::Ready, WriteSessionEvent::ConfirmationRequested) => Some(Self::Confirming),
-            (Self::Ready, WriteSessionEvent::FailedBeforeIntent) => Some(Self::FailedBeforeIntent),
-            (Self::Ready, WriteSessionEvent::Abandoned) => Some(Self::Abandoned),
-            (Self::Confirming, WriteSessionEvent::ReturnedToReady) => Some(Self::Ready),
-            (Self::Confirming, WriteSessionEvent::FailedBeforeIntent) => {
+            (Self::Validating, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
+            (Self::Ready, StagedChangeEvent::ConfirmationRequested) => Some(Self::Confirming),
+            (Self::Ready, StagedChangeEvent::FailedBeforeIntent) => Some(Self::FailedBeforeIntent),
+            (Self::Ready, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
+            (Self::Confirming, StagedChangeEvent::ReturnedToReady) => Some(Self::Ready),
+            (Self::Confirming, StagedChangeEvent::FailedBeforeIntent) => {
                 Some(Self::FailedBeforeIntent)
             }
-            (Self::Confirming, WriteSessionEvent::Abandoned) => Some(Self::Abandoned),
-            (Self::Confirming, WriteSessionEvent::IntentCreated { intent_id }) => {
+            (Self::Confirming, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
+            (Self::Confirming, StagedChangeEvent::IntentCreated { intent_id }) => {
                 Some(Self::IntentCreated { intent_id })
             }
             (
                 Self::IntentCreated { intent_id },
-                WriteSessionEvent::NonConsumingFinished {
+                StagedChangeEvent::NonConsumingFinished {
                     intent_id: next_id,
                     mode,
                 },
@@ -255,7 +241,7 @@ impl WriteSessionState {
             }
             (
                 Self::IntentCreated { intent_id },
-                WriteSessionEvent::PreflightFailed {
+                StagedChangeEvent::PreflightFailed {
                     intent_id: next_id,
                     attempted_mode,
                 },
@@ -267,56 +253,56 @@ impl WriteSessionState {
                 Self::IntentCreated { intent_id }
                 | Self::NonConsumingCompleted { intent_id, .. }
                 | Self::PreflightFailed { intent_id, .. },
-                WriteSessionEvent::LiveSubmitStarted { intent_id: next_id },
+                StagedChangeEvent::LiveSubmitStarted { intent_id: next_id },
             ) if intent_id == &next_id => Some(Self::LiveSubmitting { intent_id: next_id }),
             (
                 Self::NonConsumingCompleted { .. } | Self::PreflightFailed { .. },
-                WriteSessionEvent::Abandoned,
+                StagedChangeEvent::Abandoned,
             ) => Some(Self::Abandoned),
             (
                 Self::LiveSubmitting { intent_id },
-                WriteSessionEvent::LiveSubmitSucceeded { intent_id: next_id },
+                StagedChangeEvent::LiveSubmitSucceeded { intent_id: next_id },
             ) if intent_id == &next_id => Some(Self::LiveSubmitted { intent_id: next_id }),
             (
                 Self::LiveSubmitting { intent_id },
-                WriteSessionEvent::LiveSubmitFailed { intent_id: next_id },
+                StagedChangeEvent::LiveSubmitFailed { intent_id: next_id },
             ) if intent_id == &next_id => Some(Self::IntentFailed { intent_id: next_id }),
             _ => None,
         }
     }
 
-    fn stage(&self) -> WriteSessionStage {
+    fn stage(&self) -> StagedChangeStage {
         match self {
-            Self::Draft => WriteSessionStage::Draft,
-            Self::Validating => WriteSessionStage::Validating,
-            Self::Ready => WriteSessionStage::Ready,
-            Self::Confirming => WriteSessionStage::Confirming,
-            Self::IntentCreated { .. } => WriteSessionStage::IntentCreated,
+            Self::Draft => StagedChangeStage::Draft,
+            Self::Validating => StagedChangeStage::Validating,
+            Self::Ready => StagedChangeStage::Ready,
+            Self::Confirming => StagedChangeStage::Confirming,
+            Self::IntentCreated { .. } => StagedChangeStage::IntentCreated,
             Self::NonConsumingCompleted {
                 mode: NonConsumingMode::DryRun,
                 ..
-            } => WriteSessionStage::DryRunCompleted,
+            } => StagedChangeStage::DryRunCompleted,
             Self::NonConsumingCompleted {
                 mode: NonConsumingMode::Test,
                 ..
-            } => WriteSessionStage::TestCompleted,
+            } => StagedChangeStage::TestCompleted,
             Self::PreflightFailed {
                 attempted_mode: SubmitMode::DryRun,
                 ..
-            } => WriteSessionStage::DryRunFailed,
+            } => StagedChangeStage::DryRunFailed,
             Self::PreflightFailed {
                 attempted_mode: SubmitMode::Test,
                 ..
-            } => WriteSessionStage::TestFailed,
+            } => StagedChangeStage::TestFailed,
             Self::PreflightFailed {
                 attempted_mode: SubmitMode::Live,
                 ..
-            } => WriteSessionStage::LivePreflightFailed,
-            Self::LiveSubmitting { .. } => WriteSessionStage::LiveSubmitting,
-            Self::LiveSubmitted { .. } => WriteSessionStage::LiveSubmitted,
-            Self::FailedBeforeIntent => WriteSessionStage::FailedBeforeIntent,
-            Self::IntentFailed { .. } => WriteSessionStage::IntentFailed,
-            Self::Abandoned => WriteSessionStage::Abandoned,
+            } => StagedChangeStage::LivePreflightFailed,
+            Self::LiveSubmitting { .. } => StagedChangeStage::LiveSubmitting,
+            Self::LiveSubmitted { .. } => StagedChangeStage::LiveSubmitted,
+            Self::FailedBeforeIntent => StagedChangeStage::FailedBeforeIntent,
+            Self::IntentFailed { .. } => StagedChangeStage::IntentFailed,
+            Self::Abandoned => StagedChangeStage::Abandoned,
         }
     }
 
@@ -394,62 +380,62 @@ impl NonConsumingMode {
 }
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
-pub struct WriteSessions {
-    sessions: Vec<WriteSession>,
+pub struct StagedChanges {
+    changes: Vec<StagedChange>,
 }
 
-impl WriteSessions {
-    pub(super) fn views(&self) -> Vec<WriteSessionView> {
-        self.sessions.iter().map(WriteSessionView::from).collect()
+impl StagedChanges {
+    pub(super) fn views(&self) -> Vec<StagedChangeView> {
+        self.changes.iter().map(StagedChangeView::from).collect()
     }
 
     pub(super) fn open(
         &mut self,
-        request: WriteSessionRequest,
+        request: StagedChangeRequest,
         mode: SubmitMode,
-    ) -> OpenSessionResult {
-        if self
-            .sessions
-            .iter()
-            .any(|session| session.id == request.id && !session.state.accepts_replacement())
-        {
-            return OpenSessionResult::Rejected;
-        }
-
-        self.sessions
-            .retain(|session| session.id != request.id || !session.state.accepts_replacement());
-        self.sessions
-            .push(WriteSession::from_request(request, mode));
-        OpenSessionResult::Opened
+    ) -> OpenStagedChangeResult {
+        self.open_with(request, mode, StagedChangeState::Draft)
     }
 
     pub(super) fn open_ready(
         &mut self,
-        request: ValidatedWriteSessionRequest,
+        request: StagedChangeRequest,
         mode: SubmitMode,
-    ) -> OpenSessionResult {
-        let request = request.request;
-        if self
-            .sessions
-            .iter()
-            .any(|session| session.id == request.id && !session.state.accepts_replacement())
-        {
-            return OpenSessionResult::Rejected;
-        }
-
-        self.sessions
-            .retain(|session| session.id != request.id || !session.state.accepts_replacement());
-        self.sessions
-            .push(WriteSession::ready_from_request(request, mode));
-        OpenSessionResult::Opened
+    ) -> OpenStagedChangeResult {
+        self.open_with(request, mode, StagedChangeState::Ready)
     }
 
-    pub(super) fn apply(&mut self, id: &str, event: WriteSessionEvent) -> TransitionResult {
-        let Some(session) = self.sessions.iter_mut().find(|session| session.id == id) else {
+    fn open_with(
+        &mut self,
+        request: StagedChangeRequest,
+        mode: SubmitMode,
+        state: StagedChangeState,
+    ) -> OpenStagedChangeResult {
+        if self
+            .changes
+            .iter()
+            .any(|change| change.id == request.id && !change.state.accepts_replacement())
+        {
+            return OpenStagedChangeResult::Rejected;
+        }
+
+        self.changes
+            .retain(|change| change.id != request.id || !change.state.accepts_replacement());
+        self.changes.push(StagedChange {
+            id: request.id,
+            default_mode: mode,
+            state,
+            subject: request.subject,
+        });
+        OpenStagedChangeResult::Opened
+    }
+
+    pub(super) fn apply(&mut self, id: &str, event: StagedChangeEvent) -> TransitionResult {
+        let Some(change) = self.changes.iter_mut().find(|change| change.id == id) else {
             return TransitionResult::Missing;
         };
-        let previous = format!("{:?}", session.state);
-        if session.apply(event.clone()) {
+        let previous = format!("{:?}", change.state);
+        if change.apply(event.clone()) {
             TransitionResult::Applied
         } else {
             TransitionResult::Rejected {
@@ -461,38 +447,38 @@ impl WriteSessions {
 
     pub(super) fn disable_live(&mut self) -> usize {
         let mut disabled = 0;
-        for session in &mut self.sessions {
-            if session.disable_live() {
+        for change in &mut self.changes {
+            if change.disable_live() {
                 disabled += 1;
             }
         }
         disabled
     }
 
-    pub(super) fn close(&mut self, id: &str) -> CloseSessionResult {
-        let Some(index) = self.sessions.iter().position(|session| session.id == id) else {
-            return CloseSessionResult::Missing;
+    pub(super) fn close(&mut self, id: &str) -> CloseStagedChangeResult {
+        let Some(index) = self.changes.iter().position(|change| change.id == id) else {
+            return CloseStagedChangeResult::Missing;
         };
-        let current = &self.sessions[index].state;
+        let current = &self.changes[index].state;
         if current.blocks_close() {
-            return CloseSessionResult::Rejected {
+            return CloseStagedChangeResult::Rejected {
                 current: format!("{:?}", current),
             };
         }
 
-        self.sessions.remove(index);
-        CloseSessionResult::Closed
+        self.changes.remove(index);
+        CloseStagedChangeResult::Closed
     }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(super) enum OpenSessionResult {
+pub(super) enum OpenStagedChangeResult {
     Opened,
     Rejected,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(super) enum CloseSessionResult {
+pub(super) enum CloseStagedChangeResult {
     Closed,
     Missing,
     Rejected { current: String },
@@ -504,13 +490,13 @@ pub(super) enum TransitionResult {
     Missing,
     Rejected {
         current: String,
-        event: WriteSessionEvent,
+        event: StagedChangeEvent,
     },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum WriteSessionStage {
+pub enum StagedChangeStage {
     Draft,
     Validating,
     Ready,
@@ -528,7 +514,7 @@ pub enum WriteSessionStage {
     Abandoned,
 }
 
-impl WriteSessionStage {
+impl StagedChangeStage {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Draft => "draft",
@@ -550,35 +536,35 @@ impl WriteSessionStage {
     }
 }
 
-impl fmt::Display for WriteSessionStage {
+impl fmt::Display for StagedChangeStage {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.label())
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]
-pub struct WriteSessionView {
+pub struct StagedChangeView {
     pub id: String,
     pub intent_kind: SubmitIntentKind,
-    pub stage: WriteSessionStage,
+    pub stage: StagedChangeStage,
     pub mode: SubmitMode,
     pub intent_id: Option<String>,
     pub intent_status: Option<IntentStatus>,
     pub summary: String,
-    pub subject: WriteSessionSubject,
+    pub subject: StagedChangeSubject,
 }
 
-impl From<&WriteSession> for WriteSessionView {
-    fn from(session: &WriteSession) -> Self {
+impl From<&StagedChange> for StagedChangeView {
+    fn from(change: &StagedChange) -> Self {
         Self {
-            id: session.id.clone(),
-            intent_kind: session.intent_kind,
-            stage: session.state.stage(),
-            mode: session.state.mode(session.default_mode),
-            intent_id: session.state.intent_id().map(ToString::to_string),
-            intent_status: session.state.intent_status(),
-            summary: session.subject.summary(),
-            subject: session.subject.clone(),
+            id: change.id.clone(),
+            intent_kind: change.subject.intent_kind(),
+            stage: change.state.stage(),
+            mode: change.state.mode(change.default_mode),
+            intent_id: change.state.intent_id().map(ToString::to_string),
+            intent_status: change.state.intent_status(),
+            summary: change.subject.summary(),
+            subject: change.subject.clone(),
         }
     }
 }
@@ -587,336 +573,334 @@ impl From<&WriteSession> for WriteSessionView {
 mod tests {
     use super::*;
 
-    fn request(id: &str) -> WriteSessionRequest {
-        WriteSessionRequest::text(id, SubmitIntentKind::Order, "Buy BTCUSDT")
+    fn request(id: &str) -> StagedChangeRequest {
+        StagedChangeRequest::text(id, SubmitIntentKind::Order, "Buy BTCUSDT")
     }
 
-    fn apply_all(session: &mut WriteSession, events: impl IntoIterator<Item = WriteSessionEvent>) {
+    fn apply_all(change: &mut StagedChange, events: impl IntoIterator<Item = StagedChangeEvent>) {
         for event in events {
-            assert!(session.apply(event));
+            assert!(change.apply(event));
         }
     }
 
     #[test]
-    fn write_session_events_allow_forward_workflow_and_reject_unsafe_jumps() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::DryRun);
+    fn staged_change_events_allow_forward_workflow_and_reject_unsafe_jumps() {
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::DryRun);
 
-        assert!(!session.apply(WriteSessionEvent::LiveSubmitSucceeded {
+        assert!(!change.apply(StagedChangeEvent::LiveSubmitSucceeded {
             intent_id: "intent-1".to_string(),
         }));
-        assert_eq!(session.state(), &WriteSessionState::Draft);
+        assert_eq!(change.state(), &StagedChangeState::Draft);
 
         apply_all(
-            &mut session,
+            &mut change,
             [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::IntentCreated {
+                StagedChangeEvent::ValidationStarted,
+                StagedChangeEvent::ValidationReady,
+                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
             ],
         );
         assert_eq!(
-            session.state(),
-            &WriteSessionState::IntentCreated {
+            change.state(),
+            &StagedChangeState::IntentCreated {
                 intent_id: "intent-1".to_string()
             }
         );
     }
 
     #[test]
-    fn write_session_events_reject_intent_id_mismatches() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::Live);
+    fn staged_change_events_reject_intent_id_mismatches() {
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::Live);
         apply_all(
-            &mut session,
+            &mut change,
             [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::IntentCreated {
+                StagedChangeEvent::ValidationStarted,
+                StagedChangeEvent::ValidationReady,
+                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
             ],
         );
 
-        assert!(!session.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-2".to_string(),
         }));
-        assert!(session.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(change.apply(StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         }));
-        assert!(!session.apply(WriteSessionEvent::LiveSubmitFailed {
+        assert!(!change.apply(StagedChangeEvent::LiveSubmitFailed {
             intent_id: "intent-2".to_string(),
         }));
-        assert!(session.apply(WriteSessionEvent::LiveSubmitFailed {
+        assert!(change.apply(StagedChangeEvent::LiveSubmitFailed {
             intent_id: "intent-1".to_string(),
         }));
     }
 
     #[test]
     fn non_consuming_completion_does_not_claim_core_submission_status() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::DryRun);
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::DryRun);
         apply_all(
-            &mut session,
+            &mut change,
             [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::IntentCreated {
+                StagedChangeEvent::ValidationStarted,
+                StagedChangeEvent::ValidationReady,
+                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
-                WriteSessionEvent::NonConsumingFinished {
+                StagedChangeEvent::NonConsumingFinished {
                     intent_id: "intent-1".to_string(),
                     mode: SubmitMode::DryRun,
                 },
             ],
         );
 
-        let view = WriteSessionView::from(&session);
+        let view = StagedChangeView::from(&change);
         assert_eq!(view.intent_id.as_deref(), Some("intent-1"));
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::DryRun);
-        assert!(!session.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         }));
     }
 
     #[test]
     fn test_completion_can_continue_to_live_without_claiming_core_submission() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::Test);
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::Test);
         apply_all(
-            &mut session,
+            &mut change,
             [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::IntentCreated {
+                StagedChangeEvent::ValidationStarted,
+                StagedChangeEvent::ValidationReady,
+                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
-                WriteSessionEvent::NonConsumingFinished {
+                StagedChangeEvent::NonConsumingFinished {
                     intent_id: "intent-1".to_string(),
                     mode: SubmitMode::Test,
                 },
             ],
         );
 
-        let view = WriteSessionView::from(&session);
+        let view = StagedChangeView::from(&change);
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::Test);
-        assert!(!session.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         }));
     }
 
     #[test]
-    fn only_live_mode_sessions_can_start_live_submission() {
+    fn only_live_mode_changes_can_start_live_submission() {
         for mode in [SubmitMode::DryRun, SubmitMode::Test] {
-            let mut session = WriteSession::from_request(request("session-1"), mode);
+            let mut change = StagedChange::from_request(request("change-1"), mode);
             apply_all(
-                &mut session,
+                &mut change,
                 [
-                    WriteSessionEvent::ValidationStarted,
-                    WriteSessionEvent::ValidationReady,
-                    WriteSessionEvent::ConfirmationRequested,
-                    WriteSessionEvent::IntentCreated {
+                    StagedChangeEvent::ValidationStarted,
+                    StagedChangeEvent::ValidationReady,
+                    StagedChangeEvent::ConfirmationRequested,
+                    StagedChangeEvent::IntentCreated {
                         intent_id: "intent-1".to_string(),
                     },
                 ],
             );
 
-            assert!(!session.apply(WriteSessionEvent::LiveSubmitStarted {
+            assert!(!change.apply(StagedChangeEvent::LiveSubmitStarted {
                 intent_id: "intent-1".to_string(),
             }));
-            assert_eq!(WriteSessionView::from(&session).mode, mode);
+            assert_eq!(StagedChangeView::from(&change).mode, mode);
         }
 
-        let mut live = WriteSession::from_request(request("session-1"), SubmitMode::Live);
+        let mut live = StagedChange::from_request(request("change-1"), SubmitMode::Live);
         apply_all(
             &mut live,
             [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::IntentCreated {
+                StagedChangeEvent::ValidationStarted,
+                StagedChangeEvent::ValidationReady,
+                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
             ],
         );
 
-        assert!(live.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(live.apply(StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         }));
     }
 
     #[test]
     fn live_preflight_failures_keep_core_intent_status_empty() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::Live);
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::Live);
         apply_all(
-            &mut session,
+            &mut change,
             [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::IntentCreated {
+                StagedChangeEvent::ValidationStarted,
+                StagedChangeEvent::ValidationReady,
+                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::IntentCreated {
                     intent_id: "intent-1".to_string(),
                 },
-                WriteSessionEvent::PreflightFailed {
+                StagedChangeEvent::PreflightFailed {
                     intent_id: "intent-1".to_string(),
                     attempted_mode: SubmitMode::Live,
                 },
             ],
         );
 
-        let view = WriteSessionView::from(&session);
-        assert_eq!(view.stage, WriteSessionStage::LivePreflightFailed);
+        let view = StagedChangeView::from(&change);
+        assert_eq!(view.stage, StagedChangeStage::LivePreflightFailed);
         assert_eq!(view.intent_status, None);
         assert_eq!(view.mode, SubmitMode::Live);
-        assert!(session.apply(WriteSessionEvent::LiveSubmitStarted {
+        assert!(change.apply(StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         }));
     }
 
     #[test]
     fn validation_failures_before_intent_do_not_claim_core_intent_status() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::DryRun);
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::DryRun);
 
-        assert!(session.apply(WriteSessionEvent::ValidationStarted));
-        assert!(session.apply(WriteSessionEvent::FailedBeforeIntent));
+        assert!(change.apply(StagedChangeEvent::ValidationStarted));
+        assert!(change.apply(StagedChangeEvent::FailedBeforeIntent));
 
-        let view = WriteSessionView::from(&session);
+        let view = StagedChangeView::from(&change);
         assert_eq!(view.intent_id, None);
         assert_eq!(view.intent_status, None);
     }
 
     #[test]
     fn live_submission_lifecycle_is_the_only_core_submitted_status_source() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::Live);
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::Live);
         for event in [
-            WriteSessionEvent::ValidationStarted,
-            WriteSessionEvent::ValidationReady,
-            WriteSessionEvent::ConfirmationRequested,
-            WriteSessionEvent::IntentCreated {
+            StagedChangeEvent::ValidationStarted,
+            StagedChangeEvent::ValidationReady,
+            StagedChangeEvent::ConfirmationRequested,
+            StagedChangeEvent::IntentCreated {
                 intent_id: "intent-1".to_string(),
             },
-            WriteSessionEvent::LiveSubmitStarted {
+            StagedChangeEvent::LiveSubmitStarted {
                 intent_id: "intent-1".to_string(),
             },
         ] {
-            assert!(session.apply(event));
-            assert_eq!(WriteSessionView::from(&session).intent_status, None);
+            assert!(change.apply(event));
+            assert_eq!(StagedChangeView::from(&change).intent_status, None);
         }
 
-        assert!(session.apply(WriteSessionEvent::LiveSubmitSucceeded {
+        assert!(change.apply(StagedChangeEvent::LiveSubmitSucceeded {
             intent_id: "intent-1".to_string(),
         }));
         assert_eq!(
-            WriteSessionView::from(&session).intent_status,
+            StagedChangeView::from(&change).intent_status,
             Some(IntentStatus::Submitted)
         );
     }
 
     #[test]
-    fn write_session_events_allow_abandoning_before_intent_creation() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::DryRun);
+    fn staged_change_events_allow_abandoning_before_intent_creation() {
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::DryRun);
 
-        assert!(session.apply(WriteSessionEvent::ValidationStarted));
-        assert!(session.apply(WriteSessionEvent::Abandoned));
-        assert!(!session.apply(WriteSessionEvent::ValidationReady));
+        assert!(change.apply(StagedChangeEvent::ValidationStarted));
+        assert!(change.apply(StagedChangeEvent::Abandoned));
+        assert!(!change.apply(StagedChangeEvent::ValidationReady));
     }
 
     #[test]
     fn confirmation_can_return_to_ready_before_intent_creation() {
-        let mut session = WriteSession::from_request(request("session-1"), SubmitMode::DryRun);
+        let mut change = StagedChange::from_request(request("change-1"), SubmitMode::DryRun);
         apply_all(
-            &mut session,
+            &mut change,
             [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::ReturnedToReady,
+                StagedChangeEvent::ValidationStarted,
+                StagedChangeEvent::ValidationReady,
+                StagedChangeEvent::ConfirmationRequested,
+                StagedChangeEvent::ReturnedToReady,
             ],
         );
 
-        assert_eq!(session.state(), &WriteSessionState::Ready);
-        assert!(session.apply(WriteSessionEvent::ConfirmationRequested));
-        assert!(session.apply(WriteSessionEvent::IntentCreated {
+        assert_eq!(change.state(), &StagedChangeState::Ready);
+        assert!(change.apply(StagedChangeEvent::ConfirmationRequested));
+        assert!(change.apply(StagedChangeEvent::IntentCreated {
             intent_id: "intent-1".to_string(),
         }));
     }
 
     #[test]
-    fn write_sessions_do_not_replace_active_sessions() {
-        let mut sessions = WriteSessions::default();
+    fn staged_changes_do_not_replace_active_changes() {
+        let mut changes = StagedChanges::default();
 
         assert_eq!(
-            sessions.open(request("session-1"), SubmitMode::DryRun),
-            OpenSessionResult::Opened
+            changes.open(request("change-1"), SubmitMode::DryRun),
+            OpenStagedChangeResult::Opened
         );
         assert_eq!(
-            sessions.apply("session-1", WriteSessionEvent::ValidationStarted),
+            changes.apply("change-1", StagedChangeEvent::ValidationStarted),
             TransitionResult::Applied
         );
         assert_eq!(
-            sessions.open(request("session-1"), SubmitMode::Live),
-            OpenSessionResult::Rejected
+            changes.open(request("change-1"), SubmitMode::Live),
+            OpenStagedChangeResult::Rejected
         );
 
-        let view = sessions.views().pop().unwrap();
+        let view = changes.views().pop().unwrap();
         assert_eq!(view.mode, SubmitMode::DryRun);
-        assert_eq!(view.stage, WriteSessionStage::Validating);
+        assert_eq!(view.stage, StagedChangeStage::Validating);
     }
 
     #[test]
-    fn draft_sessions_can_be_replaced_before_validation_starts() {
-        let mut sessions = WriteSessions::default();
+    fn draft_changes_can_be_replaced_before_validation_starts() {
+        let mut changes = StagedChanges::default();
 
         assert_eq!(
-            sessions.open(request("session-1"), SubmitMode::DryRun),
-            OpenSessionResult::Opened
+            changes.open(request("change-1"), SubmitMode::DryRun),
+            OpenStagedChangeResult::Opened
         );
         assert_eq!(
-            sessions.open(request("session-1"), SubmitMode::Live),
-            OpenSessionResult::Opened
+            changes.open(request("change-1"), SubmitMode::Live),
+            OpenStagedChangeResult::Opened
         );
 
-        let view = sessions.views().pop().unwrap();
+        let view = changes.views().pop().unwrap();
         assert_eq!(view.mode, SubmitMode::Live);
-        assert_eq!(view.stage, WriteSessionStage::Draft);
+        assert_eq!(view.stage, StagedChangeStage::Draft);
     }
 
     #[test]
-    fn disabling_live_abandons_pending_live_sessions_but_keeps_submitting_sessions() {
-        let mut sessions = WriteSessions::default();
+    fn disabling_live_abandons_pending_live_changes_but_keeps_submitting_changes() {
+        let mut changes = StagedChanges::default();
         assert_eq!(
-            sessions.open(request("pending"), SubmitMode::Live),
-            OpenSessionResult::Opened
+            changes.open(request("pending"), SubmitMode::Live),
+            OpenStagedChangeResult::Opened
         );
         assert_eq!(
-            sessions.open(request("submitting"), SubmitMode::Live),
-            OpenSessionResult::Opened
+            changes.open(request("submitting"), SubmitMode::Live),
+            OpenStagedChangeResult::Opened
         );
-        apply_all(
-            sessions
-                .sessions
-                .iter_mut()
-                .find(|session| session.id == "submitting")
-                .expect("submitting session"),
-            [
-                WriteSessionEvent::ValidationStarted,
-                WriteSessionEvent::ValidationReady,
-                WriteSessionEvent::ConfirmationRequested,
-                WriteSessionEvent::IntentCreated {
-                    intent_id: "intent-1".to_string(),
-                },
-                WriteSessionEvent::LiveSubmitStarted {
-                    intent_id: "intent-1".to_string(),
-                },
-            ],
-        );
+        for event in [
+            StagedChangeEvent::ValidationStarted,
+            StagedChangeEvent::ValidationReady,
+            StagedChangeEvent::ConfirmationRequested,
+            StagedChangeEvent::IntentCreated {
+                intent_id: "intent-1".to_string(),
+            },
+            StagedChangeEvent::LiveSubmitStarted {
+                intent_id: "intent-1".to_string(),
+            },
+        ] {
+            assert_eq!(
+                changes.apply("submitting", event),
+                TransitionResult::Applied
+            );
+        }
 
-        assert_eq!(sessions.disable_live(), 1);
-        let views = sessions.views();
+        assert_eq!(changes.disable_live(), 1);
+        let views = changes.views();
         let pending = views
             .iter()
             .find(|view| view.id == "pending")
@@ -926,9 +910,9 @@ mod tests {
             .find(|view| view.id == "submitting")
             .expect("submitting view");
 
-        assert_eq!(pending.stage, WriteSessionStage::Abandoned);
+        assert_eq!(pending.stage, StagedChangeStage::Abandoned);
         assert_eq!(pending.mode, SubmitMode::DryRun);
-        assert_eq!(submitting.stage, WriteSessionStage::LiveSubmitting);
+        assert_eq!(submitting.stage, StagedChangeStage::LiveSubmitting);
         assert_eq!(submitting.mode, SubmitMode::Live);
     }
 }

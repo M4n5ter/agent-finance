@@ -50,33 +50,33 @@ fn live_write_gate_is_session_only_and_not_exported_to_config() {
 }
 
 #[test]
-fn write_sessions_use_dry_run_until_live_writes_are_confirmed() {
+fn staged_changes_use_dry_run_until_live_writes_are_confirmed() {
     let mut state = AppState::from_config(TuiConfig::default());
     state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
 
-    state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
         "order-1",
         SubmitIntentKind::Order,
         "Protected order",
     )));
 
-    let view = state.write_session_views().pop().unwrap();
+    let view = state.staged_change_views().pop().unwrap();
     assert_eq!(view.mode, SubmitMode::DryRun);
 
-    state.reduce(Action::CloseWriteSession("order-1".to_string()));
+    state.reduce(Action::CloseStagedChange("order-1".to_string()));
     state.reduce(Action::SetLiveWritesEnabled(true));
-    state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
         "order-2",
         SubmitIntentKind::Order,
         "Confirmed live order",
     )));
 
-    let view = state.write_session_views().pop().unwrap();
+    let view = state.staged_change_views().pop().unwrap();
     assert_eq!(view.mode, SubmitMode::Live);
 }
 
 #[test]
-fn order_ticket_staging_requires_core_valid_preview_before_review_session() {
+fn order_ticket_staging_requires_core_valid_preview_before_review_change() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["CRDO".to_string()],
         workspace: WorkspaceConfig {
@@ -91,7 +91,7 @@ fn order_ticket_staging_requires_core_valid_preview_before_review_session() {
     state.reduce(Action::StageOrderTicket);
 
     assert_eq!(state.panels.focused(), Panel::IntentReview);
-    assert!(state.write_session_views().is_empty());
+    assert!(state.staged_change_views().is_empty());
 
     state
         .order_ticket
@@ -99,17 +99,17 @@ fn order_ticket_staging_requires_core_valid_preview_before_review_session() {
     state.order_ticket.set_price_text(Some("204".to_string()));
     state.reduce(Action::StageOrderTicket);
 
-    let sessions = state.write_session_views();
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].intent_kind, SubmitIntentKind::Order);
-    assert_eq!(sessions[0].stage, WriteSessionStage::Ready);
-    assert_eq!(sessions[0].mode, SubmitMode::DryRun);
-    assert!(sessions[0].intent_id.is_none());
-    assert!(sessions[0].summary.contains("CRDO"));
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].intent_kind, SubmitIntentKind::Order);
+    assert_eq!(changes[0].stage, StagedChangeStage::Ready);
+    assert_eq!(changes[0].mode, SubmitMode::DryRun);
+    assert!(changes[0].intent_id.is_none());
+    assert!(changes[0].summary.contains("CRDO"));
 }
 
 #[test]
-fn order_ticket_staging_keeps_risk_semantics_in_frozen_sessions() {
+fn order_ticket_staging_keeps_risk_semantics_in_frozen_changes() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["CRDO".to_string()],
         workspace: WorkspaceConfig {
@@ -129,132 +129,132 @@ fn order_ticket_staging_keeps_risk_semantics_in_frozen_sessions() {
     state.order_ticket.set_reduce_only(true);
     state.reduce(Action::StageOrderTicket);
 
-    let sessions = state.write_session_views();
-    assert_eq!(sessions.len(), 2);
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 2);
     assert!(
-        sessions
+        changes
             .iter()
-            .any(|session| !session.summary.contains("reduce-only"))
+            .any(|change| !change.summary.contains("reduce-only"))
     );
     assert!(
-        sessions
+        changes
             .iter()
-            .any(|session| session.summary.contains("reduce-only"))
+            .any(|change| change.summary.contains("reduce-only"))
     );
 }
 
 #[test]
-fn reducer_tracks_write_session_workflow_without_accepting_unsafe_jumps() {
+fn reducer_tracks_staged_change_workflow_without_accepting_unsafe_jumps() {
     let mut state = AppState::from_config(TuiConfig::default());
     state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
     state.reduce(Action::SetLiveWritesEnabled(true));
-    state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
         "order-1",
         SubmitIntentKind::Order,
         "Buy BTCUSDT",
     )));
 
-    state.reduce(Action::ApplyWriteSessionEvent {
+    state.reduce(Action::ApplyStagedChangeEvent {
         id: "order-1".to_string(),
-        event: WriteSessionEvent::LiveSubmitSucceeded {
+        event: StagedChangeEvent::LiveSubmitSucceeded {
             intent_id: "intent-1".to_string(),
         },
     });
-    let view = state.write_session_views().pop().unwrap();
-    assert_eq!(view.stage, WriteSessionStage::Draft);
+    let view = state.staged_change_views().pop().unwrap();
+    assert_eq!(view.stage, StagedChangeStage::Draft);
 
     for event in [
-        WriteSessionEvent::ValidationStarted,
-        WriteSessionEvent::ValidationReady,
-        WriteSessionEvent::ConfirmationRequested,
-        WriteSessionEvent::IntentCreated {
+        StagedChangeEvent::ValidationStarted,
+        StagedChangeEvent::ValidationReady,
+        StagedChangeEvent::ConfirmationRequested,
+        StagedChangeEvent::IntentCreated {
             intent_id: "intent-1".to_string(),
         },
-        WriteSessionEvent::LiveSubmitStarted {
+        StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         },
-        WriteSessionEvent::LiveSubmitSucceeded {
+        StagedChangeEvent::LiveSubmitSucceeded {
             intent_id: "intent-1".to_string(),
         },
     ] {
-        state.reduce(Action::ApplyWriteSessionEvent {
+        state.reduce(Action::ApplyStagedChangeEvent {
             id: "order-1".to_string(),
             event,
         });
     }
 
-    let view = state.write_session_views().pop().unwrap();
-    assert_eq!(view.stage, WriteSessionStage::LiveSubmitted);
+    let view = state.staged_change_views().pop().unwrap();
+    assert_eq!(view.stage, StagedChangeStage::LiveSubmitted);
     assert_eq!(view.intent_id.as_deref(), Some("intent-1"));
     assert_eq!(view.intent_status, Some(IntentStatus::Submitted));
 
-    state.reduce(Action::CloseWriteSession("order-1".to_string()));
-    assert_eq!(state.write_session_views().len(), 0);
+    state.reduce(Action::CloseStagedChange("order-1".to_string()));
+    assert_eq!(state.staged_change_views().len(), 0);
 }
 
 #[test]
-fn reducer_keeps_live_submitting_write_session_until_terminal_event() {
+fn reducer_keeps_live_submitting_staged_change_until_terminal_event() {
     let mut state = AppState::from_config(TuiConfig::default());
     state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
     state.reduce(Action::SetLiveWritesEnabled(true));
-    state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
         "order-1",
         SubmitIntentKind::Order,
         "Buy BTCUSDT",
     )));
     for event in [
-        WriteSessionEvent::ValidationStarted,
-        WriteSessionEvent::ValidationReady,
-        WriteSessionEvent::ConfirmationRequested,
-        WriteSessionEvent::IntentCreated {
+        StagedChangeEvent::ValidationStarted,
+        StagedChangeEvent::ValidationReady,
+        StagedChangeEvent::ConfirmationRequested,
+        StagedChangeEvent::IntentCreated {
             intent_id: "intent-1".to_string(),
         },
-        WriteSessionEvent::LiveSubmitStarted {
+        StagedChangeEvent::LiveSubmitStarted {
             intent_id: "intent-1".to_string(),
         },
     ] {
-        state.reduce(Action::ApplyWriteSessionEvent {
+        state.reduce(Action::ApplyStagedChangeEvent {
             id: "order-1".to_string(),
             event,
         });
     }
 
-    state.reduce(Action::CloseWriteSession("order-1".to_string()));
-    let view = state.write_session_views().pop().unwrap();
-    assert_eq!(view.stage, WriteSessionStage::LiveSubmitting);
+    state.reduce(Action::CloseStagedChange("order-1".to_string()));
+    let view = state.staged_change_views().pop().unwrap();
+    assert_eq!(view.stage, StagedChangeStage::LiveSubmitting);
 
-    state.reduce(Action::ApplyWriteSessionEvent {
+    state.reduce(Action::ApplyStagedChangeEvent {
         id: "order-1".to_string(),
-        event: WriteSessionEvent::LiveSubmitSucceeded {
+        event: StagedChangeEvent::LiveSubmitSucceeded {
             intent_id: "intent-1".to_string(),
         },
     });
-    let view = state.write_session_views().pop().unwrap();
-    assert_eq!(view.stage, WriteSessionStage::LiveSubmitted);
+    let view = state.staged_change_views().pop().unwrap();
+    assert_eq!(view.stage, StagedChangeStage::LiveSubmitted);
 }
 
 #[test]
-fn reducer_does_not_replace_active_write_session_with_new_submit_mode() {
+fn reducer_does_not_replace_active_staged_change_with_new_submit_mode() {
     let mut state = AppState::from_config(TuiConfig::default());
-    state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
         "order-1",
         SubmitIntentKind::Order,
         "Dry run order",
     )));
-    state.reduce(Action::ApplyWriteSessionEvent {
+    state.reduce(Action::ApplyStagedChangeEvent {
         id: "order-1".to_string(),
-        event: WriteSessionEvent::ValidationStarted,
+        event: StagedChangeEvent::ValidationStarted,
     });
     state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
-    state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
         "order-1",
         SubmitIntentKind::Order,
         "Live order",
     )));
 
-    let view = state.write_session_views().pop().unwrap();
+    let view = state.staged_change_views().pop().unwrap();
     assert_eq!(view.mode, SubmitMode::DryRun);
-    assert_eq!(view.stage, WriteSessionStage::Validating);
+    assert_eq!(view.stage, StagedChangeStage::Validating);
     assert_eq!(view.summary, "Dry run order");
 }
 
@@ -284,11 +284,11 @@ fn live_write_command_requires_confirmation_before_enabling() {
 }
 
 #[test]
-fn disabling_live_writes_abandons_pending_live_sessions() {
+fn disabling_live_writes_abandons_pending_live_changes() {
     let mut state = AppState::from_config(TuiConfig::default());
     state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
     state.reduce(Action::SetLiveWritesEnabled(true));
-    state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
+    state.reduce(Action::OpenStagedChange(StagedChangeRequest::text(
         "order-1",
         SubmitIntentKind::Order,
         "Pending live order",
@@ -296,8 +296,8 @@ fn disabling_live_writes_abandons_pending_live_sessions() {
 
     state.reduce(Action::SetLiveWritesEnabled(false));
 
-    let view = state.write_session_views().pop().unwrap();
-    assert_eq!(view.stage, WriteSessionStage::Abandoned);
+    let view = state.staged_change_views().pop().unwrap();
+    assert_eq!(view.stage, StagedChangeStage::Abandoned);
     assert_eq!(view.mode, SubmitMode::DryRun);
     assert_eq!(state.effective_submit_mode(), SubmitMode::DryRun);
 }

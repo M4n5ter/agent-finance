@@ -307,7 +307,7 @@ pub const ACTION_REGISTRY: [ActionSpec; 42] = [
         "focus-intent-review",
         ActionId::FocusPanel(Panel::IntentReview),
         "Focus intent review",
-        "Move keyboard focus to staged write sessions"
+        "Move keyboard focus to staged changes"
     ),
     action!(
         "focus-history",
@@ -367,7 +367,7 @@ pub const ACTION_REGISTRY: [ActionSpec; 42] = [
         "toggle-intent-review",
         ActionId::TogglePanel(Panel::IntentReview),
         "Toggle intent review",
-        "Show or hide staged write sessions"
+        "Show or hide staged changes"
     ),
     action!(
         "toggle-history",

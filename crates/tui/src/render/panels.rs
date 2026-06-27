@@ -12,7 +12,7 @@ use crate::account::ACCOUNT_READ_PLAN;
 use crate::layout::CockpitLayout;
 use crate::model::Panel;
 use crate::provider_health::ProviderHealthReport;
-use crate::state::{AppState, WriteSessionSubject};
+use crate::state::{AppState, StagedChangeSubject};
 use crate::task_log::TaskStatus;
 use crate::theme::ThemeConfig;
 
@@ -164,18 +164,18 @@ fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         }
     }
 
-    let sessions = state.write_session_views();
-    if sessions.is_empty() {
+    let changes = state.staged_change_views();
+    if changes.is_empty() {
         lines.push(Line::from(""));
-        lines.push(Line::from("No staged write sessions."));
+        lines.push(Line::from("No staged changes."));
     } else {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "sessions",
+            "staged changes",
             state.theme.accent_style().add_modifier(Modifier::BOLD),
         )));
-        for session in sessions.iter().take(8) {
-            lines.push(Line::from(format_session_review(session)));
+        for change in changes.iter().take(8) {
+            lines.push(Line::from(format_staged_change_review(change)));
         }
     }
 
@@ -187,13 +187,13 @@ fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     );
 }
 
-fn format_session_review(session: &crate::state::WriteSessionView) -> String {
-    match &session.subject {
-        WriteSessionSubject::OrderTicket(review) => format!(
+fn format_staged_change_review(change: &crate::state::StagedChangeView) -> String {
+    match &change.subject {
+        StagedChangeSubject::OrderTicket(review) => format!(
             "{}  {}  {}  {} {} {} {} {} @ {} {}{} [{}]",
-            session.stage,
-            session.mode,
-            session.intent_kind,
+            change.stage,
+            change.mode,
+            change.intent_kind,
             review.side,
             review.quantity,
             review.symbol,
@@ -209,9 +209,9 @@ fn format_session_review(session: &crate::state::WriteSessionView) -> String {
             review.profile
         ),
         #[cfg(test)]
-        WriteSessionSubject::Text { .. } => format!(
+        StagedChangeSubject::Text { .. } => format!(
             "{}  {}  {}  {}",
-            session.stage, session.mode, session.intent_kind, session.summary
+            change.stage, change.mode, change.intent_kind, change.summary
         ),
     }
 }

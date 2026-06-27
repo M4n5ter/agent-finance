@@ -7,10 +7,11 @@ use crate::model::{InteractionMode, Panel, WorkspaceKind};
 use crate::order_ticket::OrderTicketPreview;
 use crate::pane_status::{TuiPaneStatus, pane_health};
 use crate::provider_health::{ProviderHealthReport, ProviderHealthTask};
-use crate::state::{AppState, WriteSessionView};
+use crate::state::{AppState, StagedChangeView};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
+    pub schema_version: u32,
     pub workspace: WorkspaceKind,
     pub mode: InteractionMode,
     pub selected_symbol: Option<String>,
@@ -24,7 +25,7 @@ pub struct TuiDump {
     pub trading_profile: Option<String>,
     pub account: Option<AccountSnapshot>,
     pub order_ticket: OrderTicketPreview,
-    pub write_sessions: Vec<WriteSessionView>,
+    pub staged_changes: Vec<StagedChangeView>,
     pub errors: Vec<String>,
     pub key_hints: Vec<String>,
 }
@@ -44,6 +45,7 @@ impl TuiDump {
     pub fn from_state(state: &AppState, partial: bool) -> Self {
         let provider_health = ProviderHealthReport::from_state(state);
         Self {
+            schema_version: 2,
             workspace: state.workspace,
             mode: state.interaction_mode(),
             selected_symbol: state.selected_symbol().map(ToString::to_string),
@@ -59,7 +61,7 @@ impl TuiDump {
             trading_profile: state.trading_profile.clone(),
             account: state.account_snapshot.clone(),
             order_ticket: state.order_ticket_preview(),
-            write_sessions: state.write_session_views(),
+            staged_changes: state.staged_change_views(),
             errors: dump_errors(state),
             provider_health,
             key_hints: hints::mode_key_hints(state),
@@ -111,8 +113,8 @@ mod tests {
     use crate::command::ActionId;
     use crate::config::{TuiConfig, WorkspaceConfig};
     use crate::model::FloatingKind;
-    use crate::state::{Action, WriteSessionEvent, WriteSessionRequest};
-    use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
+    use crate::state::{Action, StagedChangeEvent};
+    use agent_finance_core::submit::SubmitMode;
     use agent_finance_core::{Environment, Provider, SignedReadSnapshot};
 
     #[test]
@@ -207,73 +209,69 @@ mod tests {
     }
 
     #[test]
-    fn dump_includes_default_submit_mode_and_write_sessions() {
+    fn dump_includes_default_submit_mode_and_staged_changes() {
         let mut state = AppState::from_config(TuiConfig::default());
+        state.watchlist = vec!["CRDO".to_string()];
+        state.trading_profile = Some("mainnet".to_string());
+        state
+            .order_ticket
+            .set_quantity_text(Some("0.05".to_string()));
+        state.order_ticket.set_price_text(Some("204".to_string()));
+        state.reduce(Action::StageOrderTicket);
+        let staged_change_id = state.staged_change_views()[0].id.clone();
         state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
-        state.reduce(Action::OpenWriteSession(WriteSessionRequest::text(
-            "watchlist-add-crdo",
-            SubmitIntentKind::Order,
-            "Add CRDO to watchlist",
-        )));
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
+        assert_eq!(value["schema_version"], 2);
         assert_eq!(value["default_submit_mode"], "live");
         assert_eq!(value["live_writes_enabled"], false);
         assert_eq!(value["effective_submit_mode"], "dry-run");
-        assert_eq!(value["write_sessions"][0]["intent_kind"], "order");
-        assert_eq!(value["write_sessions"][0]["stage"], "draft");
-        assert_eq!(value["write_sessions"][0]["mode"], "dry-run");
-        assert!(value["write_sessions"][0]["intent_status"].is_null());
-        state.reduce(Action::ApplyWriteSessionEvent {
-            id: "watchlist-add-crdo".to_string(),
-            event: WriteSessionEvent::ValidationStarted,
+        assert_eq!(value["staged_changes"][0]["intent_kind"], "order");
+        assert_eq!(value["staged_changes"][0]["stage"], "ready");
+        assert_eq!(value["staged_changes"][0]["mode"], "dry-run");
+        assert!(value["staged_changes"][0]["intent_status"].is_null());
+        state.reduce(Action::ApplyStagedChangeEvent {
+            id: staged_change_id.clone(),
+            event: StagedChangeEvent::ConfirmationRequested,
         });
-        state.reduce(Action::ApplyWriteSessionEvent {
-            id: "watchlist-add-crdo".to_string(),
-            event: WriteSessionEvent::ValidationReady,
-        });
-        state.reduce(Action::ApplyWriteSessionEvent {
-            id: "watchlist-add-crdo".to_string(),
-            event: WriteSessionEvent::ConfirmationRequested,
-        });
-        state.reduce(Action::ApplyWriteSessionEvent {
-            id: "watchlist-add-crdo".to_string(),
-            event: WriteSessionEvent::IntentCreated {
+        state.reduce(Action::ApplyStagedChangeEvent {
+            id: staged_change_id.clone(),
+            event: StagedChangeEvent::IntentCreated {
                 intent_id: "intent-1".to_string(),
             },
         });
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
-        assert_eq!(value["write_sessions"][0]["stage"], "intent-created");
-        assert_eq!(value["write_sessions"][0]["mode"], "dry-run");
-        assert_eq!(value["write_sessions"][0]["intent_id"], "intent-1");
-        assert!(value["write_sessions"][0]["intent_status"].is_null());
+        assert_eq!(value["staged_changes"][0]["stage"], "intent-created");
+        assert_eq!(value["staged_changes"][0]["mode"], "dry-run");
+        assert_eq!(value["staged_changes"][0]["intent_id"], "intent-1");
+        assert!(value["staged_changes"][0]["intent_status"].is_null());
 
-        state.reduce(Action::ApplyWriteSessionEvent {
-            id: "watchlist-add-crdo".to_string(),
-            event: WriteSessionEvent::NonConsumingFinished {
+        state.reduce(Action::ApplyStagedChangeEvent {
+            id: staged_change_id.clone(),
+            event: StagedChangeEvent::NonConsumingFinished {
                 intent_id: "intent-1".to_string(),
                 mode: SubmitMode::DryRun,
             },
         });
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
-        assert_eq!(value["write_sessions"][0]["stage"], "dry-run-completed");
-        assert_eq!(value["write_sessions"][0]["mode"], "dry-run");
-        assert_eq!(value["write_sessions"][0]["intent_id"], "intent-1");
-        assert!(value["write_sessions"][0]["intent_status"].is_null());
+        assert_eq!(value["staged_changes"][0]["stage"], "dry-run-completed");
+        assert_eq!(value["staged_changes"][0]["mode"], "dry-run");
+        assert_eq!(value["staged_changes"][0]["intent_id"], "intent-1");
+        assert!(value["staged_changes"][0]["intent_status"].is_null());
 
-        state.reduce(Action::ApplyWriteSessionEvent {
-            id: "watchlist-add-crdo".to_string(),
-            event: WriteSessionEvent::LiveSubmitStarted {
+        state.reduce(Action::ApplyStagedChangeEvent {
+            id: staged_change_id,
+            event: StagedChangeEvent::LiveSubmitStarted {
                 intent_id: "intent-1".to_string(),
             },
         });
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
-        assert_eq!(value["write_sessions"][0]["stage"], "dry-run-completed");
-        assert_eq!(value["write_sessions"][0]["mode"], "dry-run");
-        assert_eq!(value["write_sessions"][0]["intent_id"], "intent-1");
-        assert!(value["write_sessions"][0]["intent_status"].is_null());
+        assert_eq!(value["staged_changes"][0]["stage"], "dry-run-completed");
+        assert_eq!(value["staged_changes"][0]["mode"], "dry-run");
+        assert_eq!(value["staged_changes"][0]["intent_id"], "intent-1");
+        assert!(value["staged_changes"][0]["intent_status"].is_null());
     }
 
     #[test]
