@@ -14,7 +14,7 @@ use ratatui::backend::CrosstermBackend;
 use agent_finance_market::is_likely_crypto_pair;
 
 use crate::account_load::{AccountLoadRuntime, request_account_load};
-use crate::config::TuiLaunch;
+use crate::config::{TuiConfig, TuiLaunch};
 use crate::dump::TuiDump;
 use crate::input::{self, MouseDrag};
 use crate::model::Panel;
@@ -55,6 +55,8 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
             symbol_loads: &mut symbol_loads,
             account_load: &mut account_load,
             launch: &launch,
+            runtime_config: &runtime_config,
+            persisted_config: &persisted_config,
         },
     );
     let next_config = result.as_ref().map(|()| {
@@ -144,6 +146,7 @@ fn run_loop(
                     if let Some(action) = input::key_action(state, key) {
                         state.reduce(action);
                         request_pending_staged_submit(context.scheduler, state);
+                        persist_pending_config_save(&context, state);
                         request_account_load(context.scheduler, state, context.account_load, false);
                         request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
                     }
@@ -279,6 +282,39 @@ fn request_pending_staged_submit(scheduler: &Scheduler, state: &mut AppState) {
     }
 }
 
+fn persist_pending_config_save(context: &LoopContext<'_>, state: &mut AppState) {
+    persist_config_save_request(
+        context.launch,
+        context.runtime_config,
+        context.persisted_config,
+        state,
+    );
+}
+
+fn persist_config_save_request(
+    launch: &TuiLaunch,
+    runtime_config: &TuiConfig,
+    persisted_config: &TuiConfig,
+    state: &mut AppState,
+) {
+    if !state.take_pending_config_save() {
+        return;
+    }
+    if launch.no_persist {
+        state.reduce(Action::ConfigSaveFailed(
+            "config persistence is disabled for this launch".to_string(),
+        ));
+        return;
+    }
+
+    let config = state.export_config(runtime_config);
+    let config = launch.persistence_config(config, persisted_config);
+    match launch.persist_config(&config) {
+        Ok(()) => state.reduce(Action::ConfigSaved),
+        Err(error) => state.reduce(Action::ConfigSaveFailed(error.to_string())),
+    }
+}
+
 fn dump_is_ready(state: &AppState) -> bool {
     if state.scheduler_error.is_some() {
         return true;
@@ -316,6 +352,8 @@ struct LoopContext<'a> {
     symbol_loads: &'a mut SymbolLoadRuntimes,
     account_load: &'a mut AccountLoadRuntime,
     launch: &'a TuiLaunch,
+    runtime_config: &'a TuiConfig,
+    persisted_config: &'a TuiConfig,
 }
 
 fn request_refresh(scheduler: &Scheduler, state: &mut AppState, next_generation: &mut u64) {
@@ -624,12 +662,59 @@ impl Drop for TerminalGuard {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
     use crate::command::ActionId;
     use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
     use agent_finance_market::history_snapshot::HistorySnapshot;
     use agent_finance_market::research_snapshot::ResearchContextSnapshot;
     use agent_finance_market::snapshot::MarketSnapshot;
+
+    #[test]
+    fn explicit_config_save_persists_runtime_config_and_clears_dirty() {
+        let path = unique_temp_config_path("explicit-save");
+        let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), false);
+        let runtime_config = TuiConfig::default();
+        let persisted_config = TuiConfig::default();
+        let mut state = AppState::from_config(runtime_config.clone());
+
+        state.reduce(Action::ResizeDockedColumns {
+            left_ratio: 31,
+            main_ratio: 42,
+        });
+        state.reduce(Action::RequestConfigSave);
+
+        persist_config_save_request(&launch, &runtime_config, &persisted_config, &mut state);
+        let loaded = launch.load_config().expect("load saved config");
+        let _ = fs::remove_file(path);
+
+        assert!(state.config_changes.is_empty());
+        assert_eq!(loaded.layout.left_ratio, 31);
+        assert_eq!(loaded.layout.main_ratio, 42);
+    }
+
+    #[test]
+    fn explicit_config_save_respects_no_persist() {
+        let path = unique_temp_config_path("explicit-save-no-persist");
+        let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), true);
+        let runtime_config = TuiConfig::default();
+        let persisted_config = TuiConfig::default();
+        let mut state = AppState::from_config(runtime_config.clone());
+
+        state.reduce(Action::ResizeDockedColumns {
+            left_ratio: 31,
+            main_ratio: 42,
+        });
+        state.reduce(Action::RequestConfigSave);
+
+        persist_config_save_request(&launch, &runtime_config, &persisted_config, &mut state);
+
+        assert_eq!(state.config_changes, ["layout"]);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn refresh_request_does_not_enqueue_while_previous_refresh_is_in_flight() {
@@ -980,5 +1065,13 @@ mod tests {
             quotes: Vec::new(),
             errors: Vec::new(),
         }
+    }
+
+    fn unique_temp_config_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("agent-finance-tui-app-{name}-{nanos}.toml"))
     }
 }

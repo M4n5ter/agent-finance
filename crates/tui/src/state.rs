@@ -74,6 +74,7 @@ pub struct AppState {
     pub futures_state_ticket: FuturesStateTicket,
     staged_changes: StagedChanges,
     pending_staged_submit: Option<StagedSubmitRequest>,
+    pending_config_save: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -119,6 +120,7 @@ impl AppState {
             futures_state_ticket: FuturesStateTicket::default(),
             staged_changes: StagedChanges::default(),
             pending_staged_submit: None,
+            pending_config_save: false,
         };
         state.ensure_visible_focus();
         state
@@ -164,6 +166,12 @@ impl AppState {
 
     pub fn take_pending_staged_submit(&mut self) -> Option<StagedSubmitRequest> {
         self.pending_staged_submit.take()
+    }
+
+    pub fn take_pending_config_save(&mut self) -> bool {
+        let pending = self.pending_config_save;
+        self.pending_config_save = false;
+        pending
     }
 
     pub const fn effective_submit_mode(&self) -> SubmitMode {
@@ -329,6 +337,30 @@ impl AppState {
         if !self.config_changes.iter().any(|change| change == section) {
             self.config_changes.push(section.to_string());
         }
+    }
+
+    fn request_config_save(&mut self) {
+        if self.config_changes.is_empty() {
+            self.task_log.info("config already saved".to_string());
+            return;
+        }
+        self.pending_config_save = true;
+        self.task_log.info(format!(
+            "config save requested for {}",
+            self.config_changes.join(", ")
+        ));
+    }
+
+    fn config_saved(&mut self) {
+        self.config_changes.clear();
+        self.pending_config_save = false;
+        self.task_log.info("config saved".to_string());
+    }
+
+    fn config_save_failed(&mut self, error: String) {
+        self.pending_config_save = false;
+        self.task_log
+            .warning_event(format!("config save failed: {error}"));
     }
 
     fn tracked_layout_snapshot(&self) -> TrackedLayoutSnapshot {
@@ -529,6 +561,9 @@ impl AppState {
             Action::StageFuturesStateTicket => self.stage_futures_state_ticket(),
             Action::StageSelectedOpenOrderCancel => self.stage_selected_open_order_cancel(),
             Action::SubmitStagedChange => self.submit_next_staged_change(),
+            Action::RequestConfigSave => self.request_config_save(),
+            Action::ConfigSaved => self.config_saved(),
+            Action::ConfigSaveFailed(error) => self.config_save_failed(error),
             Action::Execute(action) => self.execute(action),
             Action::CloseFocusedPanel => {
                 self.track_layout_change(|state| {
@@ -843,6 +878,9 @@ pub enum Action {
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
+    RequestConfigSave,
+    ConfigSaved,
+    ConfigSaveFailed(String),
     Execute(ActionId),
     FocusPanelBy(isize),
     ToggleFocusedZoom,

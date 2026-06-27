@@ -1275,6 +1275,47 @@ fn config_changes_track_only_persistent_floating_layout_changes() {
 }
 
 #[test]
+fn config_save_request_lifecycle_clears_changes_only_after_success() {
+    let mut clean = AppState::from_config(TuiConfig::default());
+    clean.reduce(Action::RequestConfigSave);
+    assert!(!clean.take_pending_config_save());
+    assert!(clean.config_changes.is_empty());
+
+    let mut dirty = AppState::from_config(TuiConfig::default());
+    dirty.reduce(Action::ResizeDockedColumns {
+        left_ratio: 31,
+        main_ratio: 42,
+    });
+    dirty.reduce(Action::RequestConfigSave);
+    assert!(dirty.take_pending_config_save());
+    assert_eq!(dirty.config_changes, ["layout"]);
+
+    dirty.reduce(Action::ConfigSaveFailed("disk full".to_string()));
+    assert_eq!(dirty.config_changes, ["layout"]);
+    assert!(!dirty.take_pending_config_save());
+
+    dirty.reduce(Action::RequestConfigSave);
+    assert!(dirty.take_pending_config_save());
+    dirty.reduce(Action::ConfigSaved);
+    assert!(dirty.config_changes.is_empty());
+    assert!(!dirty.take_pending_config_save());
+}
+
+#[test]
+fn command_palette_save_config_routes_to_pending_save_request() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::ResizeDockedColumns {
+        left_ratio: 31,
+        main_ratio: 42,
+    });
+
+    state.reduce(Action::Execute(ActionId::SaveConfig));
+
+    assert!(state.take_pending_config_save());
+    assert_eq!(state.config_changes, ["layout"]);
+}
+
+#[test]
 fn watchlist_edits_normalize_reorder_delete_and_export_config() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["AAPL".to_string(), "CRDO".to_string()],

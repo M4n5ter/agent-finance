@@ -106,6 +106,7 @@ pub enum ActionId {
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
+    SaveConfig,
     DeleteSelectedWatchlistSymbol,
     MoveSelectedWatchlistSymbol(isize),
     CloseCommandPalette,
@@ -164,7 +165,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 50] = [
+pub const ACTION_REGISTRY: [ActionSpec; 51] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -284,6 +285,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 50] = [
         ActionId::SubmitStagedChange,
         "Submit staged change",
         "Create an intent for the first ready staged change and submit it through the trading runtime"
+    ),
+    action!(
+        "save-config",
+        ActionId::SaveConfig,
+        "Save config",
+        "Persist pending local TUI configuration changes"
     ),
     action!(
         "delete-selected-watchlist-symbol",
