@@ -95,17 +95,23 @@ impl AppState {
     }
 
     pub(super) fn close_floating(&mut self, kind: FloatingKind) {
-        let had_pane = self.floating.iter().any(|pane| pane.kind == kind);
-        self.floating.retain(|pane| pane.kind != kind);
-        if had_pane {
-            self.reset_floating_state(kind);
-        }
+        self.track_layout_change(|state| state.close_floating_untracked(kind));
     }
 
     pub(super) fn open_floating(&mut self, kind: FloatingKind) {
-        self.close_floating(kind);
-        self.reset_floating_state(kind);
-        self.floating.push(FloatingPane::new(kind));
+        self.track_layout_change(|state| {
+            state.close_floating_untracked(kind);
+            state.reset_floating_state(kind);
+            state.floating.push(FloatingPane::new(kind));
+        });
+    }
+
+    pub(super) fn close_top_floating(&mut self) {
+        self.track_layout_change(|state| {
+            if let Some(pane) = state.floating.pop() {
+                state.reset_floating_state(pane.kind);
+            }
+        });
     }
 
     pub(super) fn close_text_input_floatings_except(&mut self, except: FloatingKind) {
@@ -141,6 +147,14 @@ impl AppState {
         }
     }
 
+    fn close_floating_untracked(&mut self, kind: FloatingKind) {
+        let had_pane = self.floating.iter().any(|pane| pane.kind == kind);
+        self.floating.retain(|pane| pane.kind != kind);
+        if had_pane {
+            self.reset_floating_state(kind);
+        }
+    }
+
     pub(super) fn reset_floating_state(&mut self, kind: FloatingKind) {
         match kind {
             FloatingKind::CommandPalette => self.command_palette.reset(),
@@ -153,34 +167,24 @@ impl AppState {
     }
 
     pub(super) fn focus_floating(&mut self, kind: FloatingKind) {
-        if let Some(index) = self.floating.iter().position(|pane| pane.kind == kind) {
-            let pane = self.floating.remove(index);
-            self.floating.push(pane);
-        }
+        self.track_layout_change(|state| {
+            if let Some(index) = state.floating.iter().position(|pane| pane.kind == kind) {
+                let pane = state.floating.remove(index);
+                state.floating.push(pane);
+            }
+        });
     }
 
     pub(super) fn resize_floating(&mut self, kind: FloatingKind, size: FloatingSize) {
-        if let Some(pane) = self.floating.iter_mut().find(|pane| pane.kind == kind) {
-            pane.size = size;
-        }
+        self.track_layout_change(|state| {
+            if let Some(pane) = state.floating.iter_mut().find(|pane| pane.kind == kind) {
+                pane.size = size;
+            }
+        });
     }
 
     pub(super) fn focus_panel(&mut self, panel: Panel) {
-        if !self.workspace_contains(panel)
-            && let Some(workspace) = WorkspaceKind::ALL
-                .iter()
-                .copied()
-                .find(|workspace| workspace.panels().contains(&panel))
-        {
-            self.workspace = workspace;
-        }
-        if self.panels.contains(panel) {
-            self.panels.focus(panel);
-        } else {
-            self.panels.open_panel(panel);
-        }
-        self.clear_zoom();
-        self.ensure_visible_focus();
+        self.track_layout_change(|state| state.focus_panel_untracked(panel));
     }
 
     pub(super) fn set_workspace(&mut self, workspace: WorkspaceKind) {
@@ -190,13 +194,15 @@ impl AppState {
     }
 
     pub(super) fn toggle_panel(&mut self, panel: Panel) {
-        if self.is_open_in_workspace(panel) {
-            self.panels.toggle(panel);
-            self.clear_zoom();
-            self.ensure_visible_focus();
-        } else {
-            self.focus_panel(panel);
-        }
+        self.track_layout_change(|state| {
+            if state.is_open_in_workspace(panel) {
+                state.panels.toggle(panel);
+                state.clear_zoom();
+                state.ensure_visible_focus();
+            } else {
+                state.focus_panel_untracked(panel);
+            }
+        });
     }
 
     pub(super) fn ensure_visible_focus(&mut self) {
@@ -216,5 +222,23 @@ impl AppState {
 
     fn workspace_contains(&self, panel: Panel) -> bool {
         self.workspace.panels().contains(&panel)
+    }
+
+    fn focus_panel_untracked(&mut self, panel: Panel) {
+        if !self.workspace_contains(panel)
+            && let Some(workspace) = WorkspaceKind::ALL
+                .iter()
+                .copied()
+                .find(|workspace| workspace.panels().contains(&panel))
+        {
+            self.workspace = workspace;
+        }
+        if self.panels.contains(panel) {
+            self.panels.focus(panel);
+        } else {
+            self.panels.open_panel(panel);
+        }
+        self.clear_zoom();
+        self.ensure_visible_focus();
     }
 }

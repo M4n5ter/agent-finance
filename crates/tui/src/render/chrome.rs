@@ -387,20 +387,20 @@ fn live_label(state: &AppState) -> &'static str {
     }
 }
 
-fn compact_config_segment(state: &AppState) -> &'static str {
-    if state.config_changes.is_empty() {
-        ""
-    } else {
-        " cfg:watchlist"
-    }
+fn compact_config_segment(state: &AppState) -> String {
+    config_changes_label(state)
+        .map(|label| format!(" cfg:{label}"))
+        .unwrap_or_default()
 }
 
-fn config_segment(state: &AppState) -> &'static str {
-    if state.config_changes.is_empty() {
-        ""
-    } else {
-        " | cfg:watchlist"
-    }
+fn config_segment(state: &AppState) -> String {
+    config_changes_label(state)
+        .map(|label| format!(" | cfg:{label}"))
+        .unwrap_or_default()
+}
+
+fn config_changes_label(state: &AppState) -> Option<String> {
+    (!state.config_changes.is_empty()).then(|| state.config_changes.join(","))
 }
 
 fn workspace_index(current: WorkspaceKind) -> usize {

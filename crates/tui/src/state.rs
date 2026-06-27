@@ -76,6 +76,13 @@ pub struct AppState {
     pending_staged_submit: Option<StagedSubmitRequest>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct TrackedLayoutSnapshot {
+    layout: LayoutConfig,
+    open_panels: Vec<Panel>,
+    persistent_floatings: Vec<FloatingPane>,
+}
+
 impl AppState {
     pub fn from_config(config: TuiConfig) -> Self {
         let mut state = Self {
@@ -324,6 +331,29 @@ impl AppState {
         }
     }
 
+    fn tracked_layout_snapshot(&self) -> TrackedLayoutSnapshot {
+        let mut persistent_floatings = self
+            .floating
+            .iter()
+            .copied()
+            .filter(|pane| pane.kind.persistent())
+            .collect::<Vec<_>>();
+        persistent_floatings.sort_by_key(|pane| pane.kind.title());
+        TrackedLayoutSnapshot {
+            layout: self.layout.clone(),
+            open_panels: self.panels.open_panels().to_vec(),
+            persistent_floatings,
+        }
+    }
+
+    fn track_layout_change(&mut self, mutate: impl FnOnce(&mut Self)) {
+        let before = self.tracked_layout_snapshot();
+        mutate(self);
+        if self.tracked_layout_snapshot() != before {
+            self.mark_config_changed("layout");
+        }
+    }
+
     fn add_watchlist_symbols(&mut self) {
         let symbols = self.watchlist_add.symbols();
         if symbols.is_empty() {
@@ -501,14 +531,18 @@ impl AppState {
             Action::SubmitStagedChange => self.submit_next_staged_change(),
             Action::Execute(action) => self.execute(action),
             Action::CloseFocusedPanel => {
-                self.panels.close_focused();
-                self.clear_zoom();
-                self.ensure_visible_focus();
+                self.track_layout_change(|state| {
+                    state.panels.close_focused();
+                    state.clear_zoom();
+                    state.ensure_visible_focus();
+                });
             }
             Action::RestorePanels => {
-                self.panels.restore();
-                self.clear_zoom();
-                self.ensure_visible_focus();
+                self.track_layout_change(|state| {
+                    state.panels.restore();
+                    state.clear_zoom();
+                    state.ensure_visible_focus();
+                });
             }
             Action::ShiftWorkspace(direction) => {
                 self.set_workspace(self.workspace.shift(direction))
@@ -521,27 +555,29 @@ impl AppState {
                 }
             }
             Action::CloseFocusedFloating => {
-                if let Some(pane) = self.floating.pop() {
-                    self.reset_floating_state(pane.kind);
-                }
+                self.close_top_floating();
             }
             Action::FocusFloating(kind) => self.focus_floating(kind),
             Action::ResizeFloating { kind, size } => self.resize_floating(kind, size),
             Action::ResetLayout => {
-                self.reset_open_floating_state();
-                self.floating.clear();
-                self.clear_zoom();
-                self.layout = LayoutConfig::default();
-                self.panels = DockedPanels::default();
-                self.ensure_visible_focus();
+                self.track_layout_change(|state| {
+                    state.reset_open_floating_state();
+                    state.floating.clear();
+                    state.clear_zoom();
+                    state.layout = LayoutConfig::default();
+                    state.panels = DockedPanels::default();
+                    state.ensure_visible_focus();
+                });
             }
             Action::ResizeDockedColumns {
                 left_ratio,
                 main_ratio,
             } => {
-                self.layout.left_ratio = left_ratio;
-                self.layout.main_ratio = main_ratio;
-                self.layout.normalize();
+                self.track_layout_change(|state| {
+                    state.layout.left_ratio = left_ratio;
+                    state.layout.main_ratio = main_ratio;
+                    state.layout.normalize();
+                });
             }
             Action::RefreshStarted(generation) => self.refresh_started(generation),
             Action::SnapshotLoaded {

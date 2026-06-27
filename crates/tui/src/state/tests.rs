@@ -1209,6 +1209,69 @@ fn state_exports_user_layout_preferences_to_config() {
     assert_eq!(config.floating.panes.len(), 1);
     assert_eq!(config.floating.panes[0].kind, FloatingKind::Help);
     assert_eq!(config.floating.panes[0].size, FloatingSize::resized(82, 63));
+    assert_eq!(state.config_changes, ["layout"]);
+}
+
+#[test]
+fn config_changes_track_layout_without_treating_navigation_as_config() {
+    let mut state = AppState::from_config(TuiConfig::default());
+
+    state.reduce(Action::Focus(Panel::Quote));
+    state.reduce(Action::ShiftWorkspace(1));
+    state.reduce(Action::FocusPanelBy(1));
+    state.reduce(Action::ToggleFocusedZoom);
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::CommandPalette,
+    )));
+    state.reduce(Action::ResizeFloating {
+        kind: FloatingKind::CommandPalette,
+        size: FloatingSize::resized(80, 60),
+    });
+
+    assert!(state.config_changes.is_empty());
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+    assert_eq!(state.config_changes, ["layout"]);
+}
+
+#[test]
+fn config_changes_track_only_persistent_floating_layout_changes() {
+    let mut temporary = AppState::from_config(TuiConfig::default());
+    temporary.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::CommandPalette,
+    )));
+    temporary.reduce(Action::CloseFocusedFloating);
+    assert!(temporary.config_changes.is_empty());
+
+    let mut persistent = AppState::from_config(TuiConfig {
+        floating: FloatingConfig {
+            panes: vec![FloatingPane::new(FloatingKind::Help)],
+        },
+        ..TuiConfig::default()
+    });
+    persistent.reduce(Action::CloseFocusedFloating);
+    assert_eq!(persistent.config_changes, ["layout"]);
+
+    let mut idempotent = AppState::from_config(TuiConfig {
+        floating: FloatingConfig {
+            panes: vec![FloatingPane::new(FloatingKind::Help)],
+        },
+        ..TuiConfig::default()
+    });
+    idempotent.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+    assert!(idempotent.config_changes.is_empty());
+
+    let mut focus_only = AppState::from_config(TuiConfig {
+        floating: FloatingConfig {
+            panes: vec![
+                FloatingPane::new(FloatingKind::Help),
+                FloatingPane::new(FloatingKind::ProviderDetails),
+            ],
+        },
+        ..TuiConfig::default()
+    });
+    focus_only.reduce(Action::FocusFloating(FloatingKind::Help));
+    assert!(focus_only.config_changes.is_empty());
 }
 
 #[test]

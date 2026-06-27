@@ -300,12 +300,17 @@ fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         })
         .collect::<Vec<_>>();
     items.push(ListItem::new(Line::from("")));
+    let watchlist_hint = if state
+        .config_changes
+        .iter()
+        .any(|change| change == "watchlist")
+    {
+        "a add  d delete  left/right move  config: watchlist"
+    } else {
+        "a add  d delete  left/right move"
+    };
     items.push(ListItem::new(Line::from(Span::styled(
-        if !state.config_changes.is_empty() {
-            "a add  d delete  left/right move  config: watchlist"
-        } else {
-            "a add  d delete  left/right move"
-        },
+        watchlist_hint,
         state.theme.muted_style(),
     ))));
     frame.render_widget(
