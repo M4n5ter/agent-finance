@@ -1,19 +1,19 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use agent_finance_core::{OrderIntent, Profile, SubmitMode};
+use agent_finance_core::{CancelIntent, OrderIntent, Profile, SubmitMode};
 use agent_finance_trading::TradingRuntime;
 use anyhow::Result;
 use chrono::Utc;
 
 use crate::config::TuiLaunch;
-use crate::state::{StagedChangeEvent, StagedOrderSubmitRequest};
+use crate::state::{CancelReview, StagedChangeEvent, StagedChangeSubject, StagedSubmitRequest};
 
 use super::{SchedulerEvent, scheduler_runtime};
 
 #[derive(Debug)]
 pub(super) enum WriteCommand {
-    SubmitStagedOrder(StagedOrderSubmitRequest),
+    SubmitStaged(StagedSubmitRequest),
 }
 
 pub(super) fn spawn_write_worker(
@@ -49,19 +49,19 @@ fn handle_write_command(
     events: &Sender<SchedulerEvent>,
 ) -> bool {
     match command {
-        WriteCommand::SubmitStagedOrder(request) => {
-            handle_staged_order_submit(tokio, runtime, request, events)
+        WriteCommand::SubmitStaged(request) => {
+            handle_staged_submit(tokio, runtime, request, events)
         }
     }
 }
 
-fn handle_staged_order_submit(
+fn handle_staged_submit(
     tokio: &tokio::runtime::Runtime,
     runtime: &TradingRuntime,
-    request: StagedOrderSubmitRequest,
+    request: StagedSubmitRequest,
     events: &Sender<SchedulerEvent>,
 ) -> bool {
-    let created = create_staged_order_intent(runtime, &request);
+    let created = create_staged_intent(runtime, &request);
     let (profile, intent_id) = match created {
         Ok((profile, intent_id)) => {
             if !send_staged_change_progress(
@@ -70,7 +70,10 @@ fn handle_staged_order_submit(
                 StagedChangeEvent::IntentCreated {
                     intent_id: intent_id.clone(),
                 },
-                Some(format!("created order intent {intent_id}")),
+                Some(format!(
+                    "created {} intent {intent_id}",
+                    request.subject.kind_label()
+                )),
             ) {
                 return false;
             }
@@ -86,8 +89,13 @@ fn handle_staged_order_submit(
         }
     };
 
-    let result =
-        tokio.block_on(runtime.submit_order_intent_classified(&profile, &intent_id, request.mode));
+    let result = tokio.block_on(submit_staged_intent(
+        runtime,
+        &profile,
+        &intent_id,
+        request.mode,
+        &request.subject,
+    ));
     match (request.mode, result) {
         (SubmitMode::DryRun | SubmitMode::Test, Ok(_)) => send_staged_change_progress(
             events,
@@ -183,21 +191,53 @@ fn send_staged_change_progress(
 
 fn create_staged_order_intent(
     runtime: &TradingRuntime,
-    request: &StagedOrderSubmitRequest,
+    review: &crate::state::OrderTicketReview,
+    mode: SubmitMode,
 ) -> Result<(Profile, String)> {
-    let profile = runtime.load_profile(&request.review.profile)?;
-    let intent = order_intent_from_review(&profile, &request.review)?;
-    let risk = runtime.check_order_with_runtime_limits(
-        &profile,
-        &intent,
-        request.mode == SubmitMode::Live,
-    )?;
+    let profile = runtime.load_profile(&review.profile)?;
+    let intent = order_intent_from_review(&profile, review)?;
+    let risk =
+        runtime.check_order_with_runtime_limits(&profile, &intent, mode == SubmitMode::Live)?;
     let envelope = agent_finance_core::create_order_intent(intent, 300)?;
     runtime.save_intent_with_audit(
         &profile,
         &envelope,
         &risk,
         format!("created TUI order intent {}", envelope.id),
+    )?;
+    Ok((profile, envelope.id))
+}
+
+fn create_staged_intent(
+    runtime: &TradingRuntime,
+    request: &StagedSubmitRequest,
+) -> Result<(Profile, String)> {
+    match &request.subject {
+        StagedChangeSubject::OrderTicket(review) => {
+            create_staged_order_intent(runtime, review, request.mode)
+        }
+        StagedChangeSubject::Cancel(review) => {
+            create_staged_cancel_intent(runtime, review, request.mode)
+        }
+        #[cfg(test)]
+        StagedChangeSubject::Text { .. } => unreachable!("text changes are never submitted"),
+    }
+}
+
+fn create_staged_cancel_intent(
+    runtime: &TradingRuntime,
+    review: &CancelReview,
+    mode: SubmitMode,
+) -> Result<(Profile, String)> {
+    let profile = runtime.load_profile(&review.profile)?;
+    let intent = cancel_intent_from_review(&profile, review)?;
+    let risk = agent_finance_core::check_cancel_intent(&profile, &intent, mode == SubmitMode::Live);
+    let envelope = agent_finance_core::create_cancel_intent(intent, 300)?;
+    runtime.save_intent_with_audit(
+        &profile,
+        &envelope,
+        &risk,
+        format!("created TUI cancel intent {}", envelope.id),
     )?;
     Ok((profile, envelope.id))
 }
@@ -219,4 +259,27 @@ fn order_intent_from_review(
         position_side: None,
         client_order_id: format!("af-tui-{}", Utc::now().timestamp_millis()),
     })
+}
+
+fn cancel_intent_from_review(profile: &Profile, review: &CancelReview) -> Result<CancelIntent> {
+    Ok(CancelIntent {
+        profile: profile.name.clone(),
+        provider: profile.provider.provider,
+        environment: profile.provider.environment,
+        market: review.market,
+        symbol: review.symbol.to_ascii_uppercase(),
+        target: review.target(),
+    })
+}
+
+async fn submit_staged_intent(
+    runtime: &TradingRuntime,
+    profile: &Profile,
+    intent_id: &str,
+    mode: SubmitMode,
+    subject: &StagedChangeSubject,
+) -> std::result::Result<agent_finance_core::SubmitSnapshot, agent_finance_trading::SubmitFailure> {
+    runtime
+        .submit_typed_intent_classified(profile, intent_id, subject.intent_kind(), mode)
+        .await
 }

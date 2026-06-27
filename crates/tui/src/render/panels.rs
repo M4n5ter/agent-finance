@@ -210,6 +210,16 @@ fn format_staged_change_review(change: &crate::state::StagedChangeView) -> Strin
             },
             review.profile
         ),
+        StagedChangeSubject::Cancel(review) => format!(
+            "{}  {}  {}  cancel {} {} [{}] [{}]",
+            change.stage,
+            change.mode,
+            change.intent_kind,
+            review.market,
+            review.symbol,
+            review.identifier(),
+            review.profile
+        ),
         #[cfg(test)]
         StagedChangeSubject::Text { .. } => format!(
             "{}  {}  {}  {}",
@@ -284,9 +294,32 @@ fn render_account(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                     state.theme.accent_style().add_modifier(Modifier::BOLD),
                 )));
             }
-            for order in open_orders.iter().take(4) {
+            let visible_order_limit = 4;
+            let selected = state
+                .selected_open_order
+                .min(open_orders.len().saturating_sub(1));
+            let start = selected
+                .saturating_add(1)
+                .saturating_sub(visible_order_limit);
+            if start > 0 {
+                lines.push(Line::from(Span::styled(
+                    format!("+{start} earlier open orders"),
+                    state.theme.warning_style(),
+                )));
+            }
+            for (index, order) in open_orders
+                .iter()
+                .enumerate()
+                .skip(start)
+                .take(visible_order_limit)
+            {
+                let marker = if index == state.selected_open_order {
+                    ">"
+                } else {
+                    " "
+                };
                 lines.push(Line::from(format!(
-                    "{} {} {} {} @ {} [{}]",
+                    "{marker} {} {} {} {} @ {} [{}]",
                     order.market,
                     order.side.as_deref().unwrap_or("-"),
                     order.remaining_quantity.as_deref().unwrap_or("-"),
@@ -295,9 +328,12 @@ fn render_account(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
                     order.identifier()
                 )));
             }
-            if open_orders.len() > 4 {
+            let hidden_after = open_orders
+                .len()
+                .saturating_sub(start.saturating_add(visible_order_limit));
+            if hidden_after > 0 {
                 lines.push(Line::from(Span::styled(
-                    format!("+{} more open orders", open_orders.len() - 4),
+                    format!("+{hidden_after} more open orders"),
                     state.theme.warning_style(),
                 )));
             }

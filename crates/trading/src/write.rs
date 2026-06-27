@@ -129,6 +129,17 @@ impl TradingRuntime {
             .map_err(SubmitFailure::into_error)
     }
 
+    pub async fn submit_order_management_intent(
+        &self,
+        profile: &agent_finance_core::Profile,
+        intent_id: &str,
+        mode: agent_finance_core::SubmitMode,
+    ) -> Result<agent_finance_core::SubmitSnapshot> {
+        self.submit_order_management_intent_classified(profile, intent_id, mode)
+            .await
+            .map_err(SubmitFailure::into_error)
+    }
+
     pub async fn submit_order_intent_classified(
         &self,
         profile: &agent_finance_core::Profile,
@@ -139,6 +150,55 @@ impl TradingRuntime {
             profile,
             intent_id,
             ExpectedIntentKind::Order,
+            mode,
+            self.http_policy(),
+        )
+        .await
+    }
+
+    pub async fn submit_order_management_intent_classified(
+        &self,
+        profile: &agent_finance_core::Profile,
+        intent_id: &str,
+        mode: agent_finance_core::SubmitMode,
+    ) -> std::result::Result<agent_finance_core::SubmitSnapshot, SubmitFailure> {
+        submit_intent(
+            profile,
+            intent_id,
+            ExpectedIntentKind::OrderOrCancel,
+            mode,
+            self.http_policy(),
+        )
+        .await
+    }
+
+    pub async fn submit_typed_intent_classified(
+        &self,
+        profile: &agent_finance_core::Profile,
+        intent_id: &str,
+        intent_kind: agent_finance_core::SubmitIntentKind,
+        mode: agent_finance_core::SubmitMode,
+    ) -> std::result::Result<agent_finance_core::SubmitSnapshot, SubmitFailure> {
+        submit_intent(
+            profile,
+            intent_id,
+            ExpectedIntentKind::from_submit_intent_kind(intent_kind),
+            mode,
+            self.http_policy(),
+        )
+        .await
+    }
+
+    pub async fn submit_cancel_intent_classified(
+        &self,
+        profile: &agent_finance_core::Profile,
+        intent_id: &str,
+        mode: agent_finance_core::SubmitMode,
+    ) -> std::result::Result<agent_finance_core::SubmitSnapshot, SubmitFailure> {
+        submit_intent(
+            profile,
+            intent_id,
+            ExpectedIntentKind::Cancel,
             mode,
             self.http_policy(),
         )
@@ -245,38 +305,42 @@ enum WriteMode {
 #[derive(Debug, Clone, Copy)]
 enum ExpectedIntentKind {
     Order,
+    Cancel,
+    OrderOrCancel,
     Transfer,
     State,
 }
 
 impl ExpectedIntentKind {
+    const fn from_submit_intent_kind(kind: agent_finance_core::SubmitIntentKind) -> Self {
+        match kind {
+            agent_finance_core::SubmitIntentKind::Order => Self::Order,
+            agent_finance_core::SubmitIntentKind::Cancel => Self::Cancel,
+            agent_finance_core::SubmitIntentKind::Transfer => Self::Transfer,
+            agent_finance_core::SubmitIntentKind::FuturesState => Self::State,
+        }
+    }
+
     fn validate(self, intent: &agent_finance_core::IntentKind) -> Result<()> {
         match (self, intent) {
-            (
-                Self::Order,
+            (Self::Order, agent_finance_core::IntentKind::Order(_))
+            | (Self::Cancel, agent_finance_core::IntentKind::Cancel(_))
+            | (
+                Self::OrderOrCancel,
                 agent_finance_core::IntentKind::Order(_)
                 | agent_finance_core::IntentKind::Cancel(_),
             )
             | (Self::Transfer, agent_finance_core::IntentKind::Transfer(_))
             | (Self::State, agent_finance_core::IntentKind::FuturesState(_)) => Ok(()),
-            (Self::Order, agent_finance_core::IntentKind::Transfer(_)) => {
-                Err(anyhow!("order submit cannot submit a transfer intent"))
+            (Self::Order, _) => Err(anyhow!("order submit can only submit an order intent")),
+            (Self::Cancel, _) => Err(anyhow!("cancel submit can only submit a cancel intent")),
+            (Self::OrderOrCancel, _) => Err(anyhow!(
+                "order submit can only submit an order or cancel intent"
+            )),
+            (Self::Transfer, _) => {
+                Err(anyhow!("transfer submit can only submit a transfer intent"))
             }
-            (
-                Self::Transfer,
-                agent_finance_core::IntentKind::Order(_)
-                | agent_finance_core::IntentKind::Cancel(_)
-                | agent_finance_core::IntentKind::FuturesState(_),
-            ) => Err(anyhow!("transfer submit can only submit a transfer intent")),
-            (Self::Order, agent_finance_core::IntentKind::FuturesState(_)) => {
-                Err(anyhow!("order submit cannot submit a futures state intent"))
-            }
-            (
-                Self::State,
-                agent_finance_core::IntentKind::Order(_)
-                | agent_finance_core::IntentKind::Cancel(_)
-                | agent_finance_core::IntentKind::Transfer(_),
-            ) => Err(anyhow!(
+            (Self::State, _) => Err(anyhow!(
                 "state submit can only submit a futures state intent"
             )),
         }
@@ -739,8 +803,8 @@ mod tests {
     use super::*;
     use agent_finance_core::intent::IntentStatus;
     use agent_finance_core::{
-        Environment, FuturesStateChange, FuturesStateIntent, FuturesStatePolicy, MarginType,
-        Provider, ProviderConfig, RiskPolicy,
+        CancelIntent, Environment, FuturesStateChange, FuturesStateIntent, FuturesStatePolicy,
+        MarginType, Market, OrderIdentifier, Provider, ProviderConfig, RiskPolicy,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -819,6 +883,24 @@ mod tests {
         )
         .await
         .expect("testnet writes must not read or require live SAPI permission probes");
+    }
+
+    #[test]
+    fn typed_submit_kind_rejects_cancel_intent_on_order_only_path() {
+        let intent = agent_finance_core::IntentKind::Cancel(CancelIntent {
+            profile: "test".to_string(),
+            provider: Provider::Binance,
+            environment: Environment::Live,
+            market: Market::Spot,
+            symbol: "BTCUSDT".to_string(),
+            target: OrderIdentifier::ClientOrderId {
+                client_order_id: "open-order".to_string(),
+            },
+        });
+
+        assert!(ExpectedIntentKind::Order.validate(&intent).is_err());
+        assert!(ExpectedIntentKind::Cancel.validate(&intent).is_ok());
+        assert!(ExpectedIntentKind::OrderOrCancel.validate(&intent).is_ok());
     }
 
     fn test_profile() -> agent_finance_core::Profile {

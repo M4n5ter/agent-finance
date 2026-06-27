@@ -280,7 +280,7 @@ pub(crate) async fn run_order(args: OrderArgs, timeout_seconds: u64) -> Result<(
             let profile = runtime.load_profile(&args.profile)?;
             let mode = submit_mode_from_flags(args.live, args.test)?;
             let report = runtime
-                .submit_order_intent(&profile, &args.intent_id, mode)
+                .submit_order_management_intent(&profile, &args.intent_id, mode)
                 .await?;
             print_submit_report(args.json, &report)
         }

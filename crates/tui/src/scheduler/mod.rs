@@ -17,7 +17,7 @@ use anyhow::{Result, anyhow};
 
 use crate::account::{ACCOUNT_READ_PLAN, AccountReadError, AccountSnapshot};
 use crate::config::{EquityProvider, ProviderConfig, TuiLaunch};
-use crate::state::{StagedChangeEvent, StagedOrderSubmitRequest};
+use crate::state::{StagedChangeEvent, StagedSubmitRequest};
 
 mod write;
 
@@ -146,10 +146,10 @@ impl Scheduler {
             .map_err(|error| anyhow!("failed to request TUI account snapshot: {error}"))
     }
 
-    pub fn request_staged_order_submit(&self, request: StagedOrderSubmitRequest) -> Result<()> {
+    pub fn request_staged_submit(&self, request: StagedSubmitRequest) -> Result<()> {
         self.write_commands
-            .send(WriteCommand::SubmitStagedOrder(request))
-            .map_err(|error| anyhow!("failed to request TUI staged order submit: {error}"))
+            .send(WriteCommand::SubmitStaged(request))
+            .map_err(|error| anyhow!("failed to request TUI staged submit: {error}"))
     }
 
     pub fn try_recv(&self) -> Option<SchedulerEvent> {

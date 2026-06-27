@@ -27,13 +27,13 @@ use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
 pub use staged_change::StagedChangeStage;
-use staged_change::{
-    CloseStagedChangeResult, OpenStagedChangeResult, QueueOrderSubmitResult, StagedChanges,
-    TransitionResult,
-};
 pub use staged_change::{
-    OrderTicketReview, StagedChangeEvent, StagedChangeRequest, StagedChangeSubject,
-    StagedChangeView, StagedOrderSubmitRequest,
+    CancelReview, OrderTicketReview, StagedChangeEvent, StagedChangeRequest, StagedChangeSubject,
+    StagedChangeView, StagedSubmitRequest,
+};
+use staged_change::{
+    CloseStagedChangeResult, OpenStagedChangeResult, QueueSubmitResult, StagedChanges,
+    TransitionResult,
 };
 
 #[derive(Debug, Clone)]
@@ -57,6 +57,7 @@ pub struct AppState {
     pub research: SelectedSymbolLoad<ResearchContextSnapshot>,
     account: LoadSlot<String>,
     pub account_snapshot: Option<AccountSnapshot>,
+    pub selected_open_order: usize,
     pub task_failures: TaskFailures,
     pub scheduler_error: Option<String>,
     pub theme: ThemeConfig,
@@ -65,7 +66,7 @@ pub struct AppState {
     pub trading_profile: Option<String>,
     pub order_ticket: OrderTicket,
     staged_changes: StagedChanges,
-    pending_staged_order_submit: Option<StagedOrderSubmitRequest>,
+    pending_staged_submit: Option<StagedSubmitRequest>,
 }
 
 impl AppState {
@@ -90,6 +91,7 @@ impl AppState {
             research: SelectedSymbolLoad::new(),
             account: LoadSlot::new(),
             account_snapshot: None,
+            selected_open_order: 0,
             task_failures: TaskFailures::default(),
             scheduler_error: None,
             theme: config.theme,
@@ -98,7 +100,7 @@ impl AppState {
             trading_profile: config.trading.default_profile,
             order_ticket: OrderTicket::default(),
             staged_changes: StagedChanges::default(),
-            pending_staged_order_submit: None,
+            pending_staged_submit: None,
         };
         state.ensure_visible_focus();
         state
@@ -142,8 +144,8 @@ impl AppState {
         self.staged_changes.views()
     }
 
-    pub fn take_pending_staged_order_submit(&mut self) -> Option<StagedOrderSubmitRequest> {
-        self.pending_staged_order_submit.take()
+    pub fn take_pending_staged_submit(&mut self) -> Option<StagedSubmitRequest> {
+        self.pending_staged_submit.take()
     }
 
     pub const fn effective_submit_mode(&self) -> SubmitMode {
@@ -201,6 +203,68 @@ impl AppState {
         }
     }
 
+    fn move_open_order_selection(&mut self, direction: isize) {
+        let len = self
+            .account_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.open_orders().len())
+            .unwrap_or_default();
+        if len == 0 {
+            self.selected_open_order = 0;
+            return;
+        }
+        self.selected_open_order =
+            shift_index(self.selected_open_order.min(len - 1), len, direction);
+    }
+
+    fn stage_selected_open_order_cancel(&mut self) {
+        let Some(profile) = self.trading_profile.clone() else {
+            self.task_log
+                .warning_event("no trading profile selected for cancel".to_string());
+            return;
+        };
+        let Some(order) = self.account_snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .open_orders()
+                .get(self.selected_open_order)
+                .cloned()
+        }) else {
+            self.task_log
+                .warning_event("no open order selected for cancel".to_string());
+            return;
+        };
+        let Some(target) = order.cancel_target() else {
+            self.task_log
+                .warning_event("selected open order has no cancellable identifier".to_string());
+            return;
+        };
+        let review = CancelReview {
+            profile,
+            market: order.market,
+            symbol: order.symbol,
+            target,
+            effective_mode: self.effective_submit_mode(),
+        };
+        let request = StagedChangeRequest {
+            id: cancel_staged_change_id(&review),
+            subject: StagedChangeSubject::Cancel(review),
+        };
+        let change_id = request.id.clone();
+        self.focus_panel(Panel::IntentReview);
+        match self
+            .staged_changes
+            .open_ready(request, self.effective_submit_mode())
+        {
+            OpenStagedChangeResult::Opened => {
+                self.task_log.info(format!("staged cancel {change_id}"));
+            }
+            OpenStagedChangeResult::Rejected => {
+                self.task_log
+                    .warning_event("cancel cannot replace an active staged change".to_string());
+            }
+        }
+    }
+
     pub fn reduce(&mut self, action: Action) {
         match action {
             Action::Focus(panel) => {
@@ -231,7 +295,9 @@ impl AppState {
                 self.order_ticket
                     .adjust_selected_field(direction, self.selected_quote_price());
             }
+            Action::MoveOpenOrderSelection(direction) => self.move_open_order_selection(direction),
             Action::StageOrderTicket => self.stage_order_ticket(),
+            Action::StageSelectedOpenOrderCancel => self.stage_selected_open_order_cancel(),
             Action::SubmitStagedChange => self.submit_next_staged_change(),
             Action::Execute(action) => self.execute(action),
             Action::CloseFocusedPanel => {
@@ -388,18 +454,20 @@ impl AppState {
     }
 
     fn submit_next_staged_change(&mut self) {
-        match self.staged_changes.queue_next_order_submit() {
-            QueueOrderSubmitResult::Queued(request) => {
+        match self.staged_changes.queue_next_submit() {
+            QueueSubmitResult::Queued(request) => {
                 self.task_log.info(format!(
                     "submitting staged {} change {} as {}",
-                    request.review.symbol, request.id, request.mode
+                    request.subject.summary(),
+                    request.id,
+                    request.mode
                 ));
-                self.pending_staged_order_submit = Some(request);
+                self.pending_staged_submit = Some(request);
             }
-            QueueOrderSubmitResult::Missing => self
+            QueueSubmitResult::Missing => self
                 .task_log
-                .warning_event("no ready staged order change to submit".to_string()),
-            QueueOrderSubmitResult::Rejected { current } => self.task_log.warning_event(format!(
+                .warning_event("no ready staged change to submit".to_string()),
+            QueueSubmitResult::Rejected { current } => self.task_log.warning_event(format!(
                 "staged change cannot submit from current state {current}"
             )),
         }
@@ -440,6 +508,25 @@ fn order_ticket_staged_change_id(review: &OrderTicketReview) -> String {
     sanitize_staged_change_id(&parts.join("-"))
 }
 
+fn cancel_staged_change_id(review: &CancelReview) -> String {
+    sanitize_staged_change_id(&format!(
+        "cancel-{}-{}-{}-{}-{}",
+        review.profile,
+        review.effective_mode,
+        review.market,
+        review.symbol,
+        review.identifier()
+    ))
+}
+
+fn shift_index(index: usize, len: usize, direction: isize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    let len = len as isize;
+    (index as isize + direction).rem_euclid(len) as usize
+}
+
 fn sanitize_staged_change_id(value: &str) -> String {
     value
         .chars()
@@ -470,7 +557,9 @@ pub enum Action {
     AcceptSymbolSearch,
     MoveOrderTicketField(isize),
     AdjustOrderTicketField(isize),
+    MoveOpenOrderSelection(isize),
     StageOrderTicket,
+    StageSelectedOpenOrderCancel,
     SubmitStagedChange,
     Execute(ActionId),
     FocusPanelBy(isize),

@@ -1,5 +1,6 @@
 use agent_finance_core::{
-    Environment, Market, Provider, SignedReadRequest, SignedReadSnapshot, SignedReadSnapshotKind,
+    Environment, Market, OrderIdentifier, Provider, SignedReadRequest, SignedReadSnapshot,
+    SignedReadSnapshotKind,
 };
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -157,6 +158,15 @@ impl OpenOrderSummary {
             .clone()
             .or_else(|| self.order_id.clone())
             .unwrap_or_else(|| "-".to_string())
+    }
+
+    pub fn cancel_target(&self) -> Option<OrderIdentifier> {
+        if let Some(client_order_id) = self.client_order_id.clone() {
+            return Some(OrderIdentifier::ClientOrderId { client_order_id });
+        }
+        self.order_id
+            .clone()
+            .map(|order_id| OrderIdentifier::OrderId { order_id })
     }
 }
 

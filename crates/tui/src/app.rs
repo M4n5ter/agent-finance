@@ -143,7 +143,7 @@ fn run_loop(
                 Event::Key(key) => {
                     if let Some(action) = input::key_action(state, key) {
                         state.reduce(action);
-                        request_pending_staged_order_submit(context.scheduler, state);
+                        request_pending_staged_submit(context.scheduler, state);
                         request_account_load(context.scheduler, state, context.account_load, false);
                         request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
                     }
@@ -262,16 +262,13 @@ fn apply_scheduler_event(state: &mut AppState, event: SchedulerEvent) {
     }
 }
 
-fn request_pending_staged_order_submit(scheduler: &Scheduler, state: &mut AppState) {
-    let Some(request) = state.take_pending_staged_order_submit() else {
+fn request_pending_staged_submit(scheduler: &Scheduler, state: &mut AppState) {
+    let Some(request) = state.take_pending_staged_submit() else {
         return;
     };
     let id = request.id.clone();
-    match scheduler.request_staged_order_submit(request) {
-        Ok(()) => state.reduce(Action::ApplyStagedChangeEvent {
-            id,
-            event: StagedChangeEvent::SubmitQueued,
-        }),
+    match scheduler.request_staged_submit(request) {
+        Ok(()) => {}
         Err(error) => {
             state.reduce(Action::ApplyStagedChangeEvent {
                 id,

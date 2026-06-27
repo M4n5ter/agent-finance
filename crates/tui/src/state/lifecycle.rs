@@ -261,6 +261,12 @@ impl AppState {
                     format!("{} account snapshot loaded", snapshot.profile),
                 );
             }
+            let open_order_count = snapshot.open_orders().len();
+            self.selected_open_order = if open_order_count == 0 {
+                0
+            } else {
+                self.selected_open_order.min(open_order_count - 1)
+            };
             self.account_snapshot = Some(snapshot);
         } else {
             self.task_log

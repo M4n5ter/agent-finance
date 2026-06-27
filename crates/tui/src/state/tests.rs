@@ -6,7 +6,9 @@ use crate::model::InteractionMode;
 use crate::task_log::TaskStatus;
 use agent_finance_core::intent::IntentStatus;
 use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
-use agent_finance_core::{Environment, OrderSpec, Provider, SignedReadSnapshot};
+use agent_finance_core::{
+    Environment, Market, OrderSpec, Provider, SignedReadRequest, SignedReadSnapshot,
+};
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::research_snapshot::ResearchContextSnapshot;
@@ -137,13 +139,139 @@ fn submitting_ready_order_change_queues_submit_request() {
     state.reduce(Action::SubmitStagedChange);
 
     let request = state
-        .take_pending_staged_order_submit()
-        .expect("pending staged order submit");
-    assert_eq!(request.review.symbol, "CRDO");
+        .take_pending_staged_submit()
+        .expect("pending staged submit");
+    let crate::state::StagedChangeSubject::OrderTicket(review) = &request.subject else {
+        panic!("expected order submit");
+    };
+    assert_eq!(review.symbol, "CRDO");
     assert_eq!(request.mode, SubmitMode::DryRun);
-    assert!(state.take_pending_staged_order_submit().is_none());
+    assert!(state.take_pending_staged_submit().is_none());
     let change = state.staged_change_views().pop().unwrap();
     assert_eq!(change.stage, StagedChangeStage::SubmitQueued);
+}
+
+#[test]
+fn selected_open_order_can_be_staged_as_cancel_request() {
+    let mut state = AppState::from_config(TuiConfig {
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::AccountLoaded {
+        generation: 1,
+        snapshot: account_snapshot_with_open_orders("mainnet"),
+    });
+    state.reduce(Action::MoveOpenOrderSelection(1));
+
+    state.reduce(Action::StageSelectedOpenOrderCancel);
+    state.reduce(Action::SubmitStagedChange);
+
+    let request = state
+        .take_pending_staged_submit()
+        .expect("pending staged submit");
+    let crate::state::StagedChangeSubject::Cancel(review) = &request.subject else {
+        panic!("expected cancel submit");
+    };
+    assert_eq!(review.market, Market::UsdsFutures);
+    assert_eq!(review.symbol, "ETHUSDT");
+    assert_eq!(
+        review.target,
+        agent_finance_core::OrderIdentifier::ClientOrderId {
+            client_order_id: "futures-order".to_string()
+        }
+    );
+    assert_eq!(request.mode, SubmitMode::DryRun);
+}
+
+#[test]
+fn selected_open_order_cancel_preserves_exchange_order_id_target() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::AccountLoaded {
+        generation: 1,
+        snapshot: account_snapshot_with_order_id_only_open_order("mainnet"),
+    });
+
+    state.reduce(Action::StageSelectedOpenOrderCancel);
+    state.reduce(Action::SubmitStagedChange);
+
+    let request = state
+        .take_pending_staged_submit()
+        .expect("pending staged submit");
+    let crate::state::StagedChangeSubject::Cancel(review) = &request.subject else {
+        panic!("expected cancel submit");
+    };
+    assert_eq!(
+        review.target,
+        agent_finance_core::OrderIdentifier::OrderId {
+            order_id: "3001".to_string()
+        }
+    );
+}
+
+#[test]
+fn cancel_stage_id_separates_dry_run_and_live_for_same_open_order() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::AccountLoaded {
+        generation: 1,
+        snapshot: account_snapshot_with_open_orders("mainnet"),
+    });
+    state.reduce(Action::StageSelectedOpenOrderCancel);
+    state.reduce(Action::SubmitStagedChange);
+    let dry_run_id = state.staged_change_views()[0].id.clone();
+    for event in [
+        StagedChangeEvent::IntentCreated {
+            intent_id: "dry-run-intent".to_string(),
+        },
+        StagedChangeEvent::NonConsumingFinished {
+            intent_id: "dry-run-intent".to_string(),
+            mode: SubmitMode::DryRun,
+        },
+    ] {
+        state.reduce(Action::ApplyStagedChangeEvent {
+            id: dry_run_id.clone(),
+            event,
+        });
+    }
+
+    state.reduce(Action::SetDefaultSubmitMode(SubmitMode::Live));
+    state.reduce(Action::SetLiveWritesEnabled(true));
+    state.reduce(Action::StageSelectedOpenOrderCancel);
+
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 2);
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.mode == SubmitMode::DryRun)
+    );
+    assert!(changes.iter().any(|change| change.mode == SubmitMode::Live));
 }
 
 #[test]
@@ -1174,6 +1302,90 @@ fn account_snapshot(profile: &str) -> crate::account::AccountSnapshot {
         Provider::Binance,
         Environment::Live,
         account_reads(profile),
+        Vec::new(),
+    )
+}
+
+fn account_snapshot_with_open_orders(profile: &str) -> crate::account::AccountSnapshot {
+    crate::account::AccountSnapshot::new(
+        profile.to_string(),
+        Provider::Binance,
+        Environment::Live,
+        vec![
+            SignedReadSnapshot::new(
+                profile.to_string(),
+                Provider::Binance,
+                Environment::Live,
+                SignedReadRequest::OpenOrders {
+                    market: Market::Spot,
+                    symbol: None,
+                },
+                serde_json::json!([
+                    {
+                        "symbol": "BTCUSDT",
+                        "orderId": 1001,
+                        "clientOrderId": "spot-order",
+                        "side": "BUY",
+                        "type": "LIMIT",
+                        "origQty": "0.10",
+                        "executedQty": "0",
+                        "price": "64000"
+                    }
+                ]),
+            ),
+            SignedReadSnapshot::new(
+                profile.to_string(),
+                Provider::Binance,
+                Environment::Live,
+                SignedReadRequest::OpenOrders {
+                    market: Market::UsdsFutures,
+                    symbol: None,
+                },
+                serde_json::json!([
+                    {
+                        "symbol": "ETHUSDT",
+                        "orderId": 2001,
+                        "clientOrderId": "futures-order",
+                        "side": "SELL",
+                        "type": "LIMIT",
+                        "origQty": "0.20",
+                        "executedQty": "0.05",
+                        "price": "3200"
+                    }
+                ]),
+            ),
+        ],
+        Vec::new(),
+    )
+}
+
+fn account_snapshot_with_order_id_only_open_order(
+    profile: &str,
+) -> crate::account::AccountSnapshot {
+    crate::account::AccountSnapshot::new(
+        profile.to_string(),
+        Provider::Binance,
+        Environment::Live,
+        vec![SignedReadSnapshot::new(
+            profile.to_string(),
+            Provider::Binance,
+            Environment::Live,
+            SignedReadRequest::OpenOrders {
+                market: Market::Spot,
+                symbol: None,
+            },
+            serde_json::json!([
+                {
+                    "symbol": "BTCUSDT",
+                    "orderId": 3001,
+                    "side": "BUY",
+                    "type": "LIMIT",
+                    "origQty": "0.10",
+                    "executedQty": "0",
+                    "price": "64000"
+                }
+            ]),
+        )],
         Vec::new(),
     )
 }

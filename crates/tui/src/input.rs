@@ -34,6 +34,11 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     {
         return Some(action);
     }
+    if state.panels.focused() == Panel::Account
+        && let Some(action) = account_key_action(key)
+    {
+        return Some(action);
+    }
     if state.panels.focused() == Panel::IntentReview
         && let Some(action) = intent_review_key_action(key)
     {
@@ -158,6 +163,15 @@ fn order_ticket_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Left => Some(Action::AdjustOrderTicketField(-1)),
         KeyCode::Right | KeyCode::Enter => Some(Action::AdjustOrderTicketField(1)),
         KeyCode::Char('s') => Some(Action::StageOrderTicket),
+        _ => None,
+    }
+}
+
+fn account_key_action(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Up => Some(Action::MoveOpenOrderSelection(-1)),
+        KeyCode::Down => Some(Action::MoveOpenOrderSelection(1)),
+        KeyCode::Char('c') => Some(Action::StageSelectedOpenOrderCancel),
         _ => None,
     }
 }
@@ -330,6 +344,24 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Enter)),
             Some(Action::SubmitStagedChange)
+        );
+    }
+
+    #[test]
+    fn account_focus_routes_open_order_selection_and_cancel_staging() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Account,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Account)));
+
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Down)),
+            Some(Action::MoveOpenOrderSelection(1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('c'))),
+            Some(Action::StageSelectedOpenOrderCancel)
         );
     }
 

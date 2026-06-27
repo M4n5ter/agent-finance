@@ -210,8 +210,13 @@ mod tests {
         assert!(text.contains("spot open orders: ok"));
         assert!(text.contains("USD-M open orders: ok"));
         assert!(text.contains("open orders (5)"));
-        assert!(text.contains("spot BUY 0.06 BTCUSDT @ 64000 [spot-1]"));
+        assert!(text.contains("> spot BUY 0.06 BTCUSDT @ 64000 [spot-1]"));
         assert!(text.contains("+1 more open orders"));
+
+        state.selected_open_order = 4;
+        let text = render_to_text_grid(&state, 180, 40);
+        assert!(text.contains("+1 earlier open orders"));
+        assert!(text.contains("> usds-futures SELL 10 XRPUSDT @ 2 [futures-2]"));
     }
 
     #[test]
