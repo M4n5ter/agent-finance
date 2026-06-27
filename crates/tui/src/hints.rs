@@ -1,5 +1,5 @@
 use crate::command::ActionId;
-use crate::model::{FloatingKind, InteractionMode};
+use crate::model::{FloatingKind, InteractionMode, Panel};
 use crate::state::AppState;
 
 pub fn mode_key_hints(state: &AppState) -> Vec<String> {
@@ -19,6 +19,9 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
     }
 
     match state.interaction_mode() {
+        InteractionMode::Normal if state.panels.focused() == Panel::IntentReview => {
+            intent_review_key_hints()
+        }
         InteractionMode::Normal => normal_key_hints(state),
         InteractionMode::Command | InteractionMode::Search => Vec::new(),
         InteractionMode::Help | InteractionMode::Inspect => vec![
@@ -27,6 +30,26 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
             "q quit".to_string(),
         ],
     }
+}
+
+fn intent_review_key_hints() -> Vec<String> {
+    intent_review_control_hints()
+        .iter()
+        .map(|hint| (*hint).to_string())
+        .collect()
+}
+
+pub fn intent_review_panel_hint() -> String {
+    intent_review_control_hints().join("  ")
+}
+
+fn intent_review_control_hints() -> [&'static str; 4] {
+    [
+        "up/down/k/j select",
+        "enter submit",
+        "d/backspace close",
+        "q quit",
+    ]
 }
 
 pub fn input_floating_title_for_kind(kind: FloatingKind) -> Option<String> {

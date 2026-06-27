@@ -5,26 +5,49 @@ use super::workflow::{
     StagedChange, StagedChangeEvent, StagedChangeStage, StagedChangeState, StagedChangeView,
 };
 
+pub(crate) const VISIBLE_REVIEW_LIMIT: usize = 8;
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StagedChanges {
     changes: Vec<StagedChange>,
+    selected: usize,
 }
 
 impl StagedChanges {
     pub(crate) fn views(&self) -> Vec<StagedChangeView> {
-        self.changes.iter().map(StagedChangeView::from).collect()
+        let selected = self.normalized_selected();
+        self.changes
+            .iter()
+            .enumerate()
+            .map(|(index, change)| StagedChangeView::from_selected(change, index == selected))
+            .collect()
     }
 
-    pub(crate) fn queue_next_submit(&mut self) -> QueueSubmitResult {
-        let Some((change, request)) = self.changes.iter_mut().find_map(|change| {
-            if change.state.stage() != StagedChangeStage::Ready {
-                return None;
-            }
-            let request = change
-                .subject
-                .submit_request(change.id.clone(), change.state.mode(change.default_mode))?;
-            Some((change, request))
-        }) else {
+    pub(crate) fn review_views(&self) -> Vec<StagedChangeView> {
+        self.views()
+            .into_iter()
+            .take(VISIBLE_REVIEW_LIMIT)
+            .collect()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.changes.len()
+    }
+
+    pub(crate) fn queue_selected_submit(&mut self) -> QueueSubmitResult {
+        self.normalize_selection();
+        let Some(change) = self.changes.get_mut(self.selected) else {
+            return QueueSubmitResult::Missing;
+        };
+        if change.state.stage() != StagedChangeStage::Ready {
+            return QueueSubmitResult::Rejected {
+                current: format!("{:?}", change.state),
+            };
+        }
+        let Some(request) = change
+            .subject
+            .submit_request(change.id.clone(), change.state.mode(change.default_mode))
+        else {
             return QueueSubmitResult::Missing;
         };
         if change.apply(StagedChangeEvent::SubmitQueued) {
@@ -74,6 +97,7 @@ impl StagedChanges {
             state,
             subject: request.subject,
         });
+        self.selected = self.visible_len().saturating_sub(1);
         OpenStagedChangeResult::Opened
     }
 
@@ -99,6 +123,7 @@ impl StagedChanges {
                 disabled += 1;
             }
         }
+        self.normalize_selection();
         disabled
     }
 
@@ -114,7 +139,47 @@ impl StagedChanges {
         }
 
         self.changes.remove(index);
+        self.selected = self
+            .selected
+            .saturating_sub(usize::from(index <= self.selected));
+        self.normalize_selection();
         CloseStagedChangeResult::Closed
+    }
+
+    pub(crate) fn move_selection(&mut self, direction: isize) {
+        if self.changes.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        self.selected = shift_index(self.normalized_selected(), self.visible_len(), direction);
+    }
+
+    pub(crate) fn close_selected(&mut self) -> CloseStagedChangeResult {
+        self.normalize_selection();
+        let Some(id) = self
+            .changes
+            .get(self.selected)
+            .map(|change| change.id.clone())
+        else {
+            return CloseStagedChangeResult::Missing;
+        };
+        self.close(&id)
+    }
+
+    fn normalize_selection(&mut self) {
+        if self.changes.is_empty() {
+            self.selected = 0;
+        } else {
+            self.selected = self.normalized_selected();
+        }
+    }
+
+    fn visible_len(&self) -> usize {
+        self.changes.len().min(VISIBLE_REVIEW_LIMIT)
+    }
+
+    fn normalized_selected(&self) -> usize {
+        self.selected.min(self.visible_len().saturating_sub(1))
     }
 }
 
@@ -146,4 +211,12 @@ pub(crate) enum TransitionResult {
         current: String,
         event: StagedChangeEvent,
     },
+}
+
+fn shift_index(index: usize, len: usize, direction: isize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    let len = len as isize;
+    (index as isize + direction).rem_euclid(len) as usize
 }

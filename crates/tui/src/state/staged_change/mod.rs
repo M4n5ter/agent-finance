@@ -5,9 +5,9 @@ mod workflow;
 #[cfg(test)]
 mod tests;
 
-pub(super) use collection::{
+pub(crate) use collection::{
     CloseStagedChangeResult, OpenStagedChangeResult, QueueSubmitResult, StagedChanges,
-    TransitionResult,
+    TransitionResult, VISIBLE_REVIEW_LIMIT,
 };
 pub use subject::{
     CancelReview, FuturesStateReview, OrderTicketReview, StagedChangeRequest, StagedChangeSubject,

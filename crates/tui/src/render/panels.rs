@@ -11,7 +11,7 @@ use ratatui::widgets::{Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 use crate::layout::CockpitLayout;
 use crate::model::Panel;
 use crate::provider_health::ProviderHealthReport;
-use crate::state::{AppState, StagedChangeSubject};
+use crate::state::{AppState, StagedChangeSubject, VISIBLE_REVIEW_LIMIT};
 use crate::task_log::TaskStatus;
 use crate::theme::ThemeConfig;
 
@@ -135,7 +135,7 @@ fn render_order_ticket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
 fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = Vec::new();
 
-    let changes = state.staged_change_views();
+    let changes = state.staged_change_review_views();
     if changes.is_empty() {
         let preview = state.order_ticket_preview();
         lines.push(Line::from(vec![
@@ -173,11 +173,17 @@ fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             "staged intents",
             state.theme.accent_style().add_modifier(Modifier::BOLD),
         )));
-        for change in changes.iter().take(8) {
-            lines.push(Line::from(format_staged_change_review(change)));
+        for change in changes.iter() {
+            lines.push(format_staged_change_review(state, change));
+        }
+        if state.staged_change_count() > VISIBLE_REVIEW_LIMIT {
+            lines.push(Line::from(format!(
+                "+{} hidden staged intents",
+                state.staged_change_count() - VISIBLE_REVIEW_LIMIT
+            )));
         }
         lines.push(Line::from(""));
-        lines.push(Line::from("Enter submits the first ready staged intent"));
+        lines.push(Line::from(crate::hints::intent_review_panel_hint()));
     }
 
     frame.render_widget(
@@ -188,10 +194,14 @@ fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     );
 }
 
-fn format_staged_change_review(change: &crate::state::StagedChangeView) -> String {
-    match &change.subject {
+fn format_staged_change_review(
+    state: &AppState,
+    change: &crate::state::StagedChangeView,
+) -> Line<'static> {
+    let marker = if change.selected { ">" } else { " " };
+    let text = match &change.subject {
         StagedChangeSubject::OrderTicket(review) => format!(
-            "{}  {}  {}  {} {} {} {} {} @ {} {}{} [{}]",
+            "{marker} {}  {}  {}  {} {} {} {} {} @ {} {}{} [{}]",
             change.stage,
             change.mode,
             change.intent_kind,
@@ -210,7 +220,7 @@ fn format_staged_change_review(change: &crate::state::StagedChangeView) -> Strin
             review.profile
         ),
         StagedChangeSubject::Cancel(review) => format!(
-            "{}  {}  {}  cancel {} {} [{}] [{}]",
+            "{marker} {}  {}  {}  cancel {} {} [{}] [{}]",
             change.stage,
             change.mode,
             change.intent_kind,
@@ -220,7 +230,7 @@ fn format_staged_change_review(change: &crate::state::StagedChangeView) -> Strin
             review.profile
         ),
         StagedChangeSubject::Transfer(review) => format!(
-            "{}  {}  {}  transfer {} {} {} [{}]",
+            "{marker} {}  {}  {}  transfer {} {} {} [{}]",
             change.stage,
             change.mode,
             change.intent_kind,
@@ -230,7 +240,7 @@ fn format_staged_change_review(change: &crate::state::StagedChangeView) -> Strin
             review.profile
         ),
         StagedChangeSubject::FuturesState(review) => format!(
-            "{}  {}  {}  futures-state {} [{}]",
+            "{marker} {}  {}  {}  futures-state {} [{}]",
             change.stage,
             change.mode,
             change.intent_kind,
@@ -239,9 +249,14 @@ fn format_staged_change_review(change: &crate::state::StagedChangeView) -> Strin
         ),
         #[cfg(test)]
         StagedChangeSubject::Text { .. } => format!(
-            "{}  {}  {}  {}",
+            "{marker} {}  {}  {}  {}",
             change.stage, change.mode, change.intent_kind, change.summary
         ),
+    };
+    if change.selected {
+        Line::from(Span::styled(text, state.theme.selected_style()))
+    } else {
+        Line::from(text)
     }
 }
 

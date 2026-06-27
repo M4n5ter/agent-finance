@@ -303,6 +303,139 @@ fn draft_changes_can_be_replaced_before_validation_starts() {
 }
 
 #[test]
+fn selection_follows_new_changes_and_drives_submission() {
+    let mut changes = StagedChanges::default();
+    assert_eq!(
+        changes.open_ready(request("first"), SubmitMode::DryRun),
+        OpenStagedChangeResult::Opened
+    );
+    assert_eq!(
+        changes.open_ready(request("second"), SubmitMode::DryRun),
+        OpenStagedChangeResult::Opened
+    );
+
+    let views = changes.views();
+    assert!(!views[0].selected);
+    assert!(views[1].selected);
+
+    let QueueSubmitResult::Queued(request) = changes.queue_selected_submit() else {
+        panic!("selected ready change should queue");
+    };
+    assert_eq!(request.id, "second");
+}
+
+#[test]
+fn selection_can_move_before_submitting_or_closing() {
+    let mut changes = StagedChanges::default();
+    assert_eq!(
+        changes.open_ready(request("first"), SubmitMode::DryRun),
+        OpenStagedChangeResult::Opened
+    );
+    assert_eq!(
+        changes.open_ready(request("second"), SubmitMode::DryRun),
+        OpenStagedChangeResult::Opened
+    );
+    changes.move_selection(-1);
+
+    let QueueSubmitResult::Queued(request) = changes.queue_selected_submit() else {
+        panic!("moved selection should queue");
+    };
+    assert_eq!(request.id, "first");
+    assert_eq!(
+        changes.apply("first", StagedChangeEvent::ReturnedToReady),
+        TransitionResult::Applied
+    );
+    assert_eq!(changes.close_selected(), CloseStagedChangeResult::Closed);
+
+    let views = changes.views();
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].id, "second");
+    assert!(views[0].selected);
+}
+
+#[test]
+fn selection_never_targets_hidden_review_changes() {
+    let mut changes = StagedChanges::default();
+    for index in 0..VISIBLE_REVIEW_LIMIT + 2 {
+        assert_eq!(
+            changes.open_ready(request(&format!("change-{index}")), SubmitMode::DryRun),
+            OpenStagedChangeResult::Opened
+        );
+    }
+
+    assert_eq!(changes.views().len(), VISIBLE_REVIEW_LIMIT + 2);
+    let views = changes.review_views();
+    assert_eq!(views.len(), VISIBLE_REVIEW_LIMIT);
+    assert_eq!(
+        views.iter().filter(|view| view.selected).count(),
+        1,
+        "exactly one visible change should be selected"
+    );
+    assert_eq!(
+        views.iter().find(|view| view.selected).unwrap().id,
+        format!("change-{}", VISIBLE_REVIEW_LIMIT - 1)
+    );
+
+    let QueueSubmitResult::Queued(request) = changes.queue_selected_submit() else {
+        panic!("selected visible change should queue");
+    };
+    assert_eq!(request.id, format!("change-{}", VISIBLE_REVIEW_LIMIT - 1));
+}
+
+#[test]
+fn selection_movement_wraps_inside_visible_review_window() {
+    let mut changes = StagedChanges::default();
+    for index in 0..VISIBLE_REVIEW_LIMIT + 2 {
+        assert_eq!(
+            changes.open_ready(request(&format!("change-{index}")), SubmitMode::DryRun),
+            OpenStagedChangeResult::Opened
+        );
+    }
+
+    changes.move_selection(1);
+
+    let selected = changes
+        .views()
+        .into_iter()
+        .find(|view| view.selected)
+        .unwrap();
+    assert_eq!(selected.id, "change-0");
+    let QueueSubmitResult::Queued(request) = changes.queue_selected_submit() else {
+        panic!("selected visible change should queue");
+    };
+    assert_eq!(request.id, selected.id);
+}
+
+#[test]
+fn intent_created_changes_cannot_close_while_worker_may_still_report_progress() {
+    let mut changes = StagedChanges::default();
+    assert_eq!(
+        changes.open_ready(request("change-1"), SubmitMode::Live),
+        OpenStagedChangeResult::Opened
+    );
+    assert!(matches!(
+        changes.queue_selected_submit(),
+        QueueSubmitResult::Queued(_)
+    ));
+    assert_eq!(
+        changes.apply(
+            "change-1",
+            StagedChangeEvent::IntentCreated {
+                intent_id: "intent-1".to_string(),
+            }
+        ),
+        TransitionResult::Applied
+    );
+
+    assert!(matches!(
+        changes.close_selected(),
+        CloseStagedChangeResult::Rejected { .. }
+    ));
+    assert!(changes.views()[0].selected);
+    assert_eq!(changes.views()[0].stage, StagedChangeStage::IntentCreated);
+}
+
+#[test]
 fn disabling_live_abandons_pending_live_changes_but_keeps_claimed_changes() {
     let mut changes = StagedChanges::default();
     assert_eq!(

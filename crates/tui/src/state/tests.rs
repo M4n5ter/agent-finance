@@ -154,6 +154,78 @@ fn submitting_ready_order_change_queues_submit_request() {
 }
 
 #[test]
+fn intent_review_submission_uses_selected_staged_change() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Trade,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state
+        .order_ticket
+        .set_quantity_text(Some("0.05".to_string()));
+    state.order_ticket.set_price_text(Some("204".to_string()));
+    state.reduce(Action::StageOrderTicket);
+    state.order_ticket.set_price_text(Some("198".to_string()));
+    state.reduce(Action::StageOrderTicket);
+    state.reduce(Action::MoveStagedChangeSelection(-1));
+
+    state.reduce(Action::SubmitStagedChange);
+
+    let request = state
+        .take_pending_staged_submit()
+        .expect("pending staged submit");
+    let StagedChangeSubject::OrderTicket(review) = &request.subject else {
+        panic!("expected order submit");
+    };
+    assert_eq!(review.price.as_deref(), Some("204"));
+    let changes = state.staged_change_views();
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.selected && change.stage == StagedChangeStage::SubmitQueued)
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|change| !change.selected && change.stage == StagedChangeStage::Ready)
+    );
+}
+
+#[test]
+fn selected_staged_change_can_be_closed_from_review() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Trade,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state
+        .order_ticket
+        .set_quantity_text(Some("0.05".to_string()));
+    state.order_ticket.set_price_text(Some("204".to_string()));
+    state.reduce(Action::StageOrderTicket);
+    state.order_ticket.set_price_text(Some("198".to_string()));
+    state.reduce(Action::StageOrderTicket);
+    state.reduce(Action::MoveStagedChangeSelection(-1));
+
+    state.reduce(Action::CloseSelectedStagedChange);
+
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 1);
+    assert!(changes[0].selected);
+    assert!(changes[0].summary.contains("198"));
+}
+
+#[test]
 fn transfer_ticket_staging_creates_transfer_review_change() {
     let mut state = AppState::from_config(TuiConfig {
         workspace: WorkspaceConfig {

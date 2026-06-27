@@ -304,8 +304,9 @@ mod tests {
 
         assert!(text.contains("Intent Review"));
         assert!(text.contains("staged intents"));
-        assert!(text.contains("ready  dry-run  order"));
+        assert!(text.contains("> ready  dry-run  order"));
         assert!(text.contains("buy 0.05 CRDO spot limit-maker @ 204"));
+        assert!(text.contains("up/down/k/j select  enter submit  d/backspace close  q quit"));
     }
 
     #[test]

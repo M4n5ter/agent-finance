@@ -270,7 +270,10 @@ impl StagedChangeState {
     }
 
     pub(crate) fn blocks_close(&self) -> bool {
-        matches!(self, Self::SubmitQueued | Self::LiveIntentClaimed { .. })
+        matches!(
+            self,
+            Self::SubmitQueued | Self::IntentCreated { .. } | Self::LiveIntentClaimed { .. }
+        )
     }
 
     pub(crate) fn can_disable_live(&self) -> bool {
@@ -355,6 +358,7 @@ impl fmt::Display for StagedChangeStage {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StagedChangeView {
     pub id: String,
+    pub selected: bool,
     pub intent_kind: SubmitIntentKind,
     pub stage: StagedChangeStage,
     pub mode: SubmitMode,
@@ -366,8 +370,15 @@ pub struct StagedChangeView {
 
 impl From<&StagedChange> for StagedChangeView {
     fn from(change: &StagedChange) -> Self {
+        Self::from_selected(change, false)
+    }
+}
+
+impl StagedChangeView {
+    pub(crate) fn from_selected(change: &StagedChange, selected: bool) -> Self {
         Self {
             id: change.id.clone(),
+            selected,
             intent_kind: change.subject.intent_kind(),
             stage: change.state.stage(),
             mode: change.state.mode(change.default_mode),

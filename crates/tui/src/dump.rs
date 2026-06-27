@@ -51,7 +51,7 @@ impl TuiDump {
     pub fn from_state(state: &AppState, partial: bool) -> Self {
         let provider_health = ProviderHealthReport::from_state(state);
         Self {
-            schema_version: 8,
+            schema_version: 9,
             workspace: state.workspace,
             mode: state.interaction_mode(),
             selected_symbol: state.selected_symbol().map(ToString::to_string),
@@ -233,11 +233,12 @@ mod tests {
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
-        assert_eq!(value["schema_version"], 8);
+        assert_eq!(value["schema_version"], 9);
         assert_eq!(value["default_submit_mode"], "live");
         assert_eq!(value["live_writes_enabled"], false);
         assert_eq!(value["effective_submit_mode"], "dry-run");
         assert_eq!(value["staged_changes"][0]["intent_kind"], "order");
+        assert_eq!(value["staged_changes"][0]["selected"], true);
         assert_eq!(value["staged_changes"][0]["stage"], "ready");
         assert_eq!(value["staged_changes"][0]["mode"], "dry-run");
         assert!(value["staged_changes"][0]["intent_status"].is_null());

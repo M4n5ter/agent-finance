@@ -32,6 +32,7 @@ use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
 pub use staged_change::StagedChangeStage;
+pub(crate) use staged_change::VISIBLE_REVIEW_LIMIT;
 pub use staged_change::{
     CancelReview, FuturesStateReview, OrderTicketReview, StagedChangeEvent, StagedChangeRequest,
     StagedChangeSubject, StagedChangeView, StagedSubmitRequest, TransferReview,
@@ -172,6 +173,14 @@ impl AppState {
 
     pub fn staged_change_views(&self) -> Vec<StagedChangeView> {
         self.staged_changes.views()
+    }
+
+    pub fn staged_change_review_views(&self) -> Vec<StagedChangeView> {
+        self.staged_changes.review_views()
+    }
+
+    pub fn staged_change_count(&self) -> usize {
+        self.staged_changes.len()
     }
 
     pub fn take_pending_staged_submit(&mut self) -> Option<StagedSubmitRequest> {
@@ -584,6 +593,9 @@ impl AppState {
             Action::StageTransferTicket => self.stage_transfer_ticket(),
             Action::StageFuturesStateTicket => self.stage_futures_state_ticket(),
             Action::StageSelectedOpenOrderCancel => self.stage_selected_open_order_cancel(),
+            Action::MoveStagedChangeSelection(direction) => {
+                self.staged_changes.move_selection(direction);
+            }
             Action::SubmitStagedChange => self.submit_next_staged_change(),
             Action::RequestConfigSave => self.request_config_save(),
             Action::ConfigSaved => self.config_saved(),
@@ -744,12 +756,21 @@ impl AppState {
                     .task_log
                     .warning_event(format!("staged change {id} cannot close while {current}")),
             },
+            Action::CloseSelectedStagedChange => match self.staged_changes.close_selected() {
+                CloseStagedChangeResult::Closed => {}
+                CloseStagedChangeResult::Missing => self
+                    .task_log
+                    .warning_event("no staged change selected".to_string()),
+                CloseStagedChangeResult::Rejected { current } => self
+                    .task_log
+                    .warning_event(format!("staged change cannot close while {current}")),
+            },
             Action::Log(message) => self.task_log.info(message),
         }
     }
 
     fn submit_next_staged_change(&mut self) {
-        match self.staged_changes.queue_next_submit() {
+        match self.staged_changes.queue_selected_submit() {
             QueueSubmitResult::Queued(request) => {
                 self.task_log.info(format!(
                     "submitting staged {} change {} as {}",
@@ -761,9 +782,9 @@ impl AppState {
             }
             QueueSubmitResult::Missing => self
                 .task_log
-                .warning_event("no ready staged change to submit".to_string()),
+                .warning_event("no selected staged change to submit".to_string()),
             QueueSubmitResult::Rejected { current } => self.task_log.warning_event(format!(
-                "staged change cannot submit from current state {current}"
+                "selected staged change cannot submit from current state {current}"
             )),
         }
     }
@@ -903,6 +924,7 @@ pub enum Action {
     StageTransferTicket,
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
+    MoveStagedChangeSelection(isize),
     SubmitStagedChange,
     RequestConfigSave,
     ConfigSaved,
@@ -1011,6 +1033,7 @@ pub enum Action {
         )
     )]
     CloseStagedChange(String),
+    CloseSelectedStagedChange,
     Log(String),
 }
 

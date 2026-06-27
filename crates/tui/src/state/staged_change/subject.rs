@@ -89,7 +89,11 @@ impl StagedChangeSubject {
                 })
             }
             #[cfg(test)]
-            Self::Text { .. } => None,
+            Self::Text { .. } => Some(StagedSubmitRequest {
+                id,
+                subject: self.clone(),
+                mode,
+            }),
         }
     }
 }

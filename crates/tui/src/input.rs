@@ -241,7 +241,10 @@ fn account_key_action(key: KeyEvent) -> Option<Action> {
 
 fn intent_review_key_action(key: KeyEvent) -> Option<Action> {
     match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveStagedChangeSelection(-1)),
+        KeyCode::Down | KeyCode::Char('j') => Some(Action::MoveStagedChangeSelection(1)),
         KeyCode::Enter => Some(Action::SubmitStagedChange),
+        KeyCode::Char('d') | KeyCode::Backspace => Some(Action::CloseSelectedStagedChange),
         _ => None,
     }
 }
@@ -414,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn intent_review_focus_routes_enter_to_staged_submit() {
+    fn intent_review_focus_routes_review_controls_before_global_keys() {
         let mut state = AppState::from_config(crate::config::TuiConfig::default());
         state.reduce(Action::Execute(ActionId::SetWorkspace(
             WorkspaceKind::Trade,
@@ -424,6 +427,18 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Enter)),
             Some(Action::SubmitStagedChange)
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('k'))),
+            Some(Action::MoveStagedChangeSelection(-1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('j'))),
+            Some(Action::MoveStagedChangeSelection(1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('d'))),
+            Some(Action::CloseSelectedStagedChange)
         );
     }
 
