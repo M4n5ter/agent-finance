@@ -13,6 +13,7 @@ use crate::futures_state_ticket::{FuturesStateTicket, FuturesStateTicketPreview}
 use crate::keymap::KeymapConfig;
 use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 use crate::order_ticket::{OrderTicket, OrderTicketPreview};
+use crate::profile_editor::ProfileEditorState;
 use crate::search::SymbolSearchState;
 use crate::task_failure::TaskFailures;
 use crate::task_log::TaskLog;
@@ -23,6 +24,7 @@ use crate::watchlist_editor::WatchlistAddState;
 mod interaction;
 mod lifecycle;
 mod load;
+mod profile;
 mod staged_change;
 mod workspace;
 
@@ -52,6 +54,7 @@ pub struct AppState {
     pub command_palette: CommandPaletteState,
     pub symbol_search: SymbolSearchState,
     pub watchlist_add: WatchlistAddState,
+    pub profile_editor: ProfileEditorState,
     pub keymap: KeymapConfig,
     pub task_log: TaskLog,
     pub provider_profiles: Vec<ProviderProfile>,
@@ -69,6 +72,7 @@ pub struct AppState {
     pub default_submit_mode: SubmitMode,
     pub live_writes_enabled: bool,
     pub trading_profile: Option<String>,
+    trading_profile_edited: bool,
     pub order_ticket: OrderTicket,
     pub transfer_ticket: TransferTicket,
     pub futures_state_ticket: FuturesStateTicket,
@@ -98,6 +102,7 @@ impl AppState {
             command_palette: CommandPaletteState::default(),
             symbol_search: SymbolSearchState::default(),
             watchlist_add: WatchlistAddState::default(),
+            profile_editor: ProfileEditorState::default(),
             keymap: config.keymap,
             task_log: TaskLog::default(),
             provider_profiles: service::provider_profiles(),
@@ -115,6 +120,7 @@ impl AppState {
             default_submit_mode: SubmitMode::DryRun,
             live_writes_enabled: false,
             trading_profile: config.trading.default_profile,
+            trading_profile_edited: false,
             order_ticket: OrderTicket::default(),
             transfer_ticket: TransferTicket::default(),
             futures_state_ticket: FuturesStateTicket::default(),
@@ -150,6 +156,10 @@ impl AppState {
         config.trading.default_profile = self.trading_profile.clone();
         config.normalize();
         config
+    }
+
+    pub const fn preserve_launch_profile_override(&self) -> bool {
+        !self.trading_profile_edited
     }
 
     pub fn refresh_loading(&self) -> bool {
@@ -333,7 +343,7 @@ impl AppState {
             shift_index(self.selected_open_order.min(len - 1), len, direction);
     }
 
-    fn mark_config_changed(&mut self, section: &str) {
+    pub(super) fn mark_config_changed(&mut self, section: &str) {
         if !self.config_changes.iter().any(|change| change == section) {
             self.config_changes.push(section.to_string());
         }
@@ -461,12 +471,22 @@ impl AppState {
                 .warning_event("no trading profile selected for cancel".to_string());
             return;
         };
-        let Some(order) = self.account_snapshot.as_ref().and_then(|snapshot| {
-            snapshot
-                .open_orders()
-                .get(self.selected_open_order)
-                .cloned()
-        }) else {
+        let Some(snapshot) = self.account_snapshot.as_ref() else {
+            self.task_log
+                .warning_event("no open order selected for cancel".to_string());
+            return;
+        };
+        if snapshot.profile != profile {
+            self.task_log.warning_event(
+                "account snapshot profile does not match selected trading profile".to_string(),
+            );
+            return;
+        }
+        let Some(order) = snapshot
+            .open_orders()
+            .get(self.selected_open_order)
+            .cloned()
+        else {
             self.task_log
                 .warning_event("no open order selected for cancel".to_string());
             return;
@@ -523,6 +543,9 @@ impl AppState {
             Action::EditWatchlistAddQuery(request) => {
                 self.watchlist_add.edit_query(request);
             }
+            Action::EditTradingProfileQuery(request) => {
+                self.profile_editor.edit_query(request);
+            }
             Action::AcceptSymbolSearch => {
                 if let Some(index) = self.symbol_search.selected_symbol_index() {
                     self.selected_symbol = index;
@@ -530,6 +553,7 @@ impl AppState {
                 }
             }
             Action::AcceptWatchlistAdd => self.add_watchlist_symbols(),
+            Action::AcceptTradingProfile => self.accept_trading_profile(),
             Action::DeleteSelectedWatchlistSymbol => self.delete_selected_watchlist_symbol(),
             Action::MoveSelectedWatchlistSymbol(direction) => {
                 self.move_selected_watchlist_symbol(direction);
@@ -862,8 +886,10 @@ pub enum Action {
     MoveSymbolSearchSelection(isize),
     EditSymbolSearchQuery(tui_input::InputRequest),
     EditWatchlistAddQuery(tui_input::InputRequest),
+    EditTradingProfileQuery(tui_input::InputRequest),
     AcceptSymbolSearch,
     AcceptWatchlistAdd,
+    AcceptTradingProfile,
     DeleteSelectedWatchlistSymbol,
     MoveSelectedWatchlistSymbol(isize),
     MoveOrderTicketField(isize),

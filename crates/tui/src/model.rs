@@ -332,6 +332,7 @@ pub enum FloatingKind {
     CommandPalette,
     Help,
     LiveWritesConfirmation,
+    TradingProfile,
     ProviderDetails,
     SymbolSearch,
     WatchlistAdd,
@@ -342,6 +343,7 @@ impl FloatingKind {
         match self {
             Self::CommandPalette
             | Self::LiveWritesConfirmation
+            | Self::TradingProfile
             | Self::SymbolSearch
             | Self::WatchlistAdd => false,
             Self::Help | Self::ProviderDetails => true,
@@ -351,7 +353,7 @@ impl FloatingKind {
     pub const fn text_input(self) -> bool {
         matches!(
             self,
-            Self::CommandPalette | Self::SymbolSearch | Self::WatchlistAdd
+            Self::CommandPalette | Self::TradingProfile | Self::SymbolSearch | Self::WatchlistAdd
         )
     }
 
@@ -360,6 +362,7 @@ impl FloatingKind {
             Self::CommandPalette => "Command Palette",
             Self::Help => "Help",
             Self::LiveWritesConfirmation => "Enable Live Writes",
+            Self::TradingProfile => "Trading Profile",
             Self::ProviderDetails => "Provider Details",
             Self::SymbolSearch => "Symbol Search",
             Self::WatchlistAdd => "Add Symbols",
@@ -395,6 +398,7 @@ impl FloatingSize {
     pub const fn default_for(kind: FloatingKind) -> Self {
         match kind {
             FloatingKind::CommandPalette
+            | FloatingKind::TradingProfile
             | FloatingKind::SymbolSearch
             | FloatingKind::WatchlistAdd => Self {
                 width_ratio: 70,

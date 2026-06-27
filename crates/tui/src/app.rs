@@ -65,7 +65,11 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
     );
     let next_config = result.as_ref().map(|()| {
         let config = state.export_config(&runtime_config);
-        launch.persistence_config(config, &persisted_config)
+        launch.persistence_config(
+            config,
+            &persisted_config,
+            state.preserve_launch_profile_override(),
+        )
     });
     let restore_result = terminal.leave();
     let persist_result = next_config

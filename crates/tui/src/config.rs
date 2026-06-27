@@ -119,8 +119,13 @@ impl TuiLaunch {
         config
     }
 
-    pub fn persistence_config(&self, mut config: TuiConfig, persisted: &TuiConfig) -> TuiConfig {
-        if self.profile.is_some() {
+    pub fn persistence_config(
+        &self,
+        mut config: TuiConfig,
+        persisted: &TuiConfig,
+        preserve_launch_profile_override: bool,
+    ) -> TuiConfig {
+        if self.profile.is_some() && preserve_launch_profile_override {
             config.trading.default_profile = persisted.trading.default_profile.clone();
         }
         config
@@ -397,7 +402,7 @@ fn default_config_path() -> Option<PathBuf> {
     paths::config_dir().ok().map(|path| path.join("tui.toml"))
 }
 
-fn normalize_profile_name(profile: Option<String>) -> Option<String> {
+pub(crate) fn normalize_profile_name(profile: Option<String>) -> Option<String> {
     profile
         .map(|profile| profile.trim().to_string())
         .filter(|profile| !profile.is_empty())
@@ -732,7 +737,7 @@ mod tests {
         };
 
         let runtime = launch.runtime_config(persisted.clone());
-        let export = launch.persistence_config(runtime.clone(), &persisted);
+        let export = launch.persistence_config(runtime.clone(), &persisted, true);
 
         assert_eq!(
             runtime.trading.default_profile.as_deref(),
@@ -740,6 +745,23 @@ mod tests {
         );
         assert_eq!(persisted.trading.default_profile.as_deref(), Some("paper"));
         assert_eq!(export.trading.default_profile.as_deref(), Some("paper"));
+    }
+
+    #[test]
+    fn launch_profile_override_does_not_hide_explicit_trading_config_change() {
+        let launch =
+            TuiLaunch::new(Vec::new(), None, true).with_profile(Some(" live-main ".to_string()));
+        let persisted = TuiConfig {
+            trading: TradingConfig {
+                default_profile: Some("paper".to_string()),
+            },
+            ..TuiConfig::default()
+        };
+        let runtime = launch.runtime_config(persisted.clone());
+
+        let export = launch.persistence_config(runtime.clone(), &persisted, false);
+
+        assert_eq!(export.trading.default_profile.as_deref(), Some("live-main"));
     }
 
     #[test]

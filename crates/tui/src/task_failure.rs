@@ -32,6 +32,10 @@ impl TaskFailures {
         });
     }
 
+    pub fn clear_source(&mut self, source: TaskFailureSource) {
+        self.entries.retain(|failure| failure.source != source);
+    }
+
     pub fn clear_profile(&mut self, source: TaskFailureSource, profile: &str) {
         self.entries.retain(|failure| {
             failure.source != source

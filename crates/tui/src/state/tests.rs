@@ -3,6 +3,7 @@ use crate::account::ACCOUNT_READ_PLAN;
 use crate::command::ActionId;
 use crate::config::MAX_LEFT_MAIN_RATIO;
 use crate::model::InteractionMode;
+use crate::task_failure::TaskFailureSource;
 use crate::task_log::TaskStatus;
 use agent_finance_core::intent::IntentStatus;
 use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
@@ -421,6 +422,51 @@ fn selected_open_order_cancel_preserves_exchange_order_id_target() {
 }
 
 #[test]
+fn trading_profile_change_invalidates_account_snapshot_before_cancel() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::AccountLoaded {
+        generation: 1,
+        snapshot: account_snapshot_with_open_orders("mainnet"),
+    });
+    assert!(state.account_snapshot.is_some());
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for _ in 0.."mainnet".len() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::DeletePrevChar,
+        ));
+    }
+    for character in "hedge".chars() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptTradingProfile);
+    state.reduce(Action::StageSelectedOpenOrderCancel);
+
+    assert_eq!(state.trading_profile.as_deref(), Some("hedge"));
+    assert_eq!(state.account_snapshot, None);
+    assert!(state.staged_change_views().is_empty());
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message.contains("no open order selected"))
+    );
+}
+
+#[test]
 fn cancel_stage_id_separates_dry_run_and_live_for_same_open_order() {
     let mut state = AppState::from_config(TuiConfig {
         trading: crate::config::TradingConfig {
@@ -706,6 +752,7 @@ fn reducer_ignores_stale_account_snapshots_after_new_profile_request() {
         generation: 1,
         profile: "mainnet".to_string(),
     });
+    state.trading_profile = Some("hedge".to_string());
     state.reduce(Action::AccountStarted {
         generation: 2,
         profile: "hedge".to_string(),
@@ -725,6 +772,125 @@ fn reducer_ignores_stale_account_snapshots_after_new_profile_request() {
 
     assert!(!state.account_loading());
     assert_eq!(state.account_snapshot.as_ref().unwrap().profile, "hedge");
+}
+
+#[test]
+fn reducer_ignores_account_snapshot_for_previous_trading_profile() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for _ in 0.."mainnet".len() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::DeletePrevChar,
+        ));
+    }
+    for character in "hedge".chars() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptTradingProfile);
+    state.reduce(Action::AccountLoaded {
+        generation: 1,
+        snapshot: account_snapshot("mainnet"),
+    });
+
+    assert!(!state.account_loading());
+    assert!(state.account_snapshot.is_none());
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message.contains("ignored stale account generation"))
+    );
+}
+
+#[test]
+fn reducer_marks_same_generation_profile_mismatch_as_terminal_warning() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("hedge".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+
+    state.reduce(Action::AccountLoaded {
+        generation: 1,
+        snapshot: account_snapshot("mainnet"),
+    });
+
+    assert!(!state.account_loading());
+    assert!(state.account_snapshot.is_none());
+    let account_entries = state
+        .task_log
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.key,
+                Some(crate::task_log::TaskKey::Account { generation: 1, .. })
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(account_entries.len(), 1);
+    assert_eq!(account_entries[0].status, TaskStatus::Warning);
+    assert!(
+        account_entries[0]
+            .message
+            .contains("ignored stale account snapshot")
+    );
+}
+
+#[test]
+fn trading_profile_change_cancels_active_account_load_and_ignores_old_failure() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for _ in 0.."mainnet".len() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::DeletePrevChar,
+        ));
+    }
+    for character in "hedge".chars() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptTradingProfile);
+    state.reduce(Action::AccountFailed {
+        generation: 1,
+        profile: "mainnet".to_string(),
+        error: "old profile failed".to_string(),
+    });
+
+    assert_eq!(state.trading_profile.as_deref(), Some("hedge"));
+    assert!(!state.account_loading());
+    assert!(!state.task_failures.has_source(TaskFailureSource::Account));
 }
 
 #[test]
@@ -1313,6 +1479,40 @@ fn command_palette_save_config_routes_to_pending_save_request() {
 
     assert!(state.take_pending_config_save());
     assert_eq!(state.config_changes, ["layout"]);
+}
+
+#[test]
+fn trading_profile_editor_updates_exported_config_and_can_clear_profile() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for character in " mainnet ".chars() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+
+    state.reduce(Action::AcceptTradingProfile);
+
+    assert_eq!(state.trading_profile.as_deref(), Some("mainnet"));
+    assert_eq!(state.config_changes, ["trading"]);
+    let config = state.export_config(&TuiConfig::default());
+    assert_eq!(config.trading.default_profile.as_deref(), Some("mainnet"));
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for _ in 0.."mainnet".len() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::DeletePrevChar,
+        ));
+    }
+    state.reduce(Action::AcceptTradingProfile);
+
+    assert_eq!(state.trading_profile, None);
+    let config = state.export_config(&TuiConfig::default());
+    assert_eq!(config.trading.default_profile, None);
 }
 
 #[test]

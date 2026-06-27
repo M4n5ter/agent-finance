@@ -238,6 +238,17 @@ impl AppState {
 
     pub(super) fn account_loaded(&mut self, generation: u64, snapshot: AccountSnapshot) {
         if let Some(active) = self.account.finish(generation) {
+            if self.trading_profile.as_deref() != Some(snapshot.profile.as_str()) {
+                self.task_log.warning(
+                    TaskKey::Account {
+                        generation: active.generation,
+                        profile: active.key,
+                    },
+                    format!("ignored stale account snapshot for {}", snapshot.profile),
+                );
+                return;
+            }
+
             self.task_failures
                 .clear_profile(TaskFailureSource::Account, &active.key);
             if !snapshot.errors.is_empty() {

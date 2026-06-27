@@ -24,11 +24,11 @@ expression: "render_to_text_grid(&state, 140, 40)"
 │                    │  Toggle watchlist - Show or hide the symbol list panel                                         │▓                   │
 │                    │  Focus provider health - Move keyboard focus to provider health                                │▓                   │
 └────────────────────│  Toggle history - Show or hide the historical price chart                                      │▓                   │
-┌Provider Health [par│  Previous symbol - Move watchlist selection to the previous symbol                             │▓                   │
-│provi stat detail   │  Stage selected cancel - Move the selected open order into intent review as a cancel           │▓                   │
-│auto  capa Default r│  Delete selected symbol - Remove the selected symbol from the persisted watchlist              │▓                   │
-│yahoo capa Broadest │  Focus history - Move keyboard focus to historical price chart                                 │▓                   │
-│sec-e capa Official │  Open symbol search - Filter the watchlist and jump to a symbol                                │▓                   │
+┌Provider Health [par│  Set trading profile - Edit the default trading profile used by order, cancel, transfer, and fu│▓                   │
+│provi stat detail   │  Previous symbol - Move watchlist selection to the previous symbol                             │▓                   │
+│auto  capa Default r│  Stage selected cancel - Move the selected open order into intent review as a cancel           │▓                   │
+│yahoo capa Broadest │  Delete selected symbol - Remove the selected symbol from the persisted watchlist              │▓                   │
+│sec-e capa Official │  Focus history - Move keyboard focus to historical price chart                                 │▓                   │
 │stooq capa Delayed q└────────────────────────────────────────────────────────────────────────────────────────────────┘▓                   │
 │cnbc- capa pre/post e▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                   │
 │cnbc  capa CNBC quote payload -               ││                                                                                          │

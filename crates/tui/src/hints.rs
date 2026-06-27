@@ -139,6 +139,10 @@ fn input_mode_spec_for_kind(kind: FloatingKind) -> Option<InputModeSpec> {
             title: "Add Symbols",
             hints: &["type symbols", "enter add", "esc close"],
         }),
+        FloatingKind::TradingProfile => Some(InputModeSpec {
+            title: "Trading Profile",
+            hints: &["type profile", "enter set", "blank clears", "esc close"],
+        }),
         FloatingKind::Help
         | FloatingKind::LiveWritesConfirmation
         | FloatingKind::ProviderDetails => None,

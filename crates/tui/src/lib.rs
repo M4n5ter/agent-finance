@@ -12,6 +12,7 @@ mod layout;
 mod model;
 mod order_ticket;
 mod pane_status;
+mod profile_editor;
 mod provider_health;
 mod render;
 mod scheduler;

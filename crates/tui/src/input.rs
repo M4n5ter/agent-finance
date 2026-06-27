@@ -29,6 +29,9 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     if watchlist_add_is_top(state) {
         return watchlist_add_key_action(key);
     }
+    if trading_profile_is_top(state) {
+        return trading_profile_key_action(key);
+    }
     if live_writes_confirmation_is_top(state) {
         return live_writes_confirmation_key_action(key);
     }
@@ -164,6 +167,14 @@ fn watchlist_add_key_action(key: KeyEvent) -> Option<Action> {
     }
 }
 
+fn trading_profile_key_action(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Enter => Some(Action::AcceptTradingProfile),
+        KeyCode::Esc => Some(Action::CloseFocusedFloating),
+        _ => to_input_request(&Event::Key(key)).map(Action::EditTradingProfileQuery),
+    }
+}
+
 fn live_writes_confirmation_key_action(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Enter => Some(Action::SetLiveWritesEnabled(true)),
@@ -263,8 +274,18 @@ fn watchlist_add_is_top(state: &AppState) -> bool {
         .is_some_and(|pane| pane.kind == FloatingKind::WatchlistAdd)
 }
 
+fn trading_profile_is_top(state: &AppState) -> bool {
+    state
+        .floating
+        .last()
+        .is_some_and(|pane| pane.kind == FloatingKind::TradingProfile)
+}
+
 fn text_input_floating_is_top(state: &AppState) -> bool {
-    command_palette_is_top(state) || symbol_search_is_top(state) || watchlist_add_is_top(state)
+    command_palette_is_top(state)
+        || symbol_search_is_top(state)
+        || watchlist_add_is_top(state)
+        || trading_profile_is_top(state)
 }
 
 #[cfg(test)]
@@ -575,6 +596,16 @@ mod tests {
         assert!(matches!(
             key_action(&state, KeyEvent::from(KeyCode::Char('q'))),
             Some(Action::EditSymbolSearchQuery(_))
+        ));
+
+        state.reduce(Action::CloseFocusedFloating);
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::TradingProfile,
+        )));
+        assert!(!should_quit(&state, KeyEvent::from(KeyCode::Char('q'))));
+        assert!(matches!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('q'))),
+            Some(Action::EditTradingProfileQuery(_))
         ));
     }
 

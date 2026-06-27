@@ -58,9 +58,11 @@ impl AppState {
             Some(FloatingKind::LiveWritesConfirmation | FloatingKind::ProviderDetails) => {
                 InteractionMode::Inspect
             }
-            Some(FloatingKind::SymbolSearch | FloatingKind::WatchlistAdd) => {
-                InteractionMode::Search
-            }
+            Some(
+                FloatingKind::SymbolSearch
+                | FloatingKind::WatchlistAdd
+                | FloatingKind::TradingProfile,
+            ) => InteractionMode::Search,
             None => InteractionMode::Normal,
         }
     }
@@ -119,6 +121,7 @@ impl AppState {
             FloatingKind::CommandPalette,
             FloatingKind::SymbolSearch,
             FloatingKind::WatchlistAdd,
+            FloatingKind::TradingProfile,
         ] {
             if kind != except {
                 self.close_floating(kind);
@@ -131,6 +134,7 @@ impl AppState {
             FloatingKind::CommandPalette,
             FloatingKind::SymbolSearch,
             FloatingKind::WatchlistAdd,
+            FloatingKind::TradingProfile,
         ] {
             self.close_floating(kind);
         }
@@ -160,6 +164,9 @@ impl AppState {
             FloatingKind::CommandPalette => self.command_palette.reset(),
             FloatingKind::SymbolSearch => self.symbol_search.reset(&self.watchlist),
             FloatingKind::WatchlistAdd => self.watchlist_add.reset(),
+            FloatingKind::TradingProfile => {
+                self.profile_editor.reset(self.trading_profile.as_deref())
+            }
             FloatingKind::Help
             | FloatingKind::LiveWritesConfirmation
             | FloatingKind::ProviderDetails => {}

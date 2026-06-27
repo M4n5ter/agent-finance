@@ -73,11 +73,16 @@ pub(super) fn render_floating(
         render_watchlist_add(frame, state, area);
         return;
     }
+    if kind == FloatingKind::TradingProfile {
+        render_trading_profile(frame, state, area);
+        return;
+    }
 
     let text = match kind {
         FloatingKind::CommandPalette => unreachable!("command palette is rendered separately"),
         FloatingKind::SymbolSearch => unreachable!("symbol search is rendered separately"),
         FloatingKind::WatchlistAdd => unreachable!("watchlist add is rendered separately"),
+        FloatingKind::TradingProfile => unreachable!("trading profile is rendered separately"),
         FloatingKind::Help => vec![
             Line::from("agent-finance cockpit"),
             Line::from("[/]: switch workspace"),
@@ -227,6 +232,48 @@ fn render_watchlist_add(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             let text = match index {
                 0 => "Enter - add normalized symbols",
                 1 => "Esc - cancel",
+                _ => return None,
+            };
+            Some(ListItem::new(Line::from(vec![
+                Span::styled(if is_selected { "> " } else { "  " }, style),
+                Span::styled(text, style),
+            ])))
+        },
+    );
+}
+
+fn render_trading_profile(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    render_search_floating(
+        frame,
+        area,
+        SearchFloating {
+            title: "Trading Profile",
+            input_title: hints::input_floating_title_for_kind(FloatingKind::TradingProfile)
+                .expect("trading profile has an input title"),
+            placeholder: "mainnet, testnet, paper",
+            query: state.profile_editor.query(),
+            selected: 0,
+            total: 3,
+            noun: "actions",
+            empty: "Enter sets profile, blank clears it, Esc cancels",
+        },
+        &state.theme,
+        |index, is_selected| {
+            let style = if is_selected {
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
+            } else {
+                state.theme.text_style()
+            };
+            let text = match index {
+                0 => format!(
+                    "current - {}",
+                    state.trading_profile.as_deref().unwrap_or("none")
+                ),
+                1 => format!(
+                    "next - {}",
+                    state.profile_editor.profile().as_deref().unwrap_or("none")
+                ),
+                2 => "Enter - set default trading profile".to_string(),
                 _ => return None,
             };
             Some(ListItem::new(Line::from(vec![

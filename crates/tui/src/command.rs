@@ -165,7 +165,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 51] = [
+pub const ACTION_REGISTRY: [ActionSpec; 52] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -285,6 +285,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 51] = [
         ActionId::SubmitStagedChange,
         "Submit staged change",
         "Create an intent for the first ready staged change and submit it through the trading runtime"
+    ),
+    action!(
+        "open-trading-profile-editor",
+        ActionId::OpenFloating(FloatingKind::TradingProfile),
+        "Set trading profile",
+        "Edit the default trading profile used by order, cancel, transfer, and futures state tickets"
     ),
     action!(
         "save-config",
@@ -492,6 +498,20 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(visible.contains(&"Open provider details"));
         assert!(visible.contains(&"Workspace providers"));
+    }
+
+    #[test]
+    fn command_palette_can_open_trading_profile_editor() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "trading profile".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::OpenFloating(FloatingKind::TradingProfile))
+        );
     }
 
     #[test]

@@ -43,9 +43,11 @@ fn persist_pending_config_save(context: &PendingAppRequests<'_>, state: &mut App
     }
 
     let config = state.export_config(context.runtime_config);
-    let config = context
-        .launch
-        .persistence_config(config, context.persisted_config);
+    let config = context.launch.persistence_config(
+        config,
+        context.persisted_config,
+        state.preserve_launch_profile_override(),
+    );
     match context.launch.persist_config(&config) {
         Ok(()) => state.reduce(Action::ConfigSaved),
         Err(error) => state.reduce(Action::ConfigSaveFailed(error.to_string())),
@@ -90,6 +92,65 @@ mod tests {
         assert!(state.config_changes.is_empty());
         assert_eq!(loaded.layout.left_ratio, 31);
         assert_eq!(loaded.layout.main_ratio, 42);
+    }
+
+    #[test]
+    fn explicit_config_save_persists_user_edited_profile_under_launch_profile_override() {
+        let path = unique_temp_config_path("explicit-save-profile");
+        let persisted_config = TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("paper".to_string()),
+            },
+            ..TuiConfig::default()
+        };
+        persisted_config
+            .save_to(&path)
+            .expect("write persisted config");
+        let launch = TuiLaunch::new(Vec::new(), Some(path.clone()), false)
+            .with_profile(Some("runtime".to_string()));
+        let runtime_config = launch.runtime_config(persisted_config.clone());
+        let scheduler = Scheduler::start(&launch, runtime_config.providers.clone());
+        let mut state = AppState::from_config(runtime_config.clone());
+
+        state.reduce(Action::Execute(crate::command::ActionId::OpenFloating(
+            crate::model::FloatingKind::TradingProfile,
+        )));
+        for _ in 0.."runtime".len() {
+            state.reduce(Action::EditTradingProfileQuery(
+                tui_input::InputRequest::DeletePrevChar,
+            ));
+        }
+        for character in "mainnet".chars() {
+            state.reduce(Action::EditTradingProfileQuery(
+                tui_input::InputRequest::InsertChar(character),
+            ));
+        }
+        state.reduce(Action::AcceptTradingProfile);
+        state.reduce(Action::RequestConfigSave);
+
+        drain_pending_app_requests(
+            PendingAppRequests {
+                scheduler: &scheduler,
+                launch: &launch,
+                runtime_config: &runtime_config,
+                persisted_config: &persisted_config,
+            },
+            &mut state,
+        );
+        let loaded = launch.load_config().expect("load saved config");
+        let exit_config = launch.persistence_config(
+            state.export_config(&runtime_config),
+            &persisted_config,
+            state.preserve_launch_profile_override(),
+        );
+        let _ = fs::remove_file(path);
+
+        assert!(state.config_changes.is_empty());
+        assert_eq!(loaded.trading.default_profile.as_deref(), Some("mainnet"));
+        assert_eq!(
+            exit_config.trading.default_profile.as_deref(),
+            Some("mainnet")
+        );
     }
 
     #[test]
