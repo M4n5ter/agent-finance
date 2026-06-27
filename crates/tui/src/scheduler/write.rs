@@ -1,14 +1,17 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
-use agent_finance_core::{CancelIntent, OrderIntent, Profile, SubmitMode, TransferIntent};
+use agent_finance_core::{
+    CancelIntent, FuturesStateIntent, OrderIntent, Profile, SubmitMode, TransferIntent,
+};
 use agent_finance_trading::TradingRuntime;
 use anyhow::Result;
 use chrono::Utc;
 
 use crate::config::TuiLaunch;
 use crate::state::{
-    CancelReview, StagedChangeEvent, StagedChangeSubject, StagedSubmitRequest, TransferReview,
+    CancelReview, FuturesStateReview, StagedChangeEvent, StagedChangeSubject, StagedSubmitRequest,
+    TransferReview,
 };
 
 use super::{SchedulerEvent, scheduler_runtime};
@@ -224,6 +227,9 @@ fn create_staged_intent(
         StagedChangeSubject::Transfer(review) => {
             create_staged_transfer_intent(runtime, review, request.mode)
         }
+        StagedChangeSubject::FuturesState(review) => {
+            create_staged_futures_state_intent(runtime, review, request.mode)
+        }
         #[cfg(test)]
         StagedChangeSubject::Text { .. } => unreachable!("text changes are never submitted"),
     }
@@ -266,6 +272,25 @@ fn create_staged_transfer_intent(
     Ok((profile, envelope.id))
 }
 
+fn create_staged_futures_state_intent(
+    runtime: &TradingRuntime,
+    review: &FuturesStateReview,
+    mode: SubmitMode,
+) -> Result<(Profile, String)> {
+    let profile = runtime.load_profile(&review.profile)?;
+    let intent = futures_state_intent_from_review(&profile, review)?;
+    let risk =
+        agent_finance_core::check_futures_state_intent(&profile, &intent, mode == SubmitMode::Live);
+    let envelope = agent_finance_core::create_futures_state_intent(intent, 300)?;
+    runtime.save_intent_with_audit(
+        &profile,
+        &envelope,
+        &risk,
+        format!("created TUI futures state intent {}", envelope.id),
+    )?;
+    Ok((profile, envelope.id))
+}
+
 fn order_intent_from_review(
     profile: &Profile,
     review: &crate::state::OrderTicketReview,
@@ -300,6 +325,18 @@ fn transfer_intent_from_review(
     })
 }
 
+fn futures_state_intent_from_review(
+    profile: &Profile,
+    review: &FuturesStateReview,
+) -> Result<FuturesStateIntent> {
+    Ok(FuturesStateIntent {
+        profile: profile.name.clone(),
+        provider: profile.provider.provider,
+        environment: profile.provider.environment,
+        change: review.change.clone(),
+    })
+}
+
 fn cancel_intent_from_review(profile: &Profile, review: &CancelReview) -> Result<CancelIntent> {
     Ok(CancelIntent {
         profile: profile.name.clone(),
@@ -329,8 +366,8 @@ mod tests {
     use std::str::FromStr;
 
     use agent_finance_core::{
-        DecimalValue, Environment, ProfilePermissions, Provider, ProviderConfig, RiskPolicy,
-        SubmitMode, TransferDirection, TransferPolicy,
+        DecimalValue, Environment, FuturesStateChange, ProfilePermissions, Provider,
+        ProviderConfig, RiskPolicy, SubmitMode, TransferDirection, TransferPolicy,
     };
 
     use super::*;
@@ -383,5 +420,48 @@ mod tests {
         assert_eq!(intent.asset, "USDT");
         assert_eq!(intent.amount, DecimalValue::from_str("5").unwrap());
         assert!(intent.client_transfer_id.starts_with("af-tui-transfer-"));
+    }
+
+    #[test]
+    fn futures_state_intent_from_review_preserves_profile_and_change() {
+        let profile = Profile {
+            name: "mainnet".to_string(),
+            provider: ProviderConfig {
+                provider: Provider::Binance,
+                environment: Environment::Live,
+                api_key_env: "BINANCE_API_KEY".to_string(),
+                api_secret_env: "BINANCE_PRIVATE_KEY".to_string(),
+                spot_base_url: None,
+                usds_futures_base_url: None,
+                sapi_base_url: None,
+            },
+            permissions: ProfilePermissions {
+                spot_trading: false,
+                usds_futures: true,
+                universal_transfer: false,
+            },
+            risk: RiskPolicy {
+                allow_live: false,
+                max_daily_order_notional_usdt: None,
+                allowed_symbols: BTreeMap::new(),
+                allowed_transfers: Vec::new(),
+                allowed_futures_state_changes: Vec::new(),
+            },
+        };
+        let review = FuturesStateReview {
+            profile: "mainnet".to_string(),
+            change: FuturesStateChange::Leverage {
+                symbol: "ETHUSDT".to_string(),
+                leverage: 2,
+            },
+            effective_mode: SubmitMode::DryRun,
+        };
+
+        let intent = futures_state_intent_from_review(&profile, &review).unwrap();
+
+        assert_eq!(intent.profile, "mainnet");
+        assert_eq!(intent.provider, Provider::Binance);
+        assert_eq!(intent.environment, Environment::Live);
+        assert_eq!(intent.change, review.change);
     }
 }

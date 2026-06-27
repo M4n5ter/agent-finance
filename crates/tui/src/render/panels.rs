@@ -229,6 +229,14 @@ fn format_staged_change_review(change: &crate::state::StagedChangeView) -> Strin
             review.asset,
             review.profile
         ),
+        StagedChangeSubject::FuturesState(review) => format!(
+            "{}  {}  {}  futures-state {} [{}]",
+            change.stage,
+            change.mode,
+            change.intent_kind,
+            review.change.review_label(),
+            review.profile
+        ),
         #[cfg(test)]
         StagedChangeSubject::Text { .. } => format!(
             "{}  {}  {}  {}",

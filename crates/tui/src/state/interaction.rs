@@ -62,6 +62,10 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::StageTransferTicket);
             }
+            ActionId::StageFuturesStateTicket => {
+                self.close_text_input_floatings();
+                self.reduce(Action::StageFuturesStateTicket);
+            }
             ActionId::StageSelectedOpenOrderCancel => {
                 self.close_text_input_floatings();
                 self.reduce(Action::StageSelectedOpenOrderCancel);

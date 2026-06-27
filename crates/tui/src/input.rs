@@ -175,6 +175,9 @@ fn account_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Char(']') => Some(Action::MoveTransferTicketField(1)),
         KeyCode::Left => Some(Action::AdjustTransferTicketField(-1)),
         KeyCode::Right | KeyCode::Enter => Some(Action::AdjustTransferTicketField(1)),
+        KeyCode::Char('u') => Some(Action::MoveFuturesStateTicketField(1)),
+        KeyCode::Char('i') => Some(Action::AdjustFuturesStateTicketField(1)),
+        KeyCode::Char('f') => Some(Action::StageFuturesStateTicket),
         KeyCode::Char('t') => Some(Action::StageTransferTicket),
         KeyCode::Char('c') => Some(Action::StageSelectedOpenOrderCancel),
         _ => None,
@@ -379,6 +382,18 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('t'))),
             Some(Action::StageTransferTicket)
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('u'))),
+            Some(Action::MoveFuturesStateTicketField(1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('i'))),
+            Some(Action::AdjustFuturesStateTicketField(1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('f'))),
+            Some(Action::StageFuturesStateTicket)
         );
     }
 

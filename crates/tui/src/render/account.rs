@@ -5,9 +5,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::account::ACCOUNT_READ_PLAN;
+use crate::futures_state_ticket::FuturesStateTicketPreview;
 use crate::model::Panel;
 use crate::state::AppState;
-use crate::transfer_ticket::TransferTicketPreview;
 
 use super::widgets::{compact_text, panel_block};
 
@@ -17,6 +17,7 @@ const VISIBLE_TRANSFER_LIMIT: usize = 4;
 pub(super) fn render_account(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = profile_lines(state);
     lines.extend(transfer_ticket_lines(state));
+    lines.extend(futures_state_ticket_lines(state));
 
     match state.account_snapshot.as_ref() {
         Some(snapshot) => {
@@ -111,7 +112,7 @@ fn transfer_ticket_lines(state: &AppState) -> Vec<Line<'static>> {
                 state.theme.accent_style().add_modifier(Modifier::BOLD),
             ),
             Span::raw(format!(
-                "  {} / {}",
+                "  {} / {}  ",
                 if preview.live_writes_enabled {
                     "live:on"
                 } else {
@@ -119,8 +120,17 @@ fn transfer_ticket_lines(state: &AppState) -> Vec<Line<'static>> {
                 },
                 preview.effective_mode
             )),
+            ticket_field_span(state, "direction", preview.direction.to_string(), selected),
+            Span::raw("  "),
+            ticket_field_span(state, "asset", preview.asset.clone(), selected),
+            Span::raw("  "),
+            ticket_field_span(
+                state,
+                "amount",
+                preview.amount.as_deref().unwrap_or("-").to_string(),
+                selected,
+            ),
         ]),
-        transfer_fields_line(state, &preview, selected),
         Line::from(vec![
             readiness,
             Span::raw("  [/] field  left/right adjust  t stage transfer  c cancel order"),
@@ -129,26 +139,71 @@ fn transfer_ticket_lines(state: &AppState) -> Vec<Line<'static>> {
     lines
 }
 
-fn transfer_fields_line(
-    state: &AppState,
-    preview: &TransferTicketPreview,
-    selected: &'static str,
-) -> Line<'static> {
-    Line::from(vec![
-        transfer_field_span(state, "direction", preview.direction.to_string(), selected),
-        Span::raw("  "),
-        transfer_field_span(state, "asset", preview.asset.clone(), selected),
-        Span::raw("  "),
-        transfer_field_span(
-            state,
-            "amount",
-            preview.amount.as_deref().unwrap_or("-").to_string(),
-            selected,
-        ),
-    ])
+fn futures_state_ticket_lines(state: &AppState) -> Vec<Line<'static>> {
+    let preview = state.futures_state_ticket_preview();
+    let selected = state.futures_state_ticket.selected_field_label();
+    let readiness = if preview.ready {
+        Span::styled("ready", state.theme.accent_style())
+    } else {
+        Span::styled(
+            format!(
+                "blocked: {}",
+                preview
+                    .blockers
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("not ready")
+            ),
+            state.theme.warning_style(),
+        )
+    };
+    vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "futures state ticket",
+                state.theme.accent_style().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "  {} / {}  ",
+                if preview.live_writes_enabled {
+                    "live:on"
+                } else {
+                    "live:off"
+                },
+                preview.effective_mode
+            )),
+            ticket_field_span(state, "kind", preview.kind.to_string(), selected),
+            Span::raw("  "),
+            ticket_field_span(state, "scope", preview.scope_label(), selected),
+            Span::raw("  "),
+            ticket_field_span(state, "value", futures_state_value(&preview), selected),
+        ]),
+        Line::from(vec![
+            readiness,
+            Span::raw("  u field  i adjust  f stage state"),
+        ]),
+    ]
 }
 
-fn transfer_field_span(
+fn futures_state_value(preview: &FuturesStateTicketPreview) -> String {
+    match preview.kind {
+        agent_finance_core::FuturesStateChangeKind::Leverage => preview
+            .leverage
+            .map(|leverage| leverage.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        agent_finance_core::FuturesStateChangeKind::MarginType => preview
+            .margin_type
+            .map(|margin_type| margin_type.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        agent_finance_core::FuturesStateChangeKind::PositionMode => preview
+            .position_mode
+            .map(|mode| mode.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+    }
+}
+
+fn ticket_field_span(
     state: &AppState,
     label: &'static str,
     value: String,

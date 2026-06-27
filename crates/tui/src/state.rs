@@ -9,6 +9,7 @@ use agent_finance_market::snapshot::MarketSnapshot;
 use crate::account::AccountSnapshot;
 use crate::command::{ActionId, CommandPaletteState};
 use crate::config::{FloatingConfig, LayoutConfig, PanelConfig, TuiConfig, WorkspaceConfig};
+use crate::futures_state_ticket::{FuturesStateTicket, FuturesStateTicketPreview};
 use crate::keymap::KeymapConfig;
 use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 use crate::order_ticket::{OrderTicket, OrderTicketPreview};
@@ -29,8 +30,8 @@ pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
 pub use staged_change::StagedChangeStage;
 pub use staged_change::{
-    CancelReview, OrderTicketReview, StagedChangeEvent, StagedChangeRequest, StagedChangeSubject,
-    StagedChangeView, StagedSubmitRequest, TransferReview,
+    CancelReview, FuturesStateReview, OrderTicketReview, StagedChangeEvent, StagedChangeRequest,
+    StagedChangeSubject, StagedChangeView, StagedSubmitRequest, TransferReview,
 };
 use staged_change::{
     CloseStagedChangeResult, OpenStagedChangeResult, QueueSubmitResult, StagedChanges,
@@ -67,6 +68,7 @@ pub struct AppState {
     pub trading_profile: Option<String>,
     pub order_ticket: OrderTicket,
     pub transfer_ticket: TransferTicket,
+    pub futures_state_ticket: FuturesStateTicket,
     staged_changes: StagedChanges,
     pending_staged_submit: Option<StagedSubmitRequest>,
 }
@@ -102,6 +104,7 @@ impl AppState {
             trading_profile: config.trading.default_profile,
             order_ticket: OrderTicket::default(),
             transfer_ticket: TransferTicket::default(),
+            futures_state_ticket: FuturesStateTicket::default(),
             staged_changes: StagedChanges::default(),
             pending_staged_submit: None,
         };
@@ -177,6 +180,15 @@ impl AppState {
         )
     }
 
+    pub fn futures_state_ticket_preview(&self) -> FuturesStateTicketPreview {
+        self.futures_state_ticket.preview(
+            self.selected_symbol(),
+            self.trading_profile.as_deref(),
+            self.live_writes_enabled,
+            self.effective_submit_mode(),
+        )
+    }
+
     fn stage_order_ticket(&mut self) {
         let preview = self.order_ticket_preview();
         self.focus_panel(Panel::IntentReview);
@@ -245,6 +257,43 @@ impl AppState {
             OpenStagedChangeResult::Rejected => {
                 self.task_log.warning_event(
                     "transfer ticket cannot replace an active staged change".to_string(),
+                );
+            }
+        }
+    }
+
+    fn stage_futures_state_ticket(&mut self) {
+        let preview = self.futures_state_ticket_preview();
+        self.focus_panel(Panel::IntentReview);
+        if !preview.ready {
+            self.task_log.warning_event(format!(
+                "futures state ticket is not ready: {}",
+                preview.blockers.join("; ")
+            ));
+            return;
+        }
+
+        let Some(review) = futures_state_review(&preview) else {
+            self.task_log
+                .warning_event("futures state review snapshot could not be built".to_string());
+            return;
+        };
+        let request = StagedChangeRequest {
+            id: futures_state_staged_change_id(&review),
+            subject: StagedChangeSubject::FuturesState(review),
+        };
+        let change_id = request.id.clone();
+        match self
+            .staged_changes
+            .open_ready(request, self.effective_submit_mode())
+        {
+            OpenStagedChangeResult::Opened => {
+                self.task_log
+                    .info(format!("staged futures state {change_id}"));
+            }
+            OpenStagedChangeResult::Rejected => {
+                self.task_log.warning_event(
+                    "futures state ticket cannot replace an active staged change".to_string(),
                 );
             }
         }
@@ -348,9 +397,18 @@ impl AppState {
             Action::AdjustTransferTicketField(direction) => {
                 self.transfer_ticket.adjust_selected_field(direction);
             }
+            Action::MoveFuturesStateTicketField(direction) => {
+                self.futures_state_ticket.move_field(direction);
+            }
+            Action::AdjustFuturesStateTicketField(direction) => {
+                let symbol = self.selected_symbol().map(ToString::to_string);
+                self.futures_state_ticket
+                    .adjust_selected_field(direction, symbol.as_deref());
+            }
             Action::MoveOpenOrderSelection(direction) => self.move_open_order_selection(direction),
             Action::StageOrderTicket => self.stage_order_ticket(),
             Action::StageTransferTicket => self.stage_transfer_ticket(),
+            Action::StageFuturesStateTicket => self.stage_futures_state_ticket(),
             Action::StageSelectedOpenOrderCancel => self.stage_selected_open_order_cancel(),
             Action::SubmitStagedChange => self.submit_next_staged_change(),
             Action::Execute(action) => self.execute(action),
@@ -580,6 +638,24 @@ fn transfer_staged_change_id(review: &TransferReview) -> String {
     ))
 }
 
+fn futures_state_review(preview: &FuturesStateTicketPreview) -> Option<FuturesStateReview> {
+    Some(FuturesStateReview {
+        profile: preview.profile.clone()?,
+        change: preview.change.clone()?,
+        effective_mode: preview.effective_mode,
+    })
+}
+
+fn futures_state_staged_change_id(review: &FuturesStateReview) -> String {
+    sanitize_staged_change_id(&format!(
+        "futures-state-{}-{}-{}-{}",
+        review.profile,
+        review.effective_mode,
+        review.change.kind(),
+        review.change.review_label()
+    ))
+}
+
 fn cancel_staged_change_id(review: &CancelReview) -> String {
     sanitize_staged_change_id(&format!(
         "cancel-{}-{}-{}-{}-{}",
@@ -631,9 +707,12 @@ pub enum Action {
     AdjustOrderTicketField(isize),
     MoveTransferTicketField(isize),
     AdjustTransferTicketField(isize),
+    MoveFuturesStateTicketField(isize),
+    AdjustFuturesStateTicketField(isize),
     MoveOpenOrderSelection(isize),
     StageOrderTicket,
     StageTransferTicket,
+    StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
     Execute(ActionId),

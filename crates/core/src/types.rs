@@ -465,7 +465,7 @@ impl FuturesStateIntent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum FuturesStateChange {
     Leverage {
@@ -497,6 +497,23 @@ impl FuturesStateChange {
             }
             Self::PositionMode { .. } => "binance-futures-account".to_string(),
         }
+    }
+
+    pub fn value_label(&self) -> String {
+        match self {
+            Self::Leverage { leverage, .. } => leverage.to_string(),
+            Self::MarginType { margin_type, .. } => margin_type.to_string(),
+            Self::PositionMode { mode } => mode.to_string(),
+        }
+    }
+
+    pub fn review_label(&self) -> String {
+        format!(
+            "{} {} {}",
+            self.kind(),
+            self.scope_label(),
+            self.value_label()
+        )
     }
 }
 

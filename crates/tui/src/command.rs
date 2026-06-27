@@ -103,6 +103,7 @@ pub enum ActionId {
     ToggleLiveWrites,
     StageOrderTicket,
     StageTransferTicket,
+    StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
     CloseCommandPalette,
@@ -161,7 +162,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 45] = [
+pub const ACTION_REGISTRY: [ActionSpec; 46] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -257,6 +258,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 45] = [
         ActionId::StageTransferTicket,
         "Stage transfer ticket",
         "Move the current valid transfer ticket into intent review"
+    ),
+    action!(
+        "stage-futures-state-ticket",
+        ActionId::StageFuturesStateTicket,
+        "Stage futures state ticket",
+        "Move the current valid USD-M futures state ticket into intent review"
     ),
     action!(
         "stage-selected-open-order-cancel",

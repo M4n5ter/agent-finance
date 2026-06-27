@@ -7,7 +7,8 @@ use crate::task_log::TaskStatus;
 use agent_finance_core::intent::IntentStatus;
 use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
 use agent_finance_core::{
-    Environment, Market, OrderSpec, Provider, SignedReadRequest, SignedReadSnapshot,
+    Environment, FuturesStateChange, Market, OrderSpec, Provider, SignedReadRequest,
+    SignedReadSnapshot,
 };
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
@@ -209,6 +210,136 @@ fn submitting_ready_transfer_change_queues_transfer_submit_request() {
         panic!("expected transfer submit");
     };
     assert_eq!(review.asset, "USDT");
+    assert_eq!(request.mode, SubmitMode::DryRun);
+    let change = state.staged_change_views().pop().unwrap();
+    assert_eq!(change.stage, StagedChangeStage::SubmitQueued);
+}
+
+#[test]
+fn futures_state_ticket_staging_requires_value_then_creates_review_change() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["ETHUSDT".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::StageFuturesStateTicket);
+
+    assert_eq!(state.panels.focused(), Panel::IntentReview);
+    assert!(state.staged_change_views().is_empty());
+
+    state.futures_state_ticket.set_leverage(Some(2));
+    state.reduce(Action::StageFuturesStateTicket);
+
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].intent_kind, SubmitIntentKind::FuturesState);
+    assert_eq!(changes[0].stage, StagedChangeStage::Ready);
+    assert_eq!(changes[0].mode, SubmitMode::DryRun);
+    let StagedChangeSubject::FuturesState(review) = &changes[0].subject else {
+        panic!("staged futures state");
+    };
+    assert_eq!(review.profile, "mainnet");
+    assert_eq!(
+        review.change,
+        FuturesStateChange::Leverage {
+            symbol: "ETHUSDT".to_string(),
+            leverage: 2,
+        }
+    );
+    assert!(changes[0].summary.contains("ETHUSDT 2"));
+}
+
+#[test]
+fn futures_state_ticket_does_not_stage_non_futures_symbol_by_fallback() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["AAPL".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.futures_state_ticket.set_leverage(Some(2));
+
+    state.reduce(Action::StageFuturesStateTicket);
+
+    assert!(state.staged_change_views().is_empty());
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message.contains("USD-M futures symbol is required"))
+    );
+}
+
+#[test]
+fn futures_state_staged_reviews_include_changed_target_values() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["ETHUSDT".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.futures_state_ticket.set_leverage(Some(2));
+    state.reduce(Action::StageFuturesStateTicket);
+    state.futures_state_ticket.set_leverage(Some(5));
+    state.reduce(Action::StageFuturesStateTicket);
+
+    let summaries = state
+        .staged_change_views()
+        .into_iter()
+        .map(|change| change.summary)
+        .collect::<Vec<_>>();
+    assert_eq!(summaries.len(), 2);
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("ETHUSDT 2"))
+    );
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("ETHUSDT 5"))
+    );
+}
+
+#[test]
+fn submitting_ready_futures_state_change_queues_futures_state_submit_request() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["ETHUSDT".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.futures_state_ticket.set_leverage(Some(2));
+    state.reduce(Action::StageFuturesStateTicket);
+
+    state.reduce(Action::SubmitStagedChange);
+
+    let request = state
+        .take_pending_staged_submit()
+        .expect("pending staged submit");
+    let StagedChangeSubject::FuturesState(review) = &request.subject else {
+        panic!("expected futures state submit");
+    };
+    assert_eq!(review.change.kind().to_string(), "leverage");
     assert_eq!(request.mode, SubmitMode::DryRun);
     let change = state.staged_change_views().pop().unwrap();
     assert_eq!(change.stage, StagedChangeStage::SubmitQueued);

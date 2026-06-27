@@ -4,6 +4,7 @@ mod app;
 mod command;
 mod config;
 mod dump;
+mod futures_state_ticket;
 mod hints;
 mod input;
 mod keymap;

@@ -1,6 +1,6 @@
 use agent_finance_core::{
-    DecimalValue, Market, OrderIdentifier, OrderKind, OrderSide, OrderSpec, TimeInForce,
-    TransferDirection,
+    DecimalValue, FuturesStateChange, Market, OrderIdentifier, OrderKind, OrderSide, OrderSpec,
+    TimeInForce, TransferDirection,
     submit::{SubmitIntentKind, SubmitMode},
 };
 use serde::Serialize;
@@ -37,6 +37,7 @@ pub enum StagedChangeSubject {
     OrderTicket(OrderTicketReview),
     Cancel(CancelReview),
     Transfer(TransferReview),
+    FuturesState(FuturesStateReview),
     #[cfg(test)]
     Text {
         intent_kind: SubmitIntentKind,
@@ -50,6 +51,7 @@ impl StagedChangeSubject {
             Self::OrderTicket(_) => SubmitIntentKind::Order,
             Self::Cancel(_) => SubmitIntentKind::Cancel,
             Self::Transfer(_) => SubmitIntentKind::Transfer,
+            Self::FuturesState(_) => SubmitIntentKind::FuturesState,
             #[cfg(test)]
             Self::Text { intent_kind, .. } => *intent_kind,
         }
@@ -60,6 +62,7 @@ impl StagedChangeSubject {
             Self::OrderTicket(review) => review.summary(),
             Self::Cancel(review) => review.summary(),
             Self::Transfer(review) => review.summary(),
+            Self::FuturesState(review) => review.summary(),
             #[cfg(test)]
             Self::Text { summary, .. } => summary.clone(),
         }
@@ -70,6 +73,7 @@ impl StagedChangeSubject {
             Self::OrderTicket(_) => "order",
             Self::Cancel(_) => "cancel",
             Self::Transfer(_) => "transfer",
+            Self::FuturesState(_) => "futures-state",
             #[cfg(test)]
             Self::Text { .. } => "text",
         }
@@ -77,7 +81,7 @@ impl StagedChangeSubject {
 
     pub fn submit_request(&self, id: String, mode: SubmitMode) -> Option<StagedSubmitRequest> {
         match self {
-            Self::OrderTicket(_) | Self::Cancel(_) | Self::Transfer(_) => {
+            Self::OrderTicket(_) | Self::Cancel(_) | Self::Transfer(_) | Self::FuturesState(_) => {
                 Some(StagedSubmitRequest {
                     id,
                     subject: self.clone(),
@@ -87,6 +91,19 @@ impl StagedChangeSubject {
             #[cfg(test)]
             Self::Text { .. } => None,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FuturesStateReview {
+    pub profile: String,
+    pub change: FuturesStateChange,
+    pub effective_mode: SubmitMode,
+}
+
+impl FuturesStateReview {
+    pub fn summary(&self) -> String {
+        format!("futures-state {}", self.change.review_label())
     }
 }
 

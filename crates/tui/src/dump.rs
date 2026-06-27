@@ -2,6 +2,7 @@ use agent_finance_core::submit::SubmitMode;
 use serde::Serialize;
 
 use crate::account::AccountSnapshot;
+use crate::futures_state_ticket::FuturesStateTicketPreview;
 use crate::hints;
 use crate::model::{InteractionMode, Panel, WorkspaceKind};
 use crate::order_ticket::OrderTicketPreview;
@@ -27,6 +28,7 @@ pub struct TuiDump {
     pub account: Option<AccountSnapshot>,
     pub order_ticket: OrderTicketPreview,
     pub transfer_ticket: TransferTicketPreview,
+    pub futures_state_ticket: FuturesStateTicketPreview,
     pub staged_changes: Vec<StagedChangeView>,
     pub errors: Vec<String>,
     pub key_hints: Vec<String>,
@@ -47,7 +49,7 @@ impl TuiDump {
     pub fn from_state(state: &AppState, partial: bool) -> Self {
         let provider_health = ProviderHealthReport::from_state(state);
         Self {
-            schema_version: 3,
+            schema_version: 5,
             workspace: state.workspace,
             mode: state.interaction_mode(),
             selected_symbol: state.selected_symbol().map(ToString::to_string),
@@ -64,6 +66,7 @@ impl TuiDump {
             account: state.account_snapshot.clone(),
             order_ticket: state.order_ticket_preview(),
             transfer_ticket: state.transfer_ticket_preview(),
+            futures_state_ticket: state.futures_state_ticket_preview(),
             staged_changes: state.staged_change_views(),
             errors: dump_errors(state),
             provider_health,
@@ -226,7 +229,7 @@ mod tests {
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
-        assert_eq!(value["schema_version"], 3);
+        assert_eq!(value["schema_version"], 5);
         assert_eq!(value["default_submit_mode"], "live");
         assert_eq!(value["live_writes_enabled"], false);
         assert_eq!(value["effective_submit_mode"], "dry-run");
@@ -332,6 +335,55 @@ mod tests {
         assert_eq!(value["transfer_ticket"]["asset"], "USDT");
         assert_eq!(value["transfer_ticket"]["amount"], "5");
         assert_eq!(value["transfer_ticket"]["ready"], true);
+    }
+
+    #[test]
+    fn dump_exposes_futures_state_ticket_readiness_for_agents() {
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec!["ETHUSDT".to_string()],
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Account,
+            },
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.futures_state_ticket.set_leverage(Some(2));
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
+
+        assert_eq!(value["futures_state_ticket"]["kind"], "leverage");
+        assert_eq!(value["futures_state_ticket"]["symbol"], "ETHUSDT");
+        assert_eq!(value["futures_state_ticket"]["leverage"], 2);
+        assert_eq!(value["futures_state_ticket"]["ready"], true);
+    }
+
+    #[test]
+    fn dump_exposes_position_mode_as_account_wide_for_agents() {
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec!["ETHUSDT".to_string()],
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Account,
+            },
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::AdjustFuturesStateTicketField(-1));
+        state.reduce(Action::MoveFuturesStateTicketField(1));
+        state.reduce(Action::AdjustFuturesStateTicketField(1));
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
+
+        assert_eq!(value["futures_state_ticket"]["kind"], "position-mode");
+        assert_eq!(
+            value["futures_state_ticket"]["symbol"],
+            serde_json::Value::Null
+        );
+        assert_eq!(value["futures_state_ticket"]["position_mode"], "hedge");
+        assert_eq!(value["futures_state_ticket"]["ready"], true);
     }
 
     #[test]

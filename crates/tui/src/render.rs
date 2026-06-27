@@ -237,6 +237,9 @@ mod tests {
         assert!(text.contains("transfer ticket"));
         assert!(text.contains("direction: spot-to-usds-futures"));
         assert!(text.contains("blocked: amount is required"));
+        assert!(text.contains("futures state ticket"));
+        assert!(text.contains("kind: leverage"));
+        assert!(text.contains("blocked: USD-M futures symbol is required"));
         assert!(text.contains("open orders (5)"));
         assert!(text.contains("> spot BUY 0.06 BTCUSDT @ 64000 [spot-1]"));
         assert!(text.contains("+1 more open orders"));
@@ -315,6 +318,8 @@ mod tests {
         assert!(text.contains("transfer ticket"));
         assert!(text.contains("direction: spot-to-usds-futures"));
         assert!(text.contains("blocked: amount is required"));
+        assert!(text.contains("futures state ticket"));
+        assert!(text.contains("blocked: USD-M futures symbol is required"));
         assert!(text.contains("No account snapshot loaded yet"));
     }
 

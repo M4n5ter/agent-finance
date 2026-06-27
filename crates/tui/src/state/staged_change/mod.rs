@@ -10,8 +10,8 @@ pub(super) use collection::{
     TransitionResult,
 };
 pub use subject::{
-    CancelReview, OrderTicketReview, StagedChangeRequest, StagedChangeSubject, StagedSubmitRequest,
-    TransferReview,
+    CancelReview, FuturesStateReview, OrderTicketReview, StagedChangeRequest, StagedChangeSubject,
+    StagedSubmitRequest, TransferReview,
 };
 #[cfg(test)]
 pub use workflow::StagedChangeStage;
