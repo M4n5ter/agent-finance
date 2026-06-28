@@ -44,7 +44,7 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
         return Some(action);
     }
     if state.panels.focused() == Panel::OrderTicket
-        && let Some(action) = order_ticket_key_action(key)
+        && let Some(action) = crate::order_ticket_controls::order_ticket_key_action(key)
     {
         return Some(action);
     }
@@ -229,17 +229,6 @@ fn watchlist_key_action(key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn order_ticket_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Up => Some(Action::MoveOrderTicketField(-1)),
-        KeyCode::Down => Some(Action::MoveOrderTicketField(1)),
-        KeyCode::Left => Some(Action::AdjustOrderTicketField(-1)),
-        KeyCode::Right | KeyCode::Enter => Some(Action::AdjustOrderTicketField(1)),
-        KeyCode::Char('s') => Some(Action::StageOrderTicket),
-        _ => None,
-    }
-}
-
 fn intent_review_key_action(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveStagedChangeSelection(-1)),
@@ -416,7 +405,13 @@ mod tests {
 
     #[test]
     fn order_ticket_focus_routes_field_navigation_before_global_keys() {
-        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        let mut state = AppState::from_config(crate::config::TuiConfig {
+            keymap: KeymapConfig::from_overrides(vec![KeyBinding {
+                key: "ctrl-s".parse().expect("key"),
+                action: ActionId::ToggleLiveWrites,
+            }]),
+            ..crate::config::TuiConfig::default()
+        });
         state.reduce(Action::Execute(ActionId::SetWorkspace(
             WorkspaceKind::Trade,
         )));
@@ -433,6 +428,13 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('s'))),
             Some(Action::StageOrderTicket)
+        );
+        assert_eq!(
+            key_action(
+                &state,
+                KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)
+            ),
+            Some(Action::Execute(ActionId::ToggleLiveWrites))
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('j'))),

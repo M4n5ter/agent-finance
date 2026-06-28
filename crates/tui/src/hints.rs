@@ -29,6 +29,9 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
         InteractionMode::Normal if state.panels.focused() == Panel::IntentReview => {
             intent_review_key_hints()
         }
+        InteractionMode::Normal if state.panels.focused() == Panel::OrderTicket => {
+            crate::order_ticket_controls::order_ticket_key_hints()
+        }
         InteractionMode::Normal if state.panels.focused() == Panel::Account => {
             crate::account_controls::account_key_hints()
         }
@@ -307,6 +310,28 @@ mod tests {
                 "u futures field",
                 "i futures adjust",
                 "f stage state",
+                "q quit",
+            ]
+        );
+    }
+
+    #[test]
+    fn order_ticket_focus_shows_stage_operation_hints() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            crate::model::WorkspaceKind::Trade,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(
+            crate::model::Panel::OrderTicket,
+        )));
+
+        assert_eq!(
+            mode_key_hints(&state),
+            vec![
+                "up/down field",
+                "left/right adjust",
+                "enter adjust",
+                "s stage order",
                 "q quit",
             ]
         );

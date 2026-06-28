@@ -12,6 +12,7 @@ mod keymap;
 mod layout;
 mod model;
 mod order_ticket;
+mod order_ticket_controls;
 mod pane_status;
 mod profile_editor;
 mod profile_snapshot;

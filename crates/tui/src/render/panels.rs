@@ -124,7 +124,9 @@ fn render_order_ticket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             )));
         }
     }
-    lines.push(Line::from("up/down field  left/right adjust  s stage"));
+    lines.push(Line::from(
+        crate::order_ticket_controls::order_ticket_panel_hint(),
+    ));
 
     frame.render_widget(
         Paragraph::new(lines)
