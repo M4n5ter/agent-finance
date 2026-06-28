@@ -16,6 +16,7 @@ pub use subject::{
 };
 #[cfg(test)]
 pub use subject::{ProfileRiskChange, StagedChangeKind};
+pub(crate) use workflow::StagedChangeQueueStatus;
 #[cfg(test)]
 pub use workflow::StagedChangeStage;
 pub use workflow::{StagedChangeEvent, StagedChangeView};

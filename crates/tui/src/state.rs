@@ -39,6 +39,7 @@ pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 pub use staged_change::ProfileRiskChange;
 #[cfg(test)]
 pub use staged_change::StagedChangeKind;
+pub(crate) use staged_change::StagedChangeQueueStatus;
 #[cfg(test)]
 pub use staged_change::StagedChangeStage;
 pub(crate) use staged_change::VISIBLE_REVIEW_LIMIT;

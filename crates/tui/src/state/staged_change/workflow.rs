@@ -416,6 +416,29 @@ pub enum StagedChangeStage {
     Abandoned,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum StagedChangeQueueStatus {
+    Draft,
+    Ready,
+    Running,
+    Done,
+    Failed,
+    Closed,
+}
+
+impl StagedChangeQueueStatus {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Ready => "ready",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Closed => "closed",
+        }
+    }
+}
+
 impl StagedChangeStage {
     pub const fn label(self) -> &'static str {
         match self {
@@ -439,6 +462,28 @@ impl StagedChangeStage {
             Self::Abandoned => "abandoned",
         }
     }
+
+    pub(crate) const fn queue_status(self) -> StagedChangeQueueStatus {
+        match self {
+            Self::Draft | Self::Validating => StagedChangeQueueStatus::Draft,
+            Self::Ready => StagedChangeQueueStatus::Ready,
+            Self::SubmitQueued
+            | Self::IntentCreated
+            | Self::LiveIntentClaimed
+            | Self::LocalCommitQueued => StagedChangeQueueStatus::Running,
+            Self::DryRunCompleted
+            | Self::TestCompleted
+            | Self::LiveSubmitted
+            | Self::LocalCommitted => StagedChangeQueueStatus::Done,
+            Self::DryRunFailed
+            | Self::TestFailed
+            | Self::LivePreflightFailed
+            | Self::FailedBeforeIntent
+            | Self::IntentFailed
+            | Self::LocalCommitFailed => StagedChangeQueueStatus::Failed,
+            Self::Abandoned => StagedChangeQueueStatus::Closed,
+        }
+    }
 }
 
 impl fmt::Display for StagedChangeStage {
@@ -457,6 +502,7 @@ pub struct StagedChangeView {
     pub mode: Option<SubmitMode>,
     pub intent_id: Option<String>,
     pub intent_status: Option<IntentStatus>,
+    pub profile: String,
     pub summary: String,
     pub subject: StagedChangeSubject,
 }
@@ -478,6 +524,7 @@ impl StagedChangeView {
             mode: change.execution.mode(&change.state),
             intent_id: change.state.intent_id().map(ToString::to_string),
             intent_status: change.state.intent_status(),
+            profile: change.subject.profile_label().to_string(),
             summary: change.subject.summary(),
             subject: change.subject.clone(),
         }

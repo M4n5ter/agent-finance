@@ -4,7 +4,7 @@ use agent_finance_core::{
     submit::{SubmitIntentKind, SubmitMode},
 };
 use serde::Serialize;
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
 use super::workflow::StagedChangeEvent;
 
@@ -210,6 +210,18 @@ impl StagedChangeSubject {
         }
     }
 
+    pub fn profile_label(&self) -> &str {
+        match self {
+            Self::OrderTicket(review) => &review.profile,
+            Self::Cancel(review) => &review.profile,
+            Self::Transfer(review) => &review.profile,
+            Self::FuturesState(review) => &review.profile,
+            Self::ProfileRisk(review) => &review.profile,
+            #[cfg(test)]
+            Self::Text { .. } => "-",
+        }
+    }
+
     pub(crate) fn submit_subject(&self) -> Option<StagedSubmitSubject> {
         match self {
             Self::OrderTicket(review) => Some(StagedSubmitSubject::OrderTicket(review.clone())),
@@ -252,6 +264,26 @@ pub enum StagedChangeKind {
     ProfileRisk,
     #[cfg(test)]
     Text,
+}
+
+impl StagedChangeKind {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Order => "order",
+            Self::Cancel => "cancel",
+            Self::Transfer => "transfer",
+            Self::FuturesState => "futures-state",
+            Self::ProfileRisk => "profile-risk",
+            #[cfg(test)]
+            Self::Text => "text",
+        }
+    }
+}
+
+impl fmt::Display for StagedChangeKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -299,9 +331,12 @@ impl ProfileRiskReview {
 
     pub fn summary(&self) -> String {
         match self.change {
-            ProfileRiskChange::AllowLive { before: _, after } => {
-                format!("profile-risk {} risk.allow_live -> {after}", self.profile)
-            }
+            ProfileRiskChange::AllowLive { before: _, after } => format!(
+                "profile-risk {} risk.allow_live -> {after} checks:{} required-failures:{}",
+                self.profile,
+                self.checks.len(),
+                self.required_failure_count
+            ),
         }
     }
 

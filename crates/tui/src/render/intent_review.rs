@@ -1,0 +1,200 @@
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
+
+use crate::model::Panel;
+use agent_finance_core::intent::IntentStatus;
+
+use crate::state::{AppState, StagedChangeQueueStatus, StagedChangeView, VISIBLE_REVIEW_LIMIT};
+
+use super::widgets::panel_block;
+
+pub(super) fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let changes = state.staged_change_review_views();
+    if changes.is_empty() {
+        render_empty_intent_review(frame, state, area);
+        return;
+    }
+
+    frame.render_widget(panel_block(Panel::IntentReview, state), area);
+    let inner = area.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(3)])
+        .split(inner);
+    let live_label = if state.live_writes_enabled {
+        "live:on"
+    } else {
+        "live:off"
+    };
+    let hidden = state
+        .staged_change_count()
+        .saturating_sub(VISIBLE_REVIEW_LIMIT);
+    let summary = vec![
+        Line::from(vec![
+            Span::styled(
+                "operation queue",
+                state.theme.accent_style().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "  {live_label} / effective:{} / visible:{} / total:{}",
+                state.effective_submit_mode(),
+                changes.len(),
+                state.staged_change_count()
+            )),
+        ]),
+        Line::from(if hidden == 0 {
+            crate::hints::intent_review_panel_hint()
+        } else {
+            format!(
+                "{}  +{hidden} hidden staged change(s)",
+                crate::hints::intent_review_panel_hint()
+            )
+        }),
+    ];
+    frame.render_widget(Paragraph::new(summary).wrap(Wrap { trim: true }), chunks[0]);
+
+    frame.render_widget(staged_changes_table(state, &changes), chunks[1]);
+}
+
+fn render_empty_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+    let preview = state.order_ticket_preview();
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(
+                "operation queue",
+                state.theme.accent_style().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "  live:{} / effective:{}",
+                if state.live_writes_enabled {
+                    "on"
+                } else {
+                    "off"
+                },
+                state.effective_submit_mode()
+            )),
+        ]),
+        Line::from("No staged changes."),
+        Line::from("Stage order tickets from Order Ticket."),
+        Line::from("Stage cancels, transfers, and futures state from Account."),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "order candidate",
+                state.theme.accent_style().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(if preview.ready {
+                " ready to stage"
+            } else {
+                " blocked"
+            }),
+        ]),
+    ];
+    if preview.ready {
+        lines.push(Line::from(format!(
+            "{} {} {} {} @ {}",
+            preview.side,
+            preview.quantity.as_deref().unwrap_or("-"),
+            preview.symbol.as_deref().unwrap_or("-"),
+            preview.kind,
+            preview.price.as_deref().unwrap_or("market")
+        )));
+    } else {
+        for blocker in preview.blockers.iter().take(3) {
+            lines.push(Line::from(Span::styled(
+                format!("blocked: {blocker}"),
+                state.theme.warning_style(),
+            )));
+        }
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block(Panel::IntentReview, state))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn staged_changes_table<'a>(state: &'a AppState, changes: &'a [StagedChangeView]) -> Table<'a> {
+    let rows = changes
+        .iter()
+        .map(|change| staged_change_row(state, change));
+    Table::new(
+        rows,
+        [
+            Constraint::Length(1),
+            Constraint::Length(9),
+            Constraint::Length(8),
+            Constraint::Length(13),
+            Constraint::Length(10),
+            Constraint::Min(24),
+            Constraint::Length(12),
+        ],
+    )
+    .header(
+        Row::new(["", "state", "mode", "kind", "profile", "summary", "intent"])
+            .style(state.theme.muted_style().add_modifier(Modifier::BOLD)),
+    )
+}
+
+fn staged_change_row<'a>(state: &'a AppState, change: &'a StagedChangeView) -> Row<'a> {
+    let marker = if change.selected { ">" } else { " " };
+    let row_style = if change.selected {
+        state.theme.selected_style()
+    } else {
+        state.theme.text_style()
+    };
+    let status = change.stage.queue_status();
+    let status_style = staged_status_style(state, status);
+    Row::new(vec![
+        Cell::from(marker),
+        Cell::from(Span::styled(status.label(), status_style)),
+        Cell::from(
+            change
+                .mode
+                .map(|mode| mode.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+        ),
+        Cell::from(change.change_kind.to_string()),
+        Cell::from(change.profile.clone()),
+        Cell::from(change.summary.clone()),
+        Cell::from(staged_change_tracking(change)),
+    ])
+    .style(row_style)
+}
+
+fn staged_status_style(state: &AppState, status: StagedChangeQueueStatus) -> Style {
+    match status {
+        StagedChangeQueueStatus::Ready => state.theme.accent_style(),
+        StagedChangeQueueStatus::Running => state.theme.warning_style(),
+        StagedChangeQueueStatus::Done => state.theme.success_style(),
+        StagedChangeQueueStatus::Failed => state.theme.danger_style(),
+        StagedChangeQueueStatus::Closed => state.theme.muted_style(),
+        StagedChangeQueueStatus::Draft => state.theme.neutral_style(),
+    }
+}
+
+fn staged_change_tracking(change: &StagedChangeView) -> String {
+    match (&change.intent_id, change.intent_status) {
+        (Some(intent_id), Some(status)) => format!("{intent_id} {}", intent_status_label(status)),
+        (Some(intent_id), None) => intent_id.clone(),
+        (None, _) => "-".to_string(),
+    }
+}
+
+fn intent_status_label(status: IntentStatus) -> &'static str {
+    match status {
+        IntentStatus::Created => "created",
+        IntentStatus::Submitting => "submitting",
+        IntentStatus::Submitted => "submitted",
+        IntentStatus::Failed => "failed",
+        IntentStatus::Expired => "expired",
+    }
+}

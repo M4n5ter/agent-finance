@@ -351,19 +351,35 @@ function stageAndCloseDryRunOrder() {
   executePaletteCommand(
     "stage order",
     ["stage order", "Stage order ticket"],
-    ["staged intents"],
+    ["Intent Review"],
     "order ticket staging",
   );
+  if (!waitForPanel("Intent Review", ["operation queue", "visible:1", "total:1"], 4_000)) {
+    fail("TUI did not show a staged dry-run order in the intent review queue");
+  }
   if (
     !waitForScreen(
-      ["staged intents", "ready", "dry-run", "order", "buy 0.001", "market", "spot", "[smoke]"],
+      [
+        "ready",
+        "dry-run",
+        "order",
+        "smoke",
+        "buy 0.001",
+        "market",
+        "spot",
+      ],
       4_000,
     )
   ) {
     fail("TUI did not stage a dry-run order intent from the order ticket");
   }
   runTmux(["send-keys", "-t", session, "d"]);
-  if (!waitForScreen(["No staged changes.", "order ticket candidate ready to stage"], 4_000)) {
+  if (
+    !waitForScreen(
+      ["operation queue", "No staged changes.", "order candidate ready to stage"],
+      4_000,
+    )
+  ) {
     fail("TUI did not close the staged dry-run order intent");
   }
 }
@@ -395,6 +411,23 @@ function waitForScreen(markers, timeoutMs) {
   }
   if (lastScreen) {
     process.stderr.write(lastScreen);
+  }
+  return "";
+}
+
+function waitForPanel(title, markers, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastPanel = "";
+  while (Date.now() < deadline) {
+    const screen = capturePane();
+    lastPanel = panelTextByTitle(screen, title);
+    if (markers.every((marker) => lastPanel.includes(marker))) {
+      return lastPanel;
+    }
+    sleep(250);
+  }
+  if (lastPanel) {
+    process.stderr.write(lastPanel);
   }
   return "";
 }

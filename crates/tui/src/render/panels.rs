@@ -11,12 +11,13 @@ use ratatui::widgets::{Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 use crate::layout::CockpitLayout;
 use crate::model::Panel;
 use crate::provider_health::ProviderHealthReport;
-use crate::state::{AppState, StagedChangeSubject, VISIBLE_REVIEW_LIMIT};
+use crate::state::AppState;
 use crate::task_log::TaskStatus;
 use crate::theme::ThemeConfig;
 
 use super::account::render_account;
 use super::history;
+use super::intent_review::render_intent_review;
 use super::provider_health;
 use super::settings::render_settings;
 use super::widgets::{compact_text, format_price, format_volume, panel_block};
@@ -134,152 +135,6 @@ fn render_order_ticket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             .wrap(Wrap { trim: true }),
         area,
     );
-}
-
-fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let mut lines = Vec::new();
-
-    let changes = state.staged_change_review_views();
-    if changes.is_empty() {
-        let preview = state.order_ticket_preview();
-        lines.push(Line::from(vec![
-            Span::styled(
-                "order ticket candidate",
-                state.theme.accent_style().add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(if preview.ready {
-                " ready to stage"
-            } else {
-                " blocked"
-            }),
-        ]));
-        if preview.ready {
-            lines.push(Line::from(format!(
-                "{} {} {} {} @ {}",
-                preview.side,
-                preview.quantity.as_deref().unwrap_or("-"),
-                preview.symbol.as_deref().unwrap_or("-"),
-                preview.kind,
-                preview.price.as_deref().unwrap_or("market")
-            )));
-        } else {
-            for blocker in preview.blockers.iter().take(3) {
-                lines.push(Line::from(Span::styled(
-                    format!("blocked: {blocker}"),
-                    state.theme.warning_style(),
-                )));
-            }
-        }
-        lines.push(Line::from(""));
-        lines.push(Line::from("No staged changes."));
-    } else {
-        lines.push(Line::from(Span::styled(
-            "staged intents",
-            state.theme.accent_style().add_modifier(Modifier::BOLD),
-        )));
-        for change in changes.iter() {
-            lines.push(format_staged_change_review(state, change));
-        }
-        if state.staged_change_count() > VISIBLE_REVIEW_LIMIT {
-            lines.push(Line::from(format!(
-                "+{} hidden staged intents",
-                state.staged_change_count() - VISIBLE_REVIEW_LIMIT
-            )));
-        }
-        lines.push(Line::from(""));
-        lines.push(Line::from(crate::hints::intent_review_panel_hint()));
-    }
-
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(panel_block(Panel::IntentReview, state))
-            .wrap(Wrap { trim: true }),
-        area,
-    );
-}
-
-fn format_staged_change_review(
-    state: &AppState,
-    change: &crate::state::StagedChangeView,
-) -> Line<'static> {
-    let marker = if change.selected { ">" } else { " " };
-    let intent_kind = change
-        .intent_kind
-        .map(|kind| kind.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    let mode = change
-        .mode
-        .map(|mode| mode.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    let text = match &change.subject {
-        StagedChangeSubject::OrderTicket(review) => format!(
-            "{marker} {}  {}  {}  {} {} {} {} {} @ {} {}{} [{}]",
-            change.stage,
-            mode,
-            intent_kind,
-            review.side,
-            review.quantity,
-            review.symbol,
-            review.market,
-            review.kind,
-            review.price.as_deref().unwrap_or("market"),
-            review.time_in_force,
-            if review.reduce_only {
-                " reduce-only"
-            } else {
-                ""
-            },
-            review.profile
-        ),
-        StagedChangeSubject::Cancel(review) => format!(
-            "{marker} {}  {}  {}  cancel {} {} [{}] [{}]",
-            change.stage,
-            mode,
-            intent_kind,
-            review.market,
-            review.symbol,
-            review.identifier(),
-            review.profile
-        ),
-        StagedChangeSubject::Transfer(review) => format!(
-            "{marker} {}  {}  {}  transfer {} {} {} [{}]",
-            change.stage,
-            mode,
-            intent_kind,
-            review.direction,
-            review.amount,
-            review.asset,
-            review.profile
-        ),
-        StagedChangeSubject::FuturesState(review) => format!(
-            "{marker} {}  {}  {}  futures-state {} [{}]",
-            change.stage,
-            mode,
-            intent_kind,
-            review.change.review_label(),
-            review.profile
-        ),
-        StagedChangeSubject::ProfileRisk(review) => format!(
-            "{marker} {}  {}  {}  profile-risk {}  {}  checks:{} required-failures:{}",
-            change.stage,
-            mode,
-            intent_kind,
-            review.profile,
-            review.diff.join("; "),
-            review.checks.len(),
-            review.required_failure_count
-        ),
-        #[cfg(test)]
-        StagedChangeSubject::Text { .. } => format!(
-            "{marker} {}  {}  {}  {}",
-            change.stage, mode, intent_kind, change.summary
-        ),
-    };
-    if change.selected {
-        Line::from(Span::styled(text, state.theme.selected_style()))
-    } else {
-        Line::from(text)
-    }
 }
 
 fn ticket_field_line(

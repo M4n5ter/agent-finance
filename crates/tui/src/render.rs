@@ -7,6 +7,7 @@ use crate::state::AppState;
 mod account;
 mod chrome;
 mod history;
+mod intent_review;
 mod panels;
 mod provider_health;
 mod settings;
@@ -281,6 +282,10 @@ mod tests {
         assert!(text.contains("symbol: CRDO"));
         assert!(text.contains("profile: mainnet"));
         assert!(text.contains("blocked: quantity is required"));
+        assert!(text.contains("operation queue"));
+        assert!(text.contains("No staged changes."));
+        assert!(text.contains("Stage order tickets from Order Ticket."));
+        assert!(text.contains("Stage cancels, transfers, and futures state from Account."));
     }
 
     #[test]
@@ -304,8 +309,12 @@ mod tests {
         let text = render_to_text_grid(&state, 160, 44);
 
         assert!(text.contains("Intent Review"));
-        assert!(text.contains("staged intents"));
-        assert!(text.contains("> ready  dry-run  order"));
+        assert!(text.contains("operation queue"));
+        assert!(text.contains("state"));
+        assert!(text.contains("summary"));
+        assert!(text.contains("ready"));
+        assert!(text.contains("dry-run"));
+        assert!(text.contains("order"));
         assert!(text.contains("buy 0.05 CRDO spot limit-maker @ 204"));
         assert!(text.contains("up/down/k/j select  enter submit  d/backspace close  q quit"));
     }
