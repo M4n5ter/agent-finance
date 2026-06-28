@@ -200,7 +200,7 @@ function smokeDumpState() {
   if (dump.workspace !== "market") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
   }
-  if (dump.schema_version !== 20) {
+  if (dump.schema_version !== 21) {
     fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
   }
   if (
@@ -343,7 +343,7 @@ function stageAndCloseDryRunOrder() {
   executePaletteCommand(
     "focus order",
     ["focus order", "Focus order ticket"],
-    ["staged order", "quantity: -", "blocked: quantity is required"],
+    ["Order Ticket", "staged order", "quantity: -"],
     "order ticket focus",
   );
 
@@ -374,12 +374,7 @@ function stageAndCloseDryRunOrder() {
     fail("TUI did not stage a dry-run order intent from the order ticket");
   }
   runTmux(["send-keys", "-t", session, "d"]);
-  if (
-    !waitForScreen(
-      ["operation queue", "No staged changes.", "order candidate ready to stage"],
-      4_000,
-    )
-  ) {
+  if (!waitForPanel("Intent Review", ["operation queue", "No staged changes."], 4_000)) {
     fail("TUI did not close the staged dry-run order intent");
   }
 }
@@ -390,8 +385,16 @@ function fillMinimalOrderTicket() {
     fail("TUI did not set the order kind to market before staging");
   }
   runTmux(["send-keys", "-t", session, "Down", "Right"]);
-  if (!waitForScreen(["quantity: 0.001", "ready for intent review"], 4_000)) {
+  if (!waitForScreen(["quantity: 0.001"], 4_000)) {
     fail("TUI did not set a ready market order quantity before staging");
+  }
+  runTmux(["send-keys", "-t", session, "z"]);
+  if (!waitForScreen(["Order Ticket", "ready for intent review"], 4_000)) {
+    fail("TUI did not show the completed order ticket as ready for intent review");
+  }
+  runTmux(["send-keys", "-t", session, "z"]);
+  if (!waitForScreen(["Order Ticket", "Intent Review", "Risk / Audit"], 4_000)) {
+    fail("TUI did not restore the trade workspace layout after checking order readiness");
   }
 }
 

@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::model::Panel;
+use crate::profile_snapshot::ProfileValidationState;
 use crate::provider_health::ProviderHealthReport;
 use crate::state::{AppState, SelectedDataState};
 use crate::task_failure::TaskFailureSource;
@@ -112,6 +113,7 @@ fn pane_data_state(state: &AppState, panel: Panel) -> PaneDataState {
         ),
         Panel::OrderTicket => PaneDataState::new(false, SelectedDataState::Fresh, false),
         Panel::IntentReview => PaneDataState::new(false, SelectedDataState::Fresh, false),
+        Panel::RiskAudit => risk_audit_data_state(state),
         Panel::Account => PaneDataState::new(
             state.account_loading(),
             match state.account_snapshot.as_ref() {
@@ -161,6 +163,31 @@ fn pane_data_state(state: &AppState, panel: Panel) -> PaneDataState {
             false,
         ),
         Panel::Settings => PaneDataState::new(false, SelectedDataState::Fresh, false),
+    }
+}
+
+fn risk_audit_data_state(state: &AppState) -> PaneDataState {
+    match &state.profile_validation {
+        ProfileValidationState::Idle => PaneDataState::new(
+            false,
+            if state.trading_profile.is_some() {
+                SelectedDataState::Stale
+            } else {
+                SelectedDataState::Empty
+            },
+            false,
+        ),
+        ProfileValidationState::Loading { .. } => {
+            PaneDataState::new(true, SelectedDataState::Stale, false)
+        }
+        ProfileValidationState::Ready { checks, .. } => PaneDataState::new(
+            false,
+            SelectedDataState::Fresh,
+            checks.iter().any(|check| check.required && !check.ok),
+        ),
+        ProfileValidationState::Failed { .. } => {
+            PaneDataState::new(false, SelectedDataState::Empty, true)
+        }
     }
 }
 

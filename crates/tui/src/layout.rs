@@ -11,11 +11,17 @@ const MIN_PANEL_HEIGHT: u16 = 4;
 const STATUS_HEIGHT: u16 = 1;
 const MIDDLE_COLUMN_SPECS: [ColumnSpec; 3] = [
     ColumnSpec::new(
-        &[Panel::Settings, Panel::OrderTicket, Panel::IntentReview],
+        &[
+            Panel::Settings,
+            Panel::OrderTicket,
+            Panel::IntentReview,
+            Panel::RiskAudit,
+        ],
         &[
             (Panel::Settings, 34),
             (Panel::OrderTicket, 42),
-            (Panel::IntentReview, 28),
+            (Panel::IntentReview, 24),
+            (Panel::RiskAudit, 22),
             (Panel::Account, 28),
             (Panel::Quote, 18),
             (Panel::History, 12),
@@ -268,6 +274,7 @@ fn active_docked_groups(config: &LayoutConfig, open_panels: &[Panel]) -> Vec<(Do
                 Panel::Settings,
                 Panel::OrderTicket,
                 Panel::IntentReview,
+                Panel::RiskAudit,
                 Panel::Account,
                 Panel::Quote,
                 Panel::History,

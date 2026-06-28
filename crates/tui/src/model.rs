@@ -46,6 +46,7 @@ impl WorkspaceKind {
                 Panel::Quote,
                 Panel::OrderTicket,
                 Panel::IntentReview,
+                Panel::RiskAudit,
                 Panel::TaskLog,
                 Panel::ProviderHealth,
             ],
@@ -200,6 +201,7 @@ pub enum Panel {
     Quote,
     OrderTicket,
     IntentReview,
+    RiskAudit,
     Account,
     History,
     Evidence,
@@ -211,11 +213,12 @@ pub enum Panel {
 }
 
 impl Panel {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Watchlist,
         Self::Quote,
         Self::OrderTicket,
         Self::IntentReview,
+        Self::RiskAudit,
         Self::Account,
         Self::History,
         Self::Evidence,
@@ -232,6 +235,7 @@ impl Panel {
             Self::Quote => "Quote / Sessions",
             Self::OrderTicket => "Order Ticket",
             Self::IntentReview => "Intent Review",
+            Self::RiskAudit => "Risk / Audit",
             Self::Account => "Account",
             Self::History => "History Chart",
             Self::Evidence => "Crypto Evidence",
@@ -249,14 +253,15 @@ impl Panel {
             Self::Quote => 1,
             Self::OrderTicket => 2,
             Self::IntentReview => 3,
-            Self::Account => 4,
-            Self::History => 5,
-            Self::Evidence => 6,
-            Self::Polymarket => 7,
-            Self::Research => 8,
-            Self::ProviderHealth => 9,
-            Self::TaskLog => 10,
-            Self::Settings => 11,
+            Self::RiskAudit => 4,
+            Self::Account => 5,
+            Self::History => 6,
+            Self::Evidence => 7,
+            Self::Polymarket => 8,
+            Self::Research => 9,
+            Self::ProviderHealth => 10,
+            Self::TaskLog => 11,
+            Self::Settings => 12,
         }
     }
 }

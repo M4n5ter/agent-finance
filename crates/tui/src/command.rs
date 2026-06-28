@@ -168,7 +168,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 58] = [
+pub const ACTION_REGISTRY: [ActionSpec; 60] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -404,6 +404,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 58] = [
         "Move keyboard focus to staged changes"
     ),
     action!(
+        "focus-risk-audit",
+        ActionId::FocusPanel(Panel::RiskAudit),
+        "Focus risk audit",
+        "Move keyboard focus to trading risk and audit summary"
+    ),
+    action!(
         "focus-history",
         ActionId::FocusPanel(Panel::History),
         "Focus history",
@@ -468,6 +474,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 58] = [
         ActionId::TogglePanel(Panel::IntentReview),
         "Toggle intent review",
         "Show or hide staged changes"
+    ),
+    action!(
+        "toggle-risk-audit",
+        ActionId::TogglePanel(Panel::RiskAudit),
+        "Toggle risk audit",
+        "Show or hide trading risk and audit summary"
     ),
     action!(
         "toggle-history",

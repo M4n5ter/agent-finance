@@ -16,6 +16,7 @@ pub(crate) fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
         | Panel::Evidence
         | Panel::Polymarket
         | Panel::Research
+        | Panel::RiskAudit
         | Panel::ProviderHealth
         | Panel::TaskLog => None,
     }

@@ -353,6 +353,7 @@ fn dump_is_ready(state: &AppState) -> bool {
         | Panel::Quote
         | Panel::OrderTicket
         | Panel::IntentReview
+        | Panel::RiskAudit
         | Panel::ProviderHealth
         | Panel::TaskLog
         | Panel::Settings => true,

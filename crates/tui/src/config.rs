@@ -327,19 +327,29 @@ impl PanelConfig {
     }
 }
 
-const PANELS_ADDED_AFTER_LEGACY_DEFAULT: [Panel; 4] = [
+const PANELS_IN_LEGACY_DEFAULT: [Panel; 8] = [
+    Panel::Watchlist,
+    Panel::Quote,
+    Panel::History,
+    Panel::Evidence,
+    Panel::Polymarket,
+    Panel::Research,
+    Panel::ProviderHealth,
+    Panel::TaskLog,
+];
+
+const PANELS_ADDED_AFTER_LEGACY_DEFAULT: [Panel; 5] = [
     Panel::Account,
     Panel::OrderTicket,
     Panel::IntentReview,
+    Panel::RiskAudit,
     Panel::Settings,
 ];
 
 fn add_new_panels_to_legacy_default(open: &mut Vec<Panel>) {
-    let legacy_default = Panel::ALL
+    let legacy_default = PANELS_IN_LEGACY_DEFAULT
         .iter()
-        .copied()
-        .filter(|panel| !PANELS_ADDED_AFTER_LEGACY_DEFAULT.contains(panel))
-        .all(|panel| open.contains(&panel));
+        .all(|panel| open.contains(panel));
     if legacy_default {
         for panel in PANELS_ADDED_AFTER_LEGACY_DEFAULT {
             if !open.contains(&panel) {
@@ -822,10 +832,7 @@ mod tests {
     fn legacy_default_panel_config_gains_new_panels() {
         let mut config = TuiConfig {
             panels: PanelConfig {
-                open: Panel::ALL
-                    .into_iter()
-                    .filter(|panel| !PANELS_ADDED_AFTER_LEGACY_DEFAULT.contains(panel))
-                    .collect(),
+                open: PANELS_IN_LEGACY_DEFAULT.to_vec(),
                 focused: Panel::Watchlist,
             },
             ..TuiConfig::default()
@@ -836,6 +843,7 @@ mod tests {
         assert!(config.panels.open.contains(&Panel::Account));
         assert!(config.panels.open.contains(&Panel::OrderTicket));
         assert!(config.panels.open.contains(&Panel::IntentReview));
+        assert!(config.panels.open.contains(&Panel::RiskAudit));
         assert!(config.panels.open.contains(&Panel::Settings));
     }
 

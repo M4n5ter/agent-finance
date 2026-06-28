@@ -16,7 +16,7 @@ use crate::state::{AppState, StagedChangeView, StagedExecutionRequest};
 use crate::theme::ThemeConfig;
 use crate::transfer_ticket::TransferTicketPreview;
 
-const TUI_DUMP_SCHEMA_VERSION: u32 = 20;
+const TUI_DUMP_SCHEMA_VERSION: u32 = 21;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
