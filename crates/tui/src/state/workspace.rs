@@ -9,6 +9,13 @@ impl AppState {
         self.watchlist.get(self.selected_symbol).map(String::as_str)
     }
 
+    pub(super) fn select_symbol_search_symbol(&mut self, index: usize) {
+        if index < self.watchlist.len() {
+            self.selected_symbol = index;
+            self.close_floating(FloatingKind::SymbolSearch);
+        }
+    }
+
     pub(super) fn selected_quote_price(&self) -> Option<f64> {
         self.market_snapshot
             .as_ref()

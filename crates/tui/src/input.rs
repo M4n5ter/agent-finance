@@ -85,7 +85,21 @@ pub fn handle_mouse_event(
                     state.reduce(Action::FocusFloating(kind));
                     drag.target = Some(MouseDragTarget::FloatingResize(kind));
                 }
-                Some(LayoutHit::Floating(kind)) => state.reduce(Action::FocusFloating(kind)),
+                Some(LayoutHit::Floating(kind)) => {
+                    if let Some(area) = layout.floating_rect(kind)
+                        && let Some(action) = crate::floating_input::mouse_action(
+                            state,
+                            kind,
+                            area,
+                            mouse.column,
+                            mouse.row,
+                        )
+                    {
+                        state.reduce(action);
+                    } else {
+                        state.reduce(Action::FocusFloating(kind));
+                    }
+                }
                 Some(LayoutHit::Status) => {
                     if let Some(workspace) = workspace_tab_at(terminal_area, mouse.column) {
                         state.reduce(Action::Execute(crate::command::ActionId::SetWorkspace(

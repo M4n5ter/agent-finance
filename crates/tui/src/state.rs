@@ -701,10 +701,10 @@ impl AppState {
             }
             Action::AcceptSymbolSearch => {
                 if let Some(index) = self.symbol_search.selected_symbol_index() {
-                    self.selected_symbol = index;
-                    self.close_floating(FloatingKind::SymbolSearch);
+                    self.select_symbol_search_symbol(index);
                 }
             }
+            Action::SelectSymbolSearchSymbol(index) => self.select_symbol_search_symbol(index),
             Action::AcceptWatchlistAdd => self.add_watchlist_symbols(),
             Action::AcceptTradingProfile => self.accept_trading_profile(),
             Action::SelectWatchlistSymbol(index) => self.select_watchlist_symbol(index),
@@ -1168,6 +1168,7 @@ pub enum Action {
     EditWatchlistAddQuery(tui_input::InputRequest),
     EditTradingProfileQuery(tui_input::InputRequest),
     AcceptSymbolSearch,
+    SelectSymbolSearchSymbol(usize),
     AcceptWatchlistAdd,
     AcceptTradingProfile,
     SelectWatchlistSymbol(usize),

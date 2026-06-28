@@ -3,6 +3,7 @@ use crate::command::ActionId;
 use crate::confirmation_dialog::{self, ConfirmationButtonAction, ConfirmationRow};
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
+use crate::search_floating_view::SearchFloatingLayout;
 use agent_finance_core::{Environment, Market, Provider, SignedReadRequest, SignedReadSnapshot};
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -529,6 +530,56 @@ fn mouse_wheel_moves_focused_panel_and_search_selection() {
 }
 
 #[test]
+fn mouse_clicking_command_palette_result_executes_that_command() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::CommandPalette,
+    )));
+    for character in "workspace account".chars() {
+        state.reduce(Action::EditCommandQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    assert_eq!(
+        state.command_palette.selected_action(),
+        Some(ActionId::SetWorkspace(WorkspaceKind::Account))
+    );
+    let floating = floating_rect(area, &state, FloatingKind::CommandPalette);
+    let click = floating_search_entry_click(floating, state.command_palette.len(), 0, 0);
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(state.workspace, WorkspaceKind::Account);
+}
+
+#[test]
+fn mouse_clicking_symbol_search_result_selects_that_symbol() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["AAOI".to_string(), "LITE".to_string(), "CRDO".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::SymbolSearch,
+    )));
+    let floating = floating_rect(area, &state, FloatingKind::SymbolSearch);
+    let click = floating_search_entry_click(floating, state.symbol_search.len(), 0, 2);
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(state.selected_symbol(), Some("CRDO"));
+    assert!(
+        !state
+            .floating
+            .iter()
+            .any(|pane| pane.kind == FloatingKind::SymbolSearch)
+    );
+}
+
+#[test]
 fn mouse_focuses_and_resizes_floating_panes() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig::default());
@@ -706,6 +757,22 @@ fn floating_click(floating: Rect, content_column: u16, content_row: u16) -> Mous
         MouseEventKind::Down(MouseButton::Left),
         floating.x + content_column + 1,
         floating.y + content_row + 1,
+    )
+}
+
+fn floating_search_entry_click(
+    floating: Rect,
+    total: usize,
+    selected: usize,
+    entry_index: usize,
+) -> MouseEvent {
+    let layout = SearchFloatingLayout::new(floating, total, selected);
+    let result_offset = entry_index.saturating_sub(layout.window().start());
+    let result_row = layout.list_area.y + 1 + result_offset as u16;
+    mouse_event(
+        MouseEventKind::Down(MouseButton::Left),
+        layout.list_area.x + 1,
+        result_row,
     )
 }
 

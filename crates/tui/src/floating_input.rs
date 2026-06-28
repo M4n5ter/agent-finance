@@ -5,6 +5,7 @@ use ratatui::layout::Rect;
 
 use crate::confirmation_dialog::{self, ConfirmationButtonAction};
 use crate::model::FloatingKind;
+use crate::search_floating_view::SearchFloatingLayout;
 use crate::state::{Action, AppState};
 
 pub(crate) struct FloatingKeyRouting {
@@ -87,14 +88,30 @@ pub(crate) fn mouse_action(
     row: u16,
 ) -> Option<Action> {
     match kind {
+        FloatingKind::CommandPalette => search_result_index_at(
+            state.command_palette.len(),
+            state.command_palette.selected(),
+            area,
+            column,
+            row,
+        )
+        .and_then(|index| state.command_palette.command_at(index))
+        .map(|command| Action::Execute(command.action)),
+        FloatingKind::SymbolSearch => search_result_index_at(
+            state.symbol_search.len(),
+            state.symbol_search.selected(),
+            area,
+            column,
+            row,
+        )
+        .and_then(|index| state.symbol_search.symbol_index_at(index))
+        .map(Action::SelectSymbolSearchSymbol),
         FloatingKind::LiveWritesConfirmation | FloatingKind::StagedExecutionConfirmation => {
             confirmation_mouse_action(state, kind, area, column, row)
         }
-        FloatingKind::CommandPalette
-        | FloatingKind::Help
+        FloatingKind::Help
         | FloatingKind::TradingProfile
         | FloatingKind::ProviderDetails
-        | FloatingKind::SymbolSearch
         | FloatingKind::WatchlistAdd => None,
     }
 }
@@ -196,6 +213,16 @@ fn confirmation_mouse_action(
             _ => None,
         },
     }
+}
+
+fn search_result_index_at(
+    total: usize,
+    selected: usize,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<usize> {
+    SearchFloatingLayout::new(area, total, selected).item_at_point(column, row)
 }
 
 fn floating_content_position(area: Rect, column: u16, row: u16) -> Option<(usize, usize)> {

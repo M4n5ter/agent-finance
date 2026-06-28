@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Offset, Rect};
 use ratatui::style::Modifier;
@@ -9,6 +7,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, 
 use crate::confirmation_dialog::{self, ConfirmationRow};
 use crate::hints;
 use crate::model::{FloatingKind, WorkspaceKind};
+use crate::search_floating_view::SearchFloatingLayout;
 use crate::state::AppState;
 use crate::theme::ThemeConfig;
 use crate::workspace_tabs::{workspace_index, workspace_tabs_width};
@@ -358,7 +357,7 @@ fn render_search_floating(
         return;
     }
 
-    let [input_area, list_area] = split_vertical(area, [Constraint::Length(3), Constraint::Min(0)]);
+    let layout = SearchFloatingLayout::new(area, floating.total, floating.selected);
     let input = if floating.query.is_empty() {
         floating.placeholder.to_string()
     } else {
@@ -372,18 +371,15 @@ fn render_search_floating(
                 theme.accent_style()
             })
             .block(dynamic_floating_block(floating.input_title, theme)),
-        input_area,
+        layout.input_area,
     );
 
-    let visible = command_window(
-        floating.total,
-        floating.selected,
-        list_area.height.saturating_sub(2) as usize,
-    );
-    let visible_start = visible.start;
-    let hidden_before = visible.start > 0;
-    let hidden_after = visible.end < floating.total;
-    let items = visible
+    let window = layout.window();
+    let visible_start = window.start();
+    let hidden_before = window.has_hidden_before();
+    let hidden_after = window.has_hidden_after(floating.total);
+    let items = window
+        .visible()
         .enumerate()
         .filter_map(|(offset, _)| {
             let index = visible_start + offset;
@@ -407,7 +403,7 @@ fn render_search_floating(
     };
     frame.render_widget(
         List::new(items).block(dynamic_floating_block(title, theme)),
-        list_area,
+        layout.list_area,
     );
 }
 
@@ -553,18 +549,6 @@ fn config_changes_label(state: &AppState) -> Option<String> {
     (!state.config_changes.is_empty()).then(|| state.config_changes.join(","))
 }
 
-fn command_window(total: usize, selected: usize, capacity: usize) -> Range<usize> {
-    if total == 0 || capacity == 0 {
-        return 0..0;
-    }
-
-    let selected = selected.min(total - 1);
-    let capacity = capacity.min(total);
-    let start = selected.saturating_add(1).saturating_sub(capacity);
-    let end = (start + capacity).min(total);
-    start..end
-}
-
 fn floating_block(title: &'static str, theme: &ThemeConfig) -> Block<'static> {
     shadowed_block(simple_block(title), theme)
 }
@@ -593,27 +577,4 @@ fn split_horizontal<const N: usize>(area: Rect, constraints: [Constraint; N]) ->
         .as_ref()
         .try_into()
         .unwrap_or([Rect::default(); N])
-}
-
-fn split_vertical<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
-    Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(area)
-        .as_ref()
-        .try_into()
-        .unwrap_or([Rect::default(); N])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn command_window_keeps_selected_command_visible() {
-        assert_eq!(command_window(11, 0, 7), 0..7);
-        assert_eq!(command_window(11, 6, 7), 0..7);
-        assert_eq!(command_window(11, 10, 7), 4..11);
-        assert_eq!(command_window(11, 10, 0), 0..0);
-    }
 }

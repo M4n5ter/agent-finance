@@ -64,6 +64,13 @@ impl CockpitLayout {
         Some(self.panels.get(panel))
     }
 
+    pub fn floating_rect(&self, kind: FloatingKind) -> Option<Rect> {
+        self.floating
+            .iter()
+            .find(|floating| floating.kind == kind)
+            .map(|floating| floating.rect)
+    }
+
     pub fn panel_at(&self, x: u16, y: u16) -> Option<Panel> {
         self.open_panels.iter().copied().find(|panel| {
             self.panel_rect(*panel)
