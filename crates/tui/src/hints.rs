@@ -30,7 +30,7 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
             intent_review_key_hints()
         }
         InteractionMode::Normal if state.panels.focused() == Panel::Settings => {
-            settings_key_hints()
+            crate::settings_controls::settings_key_hints()
         }
         InteractionMode::Normal => normal_key_hints(state),
         InteractionMode::Command | InteractionMode::Search => Vec::new(),
@@ -40,19 +40,6 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
             "q quit".to_string(),
         ],
     }
-}
-
-fn settings_key_hints() -> Vec<String> {
-    [
-        "up/down select setting",
-        "left/right adjust",
-        "enter next value",
-        "u undo",
-        "q quit",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect()
 }
 
 fn intent_review_key_hints() -> Vec<String> {
@@ -287,6 +274,9 @@ mod tests {
                 "up/down select setting",
                 "left/right adjust",
                 "enter next value",
+                "e profile",
+                "v validate",
+                "t risk",
                 "u undo",
                 "q quit",
             ]

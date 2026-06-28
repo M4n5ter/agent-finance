@@ -54,7 +54,7 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
         return Some(action);
     }
     if state.panels.focused() == Panel::Settings
-        && let Some(action) = settings_key_action(key)
+        && let Some(action) = crate::settings_controls::settings_key_action(key)
     {
         return Some(action);
     }
@@ -253,22 +253,6 @@ fn account_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('f') => Some(Action::StageFuturesStateTicket),
         KeyCode::Char('t') => Some(Action::StageTransferTicket),
         KeyCode::Char('c') => Some(Action::StageSelectedOpenOrderCancel),
-        _ => None,
-    }
-}
-
-fn settings_key_action(key: KeyEvent) -> Option<Action> {
-    if !key.modifiers.is_empty() {
-        return None;
-    }
-    match key.code {
-        KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveSettingsSelection(-1)),
-        KeyCode::Down | KeyCode::Char('j') => Some(Action::MoveSettingsSelection(1)),
-        KeyCode::Left | KeyCode::Char('h') => Some(Action::AdjustSelectedSetting(-1)),
-        KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
-            Some(Action::AdjustSelectedSetting(1))
-        }
-        KeyCode::Char('u') => Some(Action::UndoConfigChange),
         _ => None,
     }
 }
@@ -914,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_focus_routes_provider_preference_controls() {
+    fn settings_focus_routes_local_controls() {
         let mut state = AppState::from_config(crate::config::TuiConfig::default());
         state.reduce(Action::Execute(ActionId::SetWorkspace(
             WorkspaceKind::Settings,
@@ -937,6 +921,20 @@ mod tests {
             key_action(&state, KeyEvent::from(KeyCode::Char('u'))),
             Some(Action::UndoConfigChange)
         );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('e'))),
+            Some(Action::Execute(ActionId::OpenFloating(
+                FloatingKind::TradingProfile
+            )))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('v'))),
+            Some(Action::Execute(ActionId::RevalidateTradingProfile))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('t'))),
+            Some(Action::Execute(ActionId::StageProfileLiveToggle))
+        );
     }
 
     #[test]
@@ -955,6 +953,20 @@ mod tests {
                 KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)
             ),
             Some(Action::Execute(ActionId::ToggleLiveWrites))
+        );
+    }
+
+    #[test]
+    fn settings_plain_local_keys_take_precedence_over_global_keymap() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Settings,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Settings)));
+
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('t'))),
+            Some(Action::Execute(ActionId::StageProfileLiveToggle))
         );
     }
 }

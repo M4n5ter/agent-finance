@@ -2116,6 +2116,43 @@ fn profile_live_toggle_stages_validated_profile_risk_review_for_local_commit_con
 }
 
 #[test]
+fn settings_risk_shortcut_stages_profile_risk_review() {
+    let mut state = AppState::from_config(TuiConfig {
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Settings)));
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::ProfileValidationLoaded {
+        generation: 1,
+        snapshot: ProfileValidationSnapshot::from_profile(
+            &test_profile("mainnet"),
+            PathBuf::from("/tmp/mainnet.toml"),
+        ),
+    });
+    let action = crate::input::key_action(
+        &state,
+        crossterm::event::KeyEvent::from(crossterm::event::KeyCode::Char('t')),
+    )
+    .expect("settings risk shortcut action");
+
+    state.reduce(action);
+
+    assert_eq!(state.panels.focused(), Panel::IntentReview);
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].change_kind, StagedChangeKind::ProfileRisk);
+}
+
+#[test]
 fn profile_live_toggle_requires_current_profile_validation() {
     let mut state = AppState::from_config(TuiConfig {
         trading: crate::config::TradingConfig {

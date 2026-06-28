@@ -19,6 +19,7 @@ mod provider_health;
 mod render;
 mod scheduler;
 mod search;
+mod settings_controls;
 mod settings_editor;
 mod state;
 mod task_failure;

@@ -67,15 +67,13 @@ pub(super) fn render_settings(frame: &mut Frame<'_>, state: &AppState, area: Rec
     lines.extend(setting_rows(state));
     lines.extend([
         Line::from(""),
-        Line::from("up/down select setting  left/right adjust  enter next value  u undo"),
+        Line::from(crate::settings_controls::settings_panel_hint()),
         Line::from(""),
         Line::from("available editors"),
         Line::from(
             ": command palette  a add symbols  d delete symbol  watchlist left/right reorder",
         ),
-        Line::from(
-            "profile: command palette -> Set profile / Revalidate profile / Stage live toggle",
-        ),
+        Line::from(crate::settings_controls::settings_profile_risk_hint()),
         Line::from("save/undo: command palette -> Save config / Undo config change"),
     ]);
     for change in state.config_changes.iter().take(3) {
