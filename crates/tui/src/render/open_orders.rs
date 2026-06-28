@@ -2,14 +2,13 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::{List, ListItem};
 
 use crate::model::Panel;
+use crate::open_order_view::OpenOrderRow;
 use crate::state::AppState;
 
 use super::widgets::panel_block;
-
-const VISIBLE_OPEN_ORDER_LIMIT: usize = 4;
 
 pub(super) fn render_open_orders(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let mut lines = Vec::new();
@@ -32,10 +31,9 @@ pub(super) fn render_open_orders(frame: &mut Frame<'_>, state: &AppState, area: 
         )),
     }
 
+    let items = lines.into_iter().map(ListItem::new);
     frame.render_widget(
-        Paragraph::new(lines)
-            .block(panel_block(Panel::OpenOrders, state))
-            .wrap(Wrap { trim: true }),
+        List::new(items).block(panel_block(Panel::OpenOrders, state)),
         area,
     );
 }
@@ -49,54 +47,45 @@ pub(super) fn open_order_lines(
         return Vec::new();
     }
 
-    let mut lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            format!("open orders ({})", open_orders.len()),
-            state.theme.accent_style().add_modifier(Modifier::BOLD),
-        )),
-    ];
     let selected = state
         .selected_open_order
         .min(open_orders.len().saturating_sub(1));
-    let start = selected
-        .saturating_add(1)
-        .saturating_sub(VISIBLE_OPEN_ORDER_LIMIT);
-    if start > 0 {
-        lines.push(Line::from(Span::styled(
-            format!("+{start} earlier open orders"),
+    crate::open_order_view::open_order_rows(&open_orders, selected)
+        .into_iter()
+        .map(|row| open_order_line(state, row))
+        .collect()
+}
+
+fn open_order_line(state: &AppState, row: OpenOrderRow<'_>) -> Line<'static> {
+    match row {
+        OpenOrderRow::Spacer => Line::from(""),
+        OpenOrderRow::Header { total } => Line::from(Span::styled(
+            format!("open orders ({total})"),
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
+        )),
+        OpenOrderRow::Earlier { hidden } => Line::from(Span::styled(
+            format!("+{hidden} earlier open orders"),
             state.theme.warning_style(),
-        )));
-    }
-    for (index, order) in open_orders
-        .iter()
-        .enumerate()
-        .skip(start)
-        .take(VISIBLE_OPEN_ORDER_LIMIT)
-    {
-        let marker = if index == state.selected_open_order {
-            ">"
-        } else {
-            " "
-        };
-        lines.push(Line::from(format!(
-            "{marker} {} {} {} {} @ {} [{}]",
-            order.market,
-            order.side.as_deref().unwrap_or("-"),
-            order.remaining_quantity.as_deref().unwrap_or("-"),
-            order.symbol,
-            order.price.as_deref().unwrap_or("-"),
-            order.identifier()
-        )));
-    }
-    let hidden_after = open_orders
-        .len()
-        .saturating_sub(start.saturating_add(VISIBLE_OPEN_ORDER_LIMIT));
-    if hidden_after > 0 {
-        lines.push(Line::from(Span::styled(
-            format!("+{hidden_after} more open orders"),
+        )),
+        OpenOrderRow::Order { index, order } => {
+            let marker = if index == state.selected_open_order {
+                ">"
+            } else {
+                " "
+            };
+            Line::from(format!(
+                "{marker} {} {} {} {} @ {} [{}]",
+                order.market,
+                order.side.as_deref().unwrap_or("-"),
+                order.remaining_quantity.as_deref().unwrap_or("-"),
+                order.symbol,
+                order.price.as_deref().unwrap_or("-"),
+                order.identifier()
+            ))
+        }
+        OpenOrderRow::More { hidden } => Line::from(Span::styled(
+            format!("+{hidden} more open orders"),
             state.theme.warning_style(),
-        )));
+        )),
     }
-    lines
 }

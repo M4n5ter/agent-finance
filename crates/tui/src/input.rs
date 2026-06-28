@@ -62,7 +62,20 @@ pub fn handle_mouse_event(
             );
             drag.target = None;
             match layout.hit_test(mouse.column, mouse.row) {
-                Some(LayoutHit::Panel(panel)) => state.reduce(Action::Focus(panel)),
+                Some(LayoutHit::Panel(panel)) => {
+                    state.reduce(Action::Focus(panel));
+                    if let Some(area) = layout.panel_rect(panel)
+                        && let Some(action) = crate::panel_mouse::click_action(
+                            state,
+                            panel,
+                            area,
+                            mouse.column,
+                            mouse.row,
+                        )
+                    {
+                        state.reduce(action);
+                    }
+                }
                 Some(LayoutHit::DockedSplit(split)) => {
                     drag.target = Some(MouseDragTarget::DockedSplit(split));
                 }
@@ -136,6 +149,9 @@ fn route_mouse_wheel(state: &mut AppState, direction: isize) {
         state.reduce(action);
     }
 }
+
+#[cfg(test)]
+mod mouse_tests;
 
 #[cfg(test)]
 mod tests {
@@ -558,54 +574,6 @@ mod tests {
     }
 
     #[test]
-    fn live_writes_confirmation_blocks_mouse_focus_behind_the_modal() {
-        let mut state = AppState::from_config(crate::config::TuiConfig::default());
-        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
-        state.reduce(Action::Execute(ActionId::ToggleLiveWrites));
-        let mut drag = MouseDrag::default();
-
-        handle_mouse_event(
-            Rect::new(0, 0, 120, 40),
-            &mut state,
-            &mut drag,
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: 1,
-                row: 1,
-                modifiers: KeyModifiers::empty(),
-            },
-        );
-
-        assert_eq!(
-            state.floating.last().map(|pane| pane.kind),
-            Some(FloatingKind::LiveWritesConfirmation)
-        );
-    }
-
-    #[test]
-    fn staged_execution_confirmation_blocks_mouse_focus_behind_the_modal() {
-        let mut state = staged_execution_confirmation_state();
-        let mut drag = MouseDrag::default();
-
-        handle_mouse_event(
-            Rect::new(0, 0, 120, 40),
-            &mut state,
-            &mut drag,
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: 1,
-                row: 1,
-                modifiers: KeyModifiers::empty(),
-            },
-        );
-
-        assert_eq!(
-            state.floating.last().map(|pane| pane.kind),
-            Some(FloatingKind::StagedExecutionConfirmation)
-        );
-    }
-
-    #[test]
     fn quit_router_accepts_q_and_control_c_only() {
         let mut state = AppState::from_config(crate::config::TuiConfig::default());
 
@@ -644,222 +612,6 @@ mod tests {
             key_action(&state, KeyEvent::from(KeyCode::Char('q'))),
             Some(Action::EditTradingProfileQuery(_))
         ));
-    }
-
-    #[test]
-    fn mouse_down_focuses_panel_and_drag_resizes_columns() {
-        let area = Rect::new(0, 0, 160, 48);
-        let mut state = AppState::from_config(crate::config::TuiConfig::default());
-        let mut drag = MouseDrag::default();
-        let layout = layout::build(
-            area,
-            &state.layout,
-            &state.floating,
-            &state.visible_panels(),
-        );
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 2, 2),
-        );
-        assert_eq!(state.panels.focused(), Panel::Watchlist);
-        assert_eq!(drag, MouseDrag::default());
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(
-                MouseEventKind::Down(MouseButton::Left),
-                layout.panel_rect(Panel::Watchlist).unwrap().right(),
-                2,
-            ),
-        );
-        assert_eq!(
-            drag,
-            MouseDrag {
-                target: Some(MouseDragTarget::DockedSplit(DockedColumnSplit::LeftMain)),
-            }
-        );
-
-        let previous_left_ratio = state.layout.left_ratio;
-        let drag_column = layout
-            .panel_rect(Panel::Watchlist)
-            .unwrap()
-            .right()
-            .saturating_add(24)
-            .min(area.right().saturating_sub(2));
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::Drag(MouseButton::Left), drag_column, 2),
-        );
-        assert!(state.layout.left_ratio > previous_left_ratio);
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::Up(MouseButton::Left), drag_column, 2),
-        );
-        assert_eq!(drag, MouseDrag::default());
-    }
-
-    #[test]
-    fn mouse_click_on_status_workspace_tab_switches_workspace() {
-        let area = Rect::new(0, 0, 120, 32);
-        let mut state = AppState::from_config(crate::config::TuiConfig::default());
-        let mut drag = MouseDrag::default();
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 20, 31),
-        );
-
-        assert_eq!(state.workspace, WorkspaceKind::Account);
-        assert_eq!(state.panels.focused(), Panel::Account);
-        assert_eq!(drag, MouseDrag::default());
-    }
-
-    #[test]
-    fn mouse_wheel_moves_focused_panel_and_search_selection() {
-        let area = Rect::new(0, 0, 120, 32);
-        let mut state = AppState::from_config(crate::config::TuiConfig {
-            watchlist: vec!["CRDO".to_string(), "BTCUSDT".to_string()],
-            ..crate::config::TuiConfig::default()
-        });
-        let mut drag = MouseDrag::default();
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::ScrollDown, 2, 2),
-        );
-
-        assert_eq!(state.selected_symbol(), Some("BTCUSDT"));
-
-        state.reduce(Action::Execute(ActionId::OpenFloating(
-            FloatingKind::CommandPalette,
-        )));
-        assert_eq!(state.command_palette.selected(), 0);
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(MouseEventKind::ScrollDown, 2, 2),
-        );
-
-        assert_eq!(state.command_palette.selected(), 1);
-    }
-
-    #[test]
-    fn mouse_focuses_and_resizes_floating_panes() {
-        let area = Rect::new(0, 0, 160, 48);
-        let mut state = AppState::from_config(crate::config::TuiConfig::default());
-        state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
-        state.reduce(Action::Execute(ActionId::OpenFloating(
-            FloatingKind::ProviderDetails,
-        )));
-        let mut drag = MouseDrag::default();
-
-        let layout = layout::build(
-            area,
-            &state.layout,
-            &state.floating,
-            &state.visible_panels(),
-        );
-        let help = layout
-            .floating
-            .iter()
-            .find(|pane| pane.kind == FloatingKind::Help)
-            .unwrap();
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(
-                MouseEventKind::Down(MouseButton::Left),
-                help.rect.x + 2,
-                help.rect.y + 2,
-            ),
-        );
-        assert_eq!(state.floating.last().unwrap().kind, FloatingKind::Help);
-        assert_eq!(drag, MouseDrag::default());
-
-        let layout = layout::build(
-            area,
-            &state.layout,
-            &state.floating,
-            &state.visible_panels(),
-        );
-        let help = layout
-            .floating
-            .iter()
-            .find(|pane| pane.kind == FloatingKind::Help)
-            .unwrap();
-        let previous_rect = help.rect;
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(
-                MouseEventKind::Down(MouseButton::Left),
-                help.rect.right() - 1,
-                help.rect.bottom() - 1,
-            ),
-        );
-
-        handle_mouse_event(
-            area,
-            &mut state,
-            &mut drag,
-            mouse_event(
-                MouseEventKind::Drag(MouseButton::Left),
-                help.rect.right().saturating_add(8),
-                help.rect.bottom().saturating_add(4),
-            ),
-        );
-        let layout = layout::build(
-            area,
-            &state.layout,
-            &state.floating,
-            &state.visible_panels(),
-        );
-        let resized = layout
-            .floating
-            .iter()
-            .find(|pane| pane.kind == FloatingKind::Help)
-            .unwrap();
-        assert!(resized.rect.width > previous_rect.width);
-        assert!(resized.rect.height > previous_rect.height);
-        assert_eq!(
-            layout.hit_test(resized.rect.x + 1, resized.rect.y + 1),
-            Some(LayoutHit::Floating(FloatingKind::Help))
-        );
-
-        state.reduce(Action::CloseFocusedFloating);
-        assert!(
-            !state
-                .floating
-                .iter()
-                .any(|pane| pane.kind == FloatingKind::Help)
-        );
-    }
-
-    fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
-        MouseEvent {
-            kind,
-            column,
-            row,
-            modifiers: KeyModifiers::empty(),
-        }
     }
 
     fn staged_execution_confirmation_state() -> AppState {

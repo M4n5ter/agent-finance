@@ -169,6 +169,14 @@ impl StagedChanges {
         self.selected = shift_index(self.normalized_selected(), self.visible_len(), direction);
     }
 
+    pub(crate) fn select_visible(&mut self, index: usize) {
+        if self.changes.is_empty() {
+            self.selected = 0;
+        } else {
+            self.selected = index.min(self.visible_len().saturating_sub(1));
+        }
+    }
+
     pub(crate) fn close_selected(&mut self) -> CloseStagedChangeResult {
         self.normalize_selection();
         let Some(id) = self

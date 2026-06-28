@@ -7,6 +7,7 @@ use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 use crate::model::Panel;
 use agent_finance_core::intent::IntentStatus;
 
+use crate::intent_review_view::INTENT_REVIEW_SUMMARY_ROWS;
 use crate::state::{AppState, StagedChangeQueueStatus, StagedChangeView, VISIBLE_REVIEW_LIMIT};
 
 use super::widgets::panel_block;
@@ -25,7 +26,10 @@ pub(super) fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area
     });
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(3)])
+        .constraints([
+            Constraint::Length(INTENT_REVIEW_SUMMARY_ROWS),
+            Constraint::Min(3),
+        ])
         .split(inner);
     let live_label = if state.live_writes_enabled {
         "live:on"

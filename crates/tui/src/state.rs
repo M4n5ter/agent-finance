@@ -419,6 +419,27 @@ impl AppState {
             shift_index(self.selected_open_order.min(len - 1), len, direction);
     }
 
+    fn select_open_order(&mut self, index: usize) {
+        let len = self
+            .account_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.open_orders().len())
+            .unwrap_or_default();
+        if len == 0 {
+            self.selected_open_order = 0;
+        } else {
+            self.selected_open_order = index.min(len - 1);
+        }
+    }
+
+    fn select_watchlist_symbol(&mut self, index: usize) {
+        if self.watchlist.is_empty() {
+            self.selected_symbol = 0;
+        } else {
+            self.selected_symbol = index.min(self.watchlist.len() - 1);
+        }
+    }
+
     fn adjust_selected_setting(&mut self, direction: isize) {
         let row = self.settings_editor.selected();
         let Some(change) = self.edit_local_config(|state| {
@@ -686,6 +707,7 @@ impl AppState {
             }
             Action::AcceptWatchlistAdd => self.add_watchlist_symbols(),
             Action::AcceptTradingProfile => self.accept_trading_profile(),
+            Action::SelectWatchlistSymbol(index) => self.select_watchlist_symbol(index),
             Action::DeleteSelectedWatchlistSymbol => self.delete_selected_watchlist_symbol(),
             Action::MoveSelectedWatchlistSymbol(direction) => {
                 self.move_selected_watchlist_symbol(direction);
@@ -712,6 +734,7 @@ impl AppState {
                     .adjust_selected_field(direction, symbol.as_deref());
             }
             Action::MoveOpenOrderSelection(direction) => self.move_open_order_selection(direction),
+            Action::SelectOpenOrder(index) => self.select_open_order(index),
             Action::MoveSettingsSelection(direction) => {
                 self.settings_editor.move_selection(direction);
             }
@@ -723,6 +746,7 @@ impl AppState {
             Action::MoveStagedChangeSelection(direction) => {
                 self.staged_changes.move_selection(direction);
             }
+            Action::SelectStagedChange(index) => self.staged_changes.select_visible(index),
             Action::ExecuteStagedChange => self.request_staged_change_confirmation(),
             Action::ConfirmStagedExecution => self.confirm_staged_execution(),
             Action::CancelStagedExecutionConfirmation => {
@@ -1141,6 +1165,7 @@ pub enum Action {
     AcceptSymbolSearch,
     AcceptWatchlistAdd,
     AcceptTradingProfile,
+    SelectWatchlistSymbol(usize),
     DeleteSelectedWatchlistSymbol,
     MoveSelectedWatchlistSymbol(isize),
     MoveOrderTicketField(isize),
@@ -1150,6 +1175,7 @@ pub enum Action {
     MoveFuturesStateTicketField(isize),
     AdjustFuturesStateTicketField(isize),
     MoveOpenOrderSelection(isize),
+    SelectOpenOrder(usize),
     MoveSettingsSelection(isize),
     AdjustSelectedSetting(isize),
     StageOrderTicket,
@@ -1157,6 +1183,7 @@ pub enum Action {
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     MoveStagedChangeSelection(isize),
+    SelectStagedChange(usize),
     ExecuteStagedChange,
     ConfirmStagedExecution,
     CancelStagedExecutionConfirmation,
