@@ -51,7 +51,7 @@ try {
   ]);
 
   const screen = waitForScreen(
-    ["Overview", "Research", "Watchlist", "Quote / Sessions", "provider: yahoo", "interval=1d"],
+    ["Market", "Research", "Watchlist", "Quote / Sessions", "provider: yahoo", "interval=1d"],
     20_000,
   );
   if (!screen) {
@@ -79,8 +79,8 @@ try {
     fail("TUI did not open the command palette");
   }
 
-  runTmux(["send-keys", "-t", session, "quote"]);
-  if (!waitForScreen(["quote", "Focus quote", "Toggle quote"], 4_000)) {
+  runTmux(["send-keys", "-t", session, "focus quote"]);
+  if (!waitForScreen(["focus quote", "Focus quote"], 4_000)) {
     fail("TUI command palette did not filter commands from typed input");
   }
 
@@ -123,7 +123,7 @@ function smokeDumpState() {
     "--symbols",
     "AAPL,BTCUSDT",
     "--workspace",
-    "crypto",
+    "market",
     "--dump-state",
     "--wait-seconds",
     "0",
@@ -167,10 +167,10 @@ function smokeDumpState() {
       fail(`dump-state JSON is missing ${key}`);
     }
   }
-  if (dump.workspace !== "crypto") {
+  if (dump.workspace !== "market") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
   }
-  if (dump.schema_version !== 11) {
+  if (dump.schema_version !== 12) {
     fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
   }
   if (Object.prototype.hasOwnProperty.call(dump, "write_sessions")) {

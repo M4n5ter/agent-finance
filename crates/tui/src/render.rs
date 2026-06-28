@@ -56,17 +56,17 @@ mod tests {
             ..TuiConfig::default()
         });
         state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
-            WorkspaceKind::Crypto,
+            WorkspaceKind::Market,
         )));
 
         let wide = render_to_text(&state, 120, 32);
-        assert!(wide.contains("Overview"));
-        assert!(wide.contains("Crypto"));
+        assert!(wide.contains("Market"));
+        assert!(wide.contains("Research"));
         assert!(wide.contains("mode: normal"));
         assert!(wide.contains("live:off"));
 
         let narrow = render_to_text(&state, 48, 20);
-        assert!(narrow.contains("Crypto"));
+        assert!(narrow.contains("Market"));
         assert!(narrow.contains("CRDO"));
         assert!(!narrow.contains("[/] workspace"));
     }
@@ -386,14 +386,14 @@ mod tests {
     }
 
     #[test]
-    fn overview_workspace_matches_snapshot_at_100x30() {
+    fn market_workspace_matches_snapshot_at_100x30() {
         let mut state = snapshot_state();
         state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
-            WorkspaceKind::Overview,
+            WorkspaceKind::Market,
         )));
 
         insta::assert_snapshot!(
-            "overview_workspace_100x30",
+            "market_workspace_100x30",
             render_to_text_grid(&state, 100, 30)
         );
     }
@@ -420,7 +420,7 @@ mod tests {
     fn narrow_workspace_matches_snapshot_at_48x20() {
         let mut state = snapshot_state();
         state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
-            WorkspaceKind::Crypto,
+            WorkspaceKind::Research,
         )));
 
         insta::assert_snapshot!(
@@ -440,9 +440,9 @@ mod tests {
             generation: 1,
             error: "provider timeout".to_string(),
         });
-        let overview = render_to_text_grid(&state, 100, 30);
-        assert!(overview.contains("Quote / Sessions [error]"));
-        assert!(overview.contains("Task Log [fresh]"));
+        let market = render_to_text_grid(&state, 100, 30);
+        assert!(market.contains("Quote / Sessions [error]"));
+        assert!(market.contains("Task Log [fresh]"));
 
         state.reduce(crate::state::Action::Execute(ActionId::SelectSymbolBy(1)));
         state.reduce(crate::state::Action::HistoryStarted {
@@ -464,11 +464,16 @@ mod tests {
 
         state.reduce(crate::state::Action::Execute(ActionId::SelectSymbolBy(1)));
         state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
-            WorkspaceKind::Crypto,
+            WorkspaceKind::Market,
+        )));
+        let market = render_to_text_grid(&state, 100, 30);
+        assert!(market.contains("History Chart [stale]"));
+
+        state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Research,
         )));
         let text = render_to_text_grid(&state, 100, 30);
 
-        assert!(text.contains("History Chart [stale]"));
         assert!(text.contains("Crypto Evidence [empty]"));
         assert!(!text.contains("Crypto Evidence [stale]"));
     }

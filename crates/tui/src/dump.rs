@@ -11,7 +11,7 @@ use crate::provider_health::{ProviderHealthReport, ProviderHealthTask};
 use crate::state::{AppState, StagedChangeView, StagedSubmitRequest};
 use crate::transfer_ticket::TransferTicketPreview;
 
-const TUI_DUMP_SCHEMA_VERSION: u32 = 11;
+const TUI_DUMP_SCHEMA_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
@@ -136,21 +136,16 @@ mod tests {
         let state = AppState::from_config(TuiConfig {
             watchlist: vec!["AAPL".to_string(), "BTCUSDT".to_string()],
             workspace: WorkspaceConfig {
-                current: WorkspaceKind::Crypto,
+                current: WorkspaceKind::Research,
             },
             ..TuiConfig::default()
         });
 
         let dump = TuiDump::from_state(&state, true);
 
-        assert_eq!(dump.workspace, WorkspaceKind::Crypto);
+        assert_eq!(dump.workspace, WorkspaceKind::Research);
         assert_eq!(dump.selected_symbol.as_deref(), Some("AAPL"));
         assert!(dump.partial);
-        assert!(
-            dump.panes
-                .iter()
-                .any(|pane| pane.panel == Panel::History && pane.visible)
-        );
         assert!(
             dump.panes
                 .iter()
@@ -159,7 +154,12 @@ mod tests {
         assert!(
             dump.panes
                 .iter()
-                .any(|pane| pane.panel == Panel::Research && !pane.visible)
+                .any(|pane| pane.panel == Panel::Research && pane.visible)
+        );
+        assert!(
+            dump.panes
+                .iter()
+                .any(|pane| pane.panel == Panel::History && !pane.visible)
         );
         assert!(
             dump.panes
@@ -205,7 +205,7 @@ mod tests {
     fn dump_serializes_agent_facing_names() {
         let state = AppState::from_config(TuiConfig {
             workspace: WorkspaceConfig {
-                current: WorkspaceKind::Providers,
+                current: WorkspaceKind::Market,
             },
             trading: crate::config::TradingConfig {
                 default_profile: Some("mainnet".to_string()),
@@ -215,7 +215,7 @@ mod tests {
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
-        assert_eq!(value["workspace"], "providers");
+        assert_eq!(value["workspace"], "market");
         assert_eq!(value["trading_profile"], "mainnet");
         assert!(
             value["panes"]

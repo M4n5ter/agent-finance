@@ -1072,9 +1072,9 @@ fn interaction_mode_follows_top_floating_pane() {
 #[test]
 fn workspace_switching_keeps_focus_visible() {
     let mut state = AppState::from_config(TuiConfig::default());
-    state.reduce(Action::Focus(Panel::Evidence));
+    state.reduce(Action::Focus(Panel::History));
 
-    assert_eq!(state.panels.focused(), Panel::Evidence);
+    assert_eq!(state.panels.focused(), Panel::History);
 
     state.reduce(Action::SetWorkspace(WorkspaceKind::Research));
 
@@ -1105,7 +1105,7 @@ fn pane_focus_navigation_wraps_visible_workspace_panels() {
 fn pane_focus_navigation_uses_workspace_declared_order() {
     let mut state = AppState::from_config(TuiConfig {
         workspace: WorkspaceConfig {
-            current: WorkspaceKind::Providers,
+            current: WorkspaceKind::Market,
         },
         ..TuiConfig::default()
     });
@@ -1114,13 +1114,14 @@ fn pane_focus_navigation_uses_workspace_declared_order() {
         state.workspace_panels(),
         vec![
             Panel::Watchlist,
+            Panel::Quote,
+            Panel::History,
             Panel::ProviderHealth,
             Panel::TaskLog,
-            Panel::Quote
         ]
     );
     state.reduce(Action::FocusPanelBy(1));
-    assert_eq!(state.panels.focused(), Panel::ProviderHealth);
+    assert_eq!(state.panels.focused(), Panel::Quote);
 }
 
 #[test]
@@ -1180,7 +1181,7 @@ fn inconsistent_persisted_workspace_config_is_normalized_on_load() {
             current: WorkspaceKind::Research,
         },
         panels: PanelConfig {
-            open: vec![Panel::History, Panel::Evidence],
+            open: vec![Panel::History],
             focused: Panel::History,
         },
         ..TuiConfig::default()
@@ -1188,7 +1189,6 @@ fn inconsistent_persisted_workspace_config_is_normalized_on_load() {
 
     assert_eq!(state.workspace, WorkspaceKind::Research);
     assert!(state.panels.contains(Panel::History));
-    assert!(state.panels.contains(Panel::Evidence));
     assert!(state.panels.contains(Panel::Watchlist));
     assert_eq!(state.panels.focused(), Panel::Watchlist);
     assert_eq!(state.visible_panels(), vec![Panel::Watchlist]);
@@ -1219,7 +1219,7 @@ fn closing_every_visible_workspace_panel_reopens_workspace_default() {
 #[test]
 fn focusing_hidden_panel_moves_to_a_workspace_that_can_show_it() {
     let mut state = AppState::from_config(TuiConfig::default());
-    assert_eq!(state.workspace, WorkspaceKind::Overview);
+    assert_eq!(state.workspace, WorkspaceKind::Market);
 
     state.reduce(Action::Focus(Panel::Polymarket));
 
@@ -1266,7 +1266,7 @@ fn command_palette_show_panel_routes_to_visible_workspace() {
     state.reduce(Action::Execute(ActionId::TogglePanel(Panel::Polymarket)));
     assert!(!state.panels.contains(Panel::Polymarket));
 
-    state.reduce(Action::SetWorkspace(WorkspaceKind::Overview));
+    state.reduce(Action::SetWorkspace(WorkspaceKind::Market));
     state.reduce(Action::Execute(ActionId::TogglePanel(Panel::Polymarket)));
 
     assert_eq!(state.workspace, WorkspaceKind::Research);
@@ -1277,7 +1277,7 @@ fn command_palette_show_panel_routes_to_visible_workspace() {
 #[test]
 fn command_palette_toggle_hidden_open_panel_routes_to_visible_workspace() {
     let mut state = AppState::from_config(TuiConfig::default());
-    assert_eq!(state.workspace, WorkspaceKind::Overview);
+    assert_eq!(state.workspace, WorkspaceKind::Market);
     assert!(state.panels.contains(Panel::Research));
     assert!(!state.visible_panels().contains(&Panel::Research));
 
@@ -1297,12 +1297,13 @@ fn command_palette_executes_workspace_commands() {
         FloatingKind::CommandPalette,
     )));
     state.reduce(Action::Execute(ActionId::SetWorkspace(
-        WorkspaceKind::Crypto,
+        WorkspaceKind::Account,
     )));
 
-    assert_eq!(state.workspace, WorkspaceKind::Crypto);
+    assert_eq!(state.workspace, WorkspaceKind::Account);
     assert!(state.floating.is_empty());
     assert!(state.visible_panels().contains(&state.panels.focused()));
+    assert!(state.visible_panels().contains(&Panel::Account));
 }
 
 #[test]
@@ -1341,16 +1342,16 @@ fn command_palette_query_filters_executable_actions() {
     state.reduce(Action::Execute(ActionId::OpenFloating(
         FloatingKind::CommandPalette,
     )));
-    for character in "crypto".chars() {
+    for character in "market".chars() {
         state.reduce(Action::EditCommandQuery(
             tui_input::InputRequest::InsertChar(character),
         ));
     }
 
-    assert_eq!(state.command_palette.query(), "crypto");
+    assert_eq!(state.command_palette.query(), "market");
     assert_eq!(
         state.command_palette.selected_action(),
-        Some(ActionId::SetWorkspace(WorkspaceKind::Crypto))
+        Some(ActionId::SetWorkspace(WorkspaceKind::Market))
     );
 }
 

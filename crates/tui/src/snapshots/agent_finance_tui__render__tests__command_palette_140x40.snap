@@ -42,4 +42,4 @@ expression: "render_to_text_grid(&state, 140, 40)"
 │                                              ││                                                                                          │
 │                                              ││                                                                                          │
 └──────────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘
- Overview | Trade | Account | Research | Crypto | Providers | Settings  CRDO | mode: command | live:off | dry-run | ready
+ Market | Trade | Account | Research | Settings  CRDO | mode: command | live:off | dry-run | focus: Watchlist | ready | e:0

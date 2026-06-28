@@ -225,12 +225,45 @@ impl TuiConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct WorkspaceConfig {
-    #[serde(default)]
+    #[serde(
+        default,
+        serialize_with = "serialize_workspace_kind",
+        deserialize_with = "deserialize_workspace_kind"
+    )]
     pub current: WorkspaceKind,
 }
 
 impl WorkspaceConfig {
     fn normalize(&mut self) {}
+}
+
+fn serialize_workspace_kind<S>(
+    workspace: &WorkspaceKind,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(workspace.label())
+}
+
+fn deserialize_workspace_kind<'de, D>(
+    deserializer: D,
+) -> std::result::Result<WorkspaceKind, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let label = String::deserialize(deserializer)?;
+    persisted_workspace_label(&label)
+        .ok_or_else(|| serde::de::Error::custom(format!("unknown persisted workspace '{}'", label)))
+}
+
+fn persisted_workspace_label(label: &str) -> Option<WorkspaceKind> {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "overview" | "providers" => Some(WorkspaceKind::Market),
+        "crypto" => Some(WorkspaceKind::Research),
+        value => value.parse().ok(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -606,7 +639,7 @@ mod tests {
     #[test]
     fn launch_workspace_override_changes_runtime_workspace_only() {
         let launch =
-            TuiLaunch::new(Vec::new(), None, true).with_workspace(Some(WorkspaceKind::Providers));
+            TuiLaunch::new(Vec::new(), None, true).with_workspace(Some(WorkspaceKind::Market));
         let persisted = TuiConfig {
             workspace: WorkspaceConfig {
                 current: WorkspaceKind::Research,
@@ -617,7 +650,7 @@ mod tests {
         let runtime = launch.runtime_config(persisted.clone());
 
         assert_eq!(persisted.workspace.current, WorkspaceKind::Research);
-        assert_eq!(runtime.workspace.current, WorkspaceKind::Providers);
+        assert_eq!(runtime.workspace.current, WorkspaceKind::Market);
     }
 
     #[test]
@@ -707,6 +740,26 @@ mod tests {
         assert!(encoded.contains("default_profile = \"mainnet\""));
         assert!(encoded.contains("[theme]"));
         assert!(!encoded.contains("[keymap]"));
+    }
+
+    #[test]
+    fn persisted_workspace_legacy_labels_load_without_reopening_cli_aliases() {
+        for (legacy, expected) in [
+            ("overview", WorkspaceKind::Market),
+            ("providers", WorkspaceKind::Market),
+            ("crypto", WorkspaceKind::Research),
+        ] {
+            let decoded = toml::from_str::<TuiConfig>(&format!(
+                r#"
+                [workspace]
+                current = "{legacy}"
+                "#
+            ))
+            .expect("legacy persisted workspace should load");
+
+            assert_eq!(decoded.workspace.current, expected);
+            assert!(WorkspaceKind::from_str(legacy).is_err());
+        }
     }
 
     #[test]
@@ -813,7 +866,7 @@ mod tests {
         let mut config = TuiConfig {
             watchlist: vec!["crdo".to_string(), "lite".to_string()],
             workspace: WorkspaceConfig {
-                current: WorkspaceKind::Crypto,
+                current: WorkspaceKind::Market,
             },
             layout: LayoutConfig {
                 left_ratio: 30,
@@ -844,7 +897,7 @@ mod tests {
         let _ = fs::remove_file(&path);
 
         assert_eq!(loaded.watchlist, ["CRDO", "LITE"]);
-        assert_eq!(loaded.workspace.current, WorkspaceKind::Crypto);
+        assert_eq!(loaded.workspace.current, WorkspaceKind::Market);
         assert_eq!(loaded.layout.left_ratio, 30);
         assert_eq!(loaded.layout.main_ratio, 42);
         assert_eq!(loaded.panels.open, [Panel::Watchlist, Panel::History]);

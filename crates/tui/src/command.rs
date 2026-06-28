@@ -153,7 +153,7 @@ pub fn action_id(action: ActionId) -> Option<&'static str> {
 }
 
 macro_rules! action {
-    ($id:literal, $action:expr, $title:literal, $description:literal) => {
+    ($id:expr, $action:expr, $title:expr, $description:expr) => {
         ActionSpec {
             id: $id,
             action: $action,
@@ -329,34 +329,34 @@ pub const ACTION_REGISTRY: [ActionSpec; 55] = [
         "Move to the previous workspace tab"
     ),
     action!(
-        "workspace-overview",
-        ActionId::SetWorkspace(WorkspaceKind::Overview),
-        "Workspace overview",
-        "Show the overview cockpit workspace"
+        WorkspaceKind::Market.command_id(),
+        ActionId::SetWorkspace(WorkspaceKind::Market),
+        WorkspaceKind::Market.command_title(),
+        WorkspaceKind::Market.command_description()
     ),
     action!(
-        "workspace-research",
+        WorkspaceKind::Trade.command_id(),
+        ActionId::SetWorkspace(WorkspaceKind::Trade),
+        WorkspaceKind::Trade.command_title(),
+        WorkspaceKind::Trade.command_description()
+    ),
+    action!(
+        WorkspaceKind::Account.command_id(),
+        ActionId::SetWorkspace(WorkspaceKind::Account),
+        WorkspaceKind::Account.command_title(),
+        WorkspaceKind::Account.command_description()
+    ),
+    action!(
+        WorkspaceKind::Research.command_id(),
         ActionId::SetWorkspace(WorkspaceKind::Research),
-        "Workspace research",
-        "Show news, research, and prediction-market context"
+        WorkspaceKind::Research.command_title(),
+        WorkspaceKind::Research.command_description()
     ),
     action!(
-        "workspace-crypto",
-        ActionId::SetWorkspace(WorkspaceKind::Crypto),
-        "Workspace crypto",
-        "Show crypto evidence and market context"
-    ),
-    action!(
-        "workspace-providers",
-        ActionId::SetWorkspace(WorkspaceKind::Providers),
-        "Workspace providers",
-        "Show provider health and runtime task status"
-    ),
-    action!(
-        "workspace-settings",
+        WorkspaceKind::Settings.command_id(),
         ActionId::SetWorkspace(WorkspaceKind::Settings),
-        "Workspace settings",
-        "Show configuration maintenance controls"
+        WorkspaceKind::Settings.command_title(),
+        WorkspaceKind::Settings.command_description()
     ),
     action!(
         "focus-watchlist",
@@ -515,7 +515,7 @@ mod tests {
             .map(|command| command.title)
             .collect::<Vec<_>>();
         assert!(visible.contains(&"Open provider details"));
-        assert!(visible.contains(&"Workspace providers"));
+        assert!(visible.contains(&"Workspace market"));
     }
 
     #[test]

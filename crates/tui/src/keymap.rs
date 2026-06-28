@@ -5,7 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::command::{ActionId, action_by_id, action_id};
-use crate::model::{FloatingKind, Panel};
+use crate::model::{FloatingKind, Panel, WorkspaceKind};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct KeymapConfig {
@@ -314,8 +314,18 @@ where
     D: Deserializer<'de>,
 {
     let id = String::deserialize(deserializer)?;
-    action_by_id(&id)
+    persisted_action_id(&id)
         .ok_or_else(|| serde::de::Error::custom(format!("unknown TUI action '{}'", id)))
+}
+
+fn persisted_action_id(id: &str) -> Option<ActionId> {
+    match id.trim() {
+        "workspace-overview" | "workspace-providers" => {
+            Some(ActionId::SetWorkspace(WorkspaceKind::Market))
+        }
+        "workspace-crypto" => Some(ActionId::SetWorkspace(WorkspaceKind::Research)),
+        value => action_by_id(value),
+    }
 }
 
 #[cfg(test)]
@@ -370,6 +380,37 @@ mod tests {
 
         let decoded = toml::from_str::<KeymapConfig>(&encoded).expect("decode");
         assert_eq!(decoded, config);
+    }
+
+    #[test]
+    fn keymap_loads_legacy_workspace_action_ids_but_serializes_new_ids() {
+        let decoded = toml::from_str::<KeymapConfig>(
+            r#"
+            [[overrides]]
+            key = "m"
+            action = "workspace-overview"
+
+            [[overrides]]
+            key = "r"
+            action = "workspace-crypto"
+            "#,
+        )
+        .expect("legacy workspace actions should load");
+
+        assert_eq!(
+            decoded.overrides[0].action,
+            ActionId::SetWorkspace(WorkspaceKind::Market)
+        );
+        assert_eq!(
+            decoded.overrides[1].action,
+            ActionId::SetWorkspace(WorkspaceKind::Research)
+        );
+
+        let encoded = toml::to_string(&decoded).expect("encode");
+        assert!(encoded.contains("action = \"workspace-market\""));
+        assert!(encoded.contains("action = \"workspace-research\""));
+        assert!(!encoded.contains("workspace-overview"));
+        assert!(!encoded.contains("workspace-crypto"));
     }
 
     #[test]

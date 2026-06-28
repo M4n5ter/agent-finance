@@ -1,25 +1,25 @@
 ---
 source: crates/tui/src/render.rs
-assertion_line: 168
+assertion_line: 426
 expression: "render_to_text_grid(&state, 48, 20)"
 ---
 ┌Watchlist [fresh]─────────────────────────────┐
 │> CRDO -                                      │
-│  BTCUSDT -                                   │
 └──────────────────────────────────────────────┘
 ┌Quote / Sessions [partial]────────────────────┐
 │CRDO market snapshot                          │
-│No quote loaded yet. Waiting for the next     │
-└──────────────────────────────────────────────┘
-┌History Chart [partial]───────────────────────┐
-│                                              │
 └──────────────────────────────────────────────┘
 ┌Crypto Evidence [empty]───────────────────────┐
 │CRDO evidence                                 │
 │No crypto evidence loaded yet. Waiting for the│
 └──────────────────────────────────────────────┘
-┌Provider Health [partial]─────────────────────┐
-│provi stat detail             freshness       │
-│auto  capa Default router; se -               │
+┌Polymarket [partial]──────────────────────────┐
+│CRDO prediction signals                       │
 └──────────────────────────────────────────────┘
- Overview | Trade | Account | Research | Crypto
+┌News / Research [partial]─────────────────────┐
+│CRDO research                                 │
+└──────────────────────────────────────────────┘
+┌Task Log [empty]──────────────────────────────┐
+│status     event                              │
+└──────────────────────────────────────────────┘
+ Market | Trade | Account | Research | Settings

@@ -1,46 +1,40 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorkspaceKind {
     #[default]
-    Overview,
+    Market,
     Trade,
     Account,
     Research,
-    Crypto,
-    Providers,
     Settings,
 }
 
 impl WorkspaceKind {
-    pub const ALL: [Self; 7] = [
-        Self::Overview,
+    pub const ALL: [Self; 5] = [
+        Self::Market,
         Self::Trade,
         Self::Account,
         Self::Research,
-        Self::Crypto,
-        Self::Providers,
         Self::Settings,
     ];
 
     pub const fn title(self) -> &'static str {
         match self {
-            Self::Overview => "Overview",
+            Self::Market => "Market",
             Self::Trade => "Trade",
             Self::Account => "Account",
             Self::Research => "Research",
-            Self::Crypto => "Crypto",
-            Self::Providers => "Providers",
             Self::Settings => "Settings",
         }
     }
 
     pub const fn panels(self) -> &'static [Panel] {
         match self {
-            Self::Overview => &[
+            Self::Market => &[
                 Panel::Watchlist,
                 Panel::Quote,
                 Panel::History,
@@ -67,20 +61,8 @@ impl WorkspaceKind {
                 Panel::Quote,
                 Panel::Polymarket,
                 Panel::Research,
-                Panel::TaskLog,
-            ],
-            Self::Crypto => &[
-                Panel::Watchlist,
-                Panel::Quote,
-                Panel::History,
                 Panel::Evidence,
-                Panel::ProviderHealth,
-            ],
-            Self::Providers => &[
-                Panel::Watchlist,
-                Panel::ProviderHealth,
                 Panel::TaskLog,
-                Panel::Quote,
             ],
             Self::Settings => &[
                 Panel::Settings,
@@ -113,26 +95,57 @@ impl WorkspaceKind {
 
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Overview => "overview",
+            Self::Market => "market",
             Self::Trade => "trade",
             Self::Account => "account",
             Self::Research => "research",
-            Self::Crypto => "crypto",
-            Self::Providers => "providers",
             Self::Settings => "settings",
         }
     }
 
     pub const fn labels() -> &'static [&'static str] {
-        &[
-            "overview",
-            "trade",
-            "account",
-            "research",
-            "crypto",
-            "providers",
-            "settings",
-        ]
+        &["market", "trade", "account", "research", "settings"]
+    }
+
+    pub const fn command_id(self) -> &'static str {
+        match self {
+            Self::Market => "workspace-market",
+            Self::Trade => "workspace-trade",
+            Self::Account => "workspace-account",
+            Self::Research => "workspace-research",
+            Self::Settings => "workspace-settings",
+        }
+    }
+
+    pub const fn command_title(self) -> &'static str {
+        match self {
+            Self::Market => "Workspace market",
+            Self::Trade => "Workspace trade",
+            Self::Account => "Workspace account",
+            Self::Research => "Workspace research",
+            Self::Settings => "Workspace settings",
+        }
+    }
+
+    pub const fn command_description(self) -> &'static str {
+        match self {
+            Self::Market => "Show watchlist, quote sessions, history, and provider health",
+            Self::Trade => "Show order tickets, staged intent review, and trading context",
+            Self::Account => {
+                "Show account reads, balances, open orders, transfers, and futures state"
+            }
+            Self::Research => "Show news, research, crypto evidence, and prediction-market context",
+            Self::Settings => "Show configuration maintenance controls",
+        }
+    }
+}
+
+impl Serialize for WorkspaceKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.label())
     }
 }
 
@@ -147,12 +160,10 @@ impl FromStr for WorkspaceKind {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "overview" => Ok(Self::Overview),
+            "market" => Ok(Self::Market),
             "trade" => Ok(Self::Trade),
             "account" => Ok(Self::Account),
             "research" => Ok(Self::Research),
-            "crypto" => Ok(Self::Crypto),
-            "providers" => Ok(Self::Providers),
             "settings" => Ok(Self::Settings),
             _ => Err(format!("unknown workspace {value}")),
         }

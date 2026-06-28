@@ -686,7 +686,7 @@ mod tests {
     fn dump_readiness_ignores_hidden_workspace_panel_loads() {
         let mut state = AppState::from_config(crate::config::TuiConfig {
             workspace: crate::config::WorkspaceConfig {
-                current: crate::model::WorkspaceKind::Providers,
+                current: crate::model::WorkspaceKind::Market,
             },
             ..crate::config::TuiConfig::default()
         });
