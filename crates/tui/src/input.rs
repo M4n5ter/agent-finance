@@ -1,11 +1,8 @@
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use tui_input::backend::crossterm::to_input_request;
 
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
-use crate::model::{FloatingKind, Panel};
+use crate::model::FloatingKind;
 use crate::state::{Action, AppState};
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -20,47 +17,10 @@ enum MouseDragTarget {
 }
 
 pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
-    if command_palette_is_top(state) {
-        return command_palette_key_action(state, key);
+    if let Some(action) = crate::floating_input::key_route(state, key).captured_action() {
+        return action;
     }
-    if symbol_search_is_top(state) {
-        return symbol_search_key_action(key);
-    }
-    if watchlist_add_is_top(state) {
-        return watchlist_add_key_action(key);
-    }
-    if trading_profile_is_top(state) {
-        return trading_profile_key_action(key);
-    }
-    if live_writes_confirmation_is_top(state) {
-        return live_writes_confirmation_key_action(key);
-    }
-    if staged_execution_confirmation_is_top(state) {
-        return staged_execution_confirmation_key_action(key);
-    }
-    if state.panels.focused() == Panel::Watchlist
-        && let Some(action) = watchlist_key_action(key)
-    {
-        return Some(action);
-    }
-    if state.panels.focused() == Panel::OrderTicket
-        && let Some(action) = crate::order_ticket_controls::order_ticket_key_action(key)
-    {
-        return Some(action);
-    }
-    if state.panels.focused() == Panel::Account
-        && let Some(action) = crate::account_controls::account_key_action(key)
-    {
-        return Some(action);
-    }
-    if state.panels.focused() == Panel::Settings
-        && let Some(action) = crate::settings_controls::settings_key_action(key)
-    {
-        return Some(action);
-    }
-    if state.panels.focused() == Panel::IntentReview
-        && let Some(action) = intent_review_key_action(key)
-    {
+    if let Some(action) = crate::panel_input::key_action(state, key) {
         return Some(action);
     }
 
@@ -71,10 +31,13 @@ pub fn should_quit(state: &AppState, key: KeyEvent) -> bool {
     if matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL) {
         return true;
     }
-    if live_writes_confirmation_is_top(state) || staged_execution_confirmation_is_top(state) {
+    if crate::floating_input::live_writes_confirmation_is_top(state)
+        || crate::floating_input::staged_execution_confirmation_is_top(state)
+    {
         return false;
     }
-    matches!(key.code, KeyCode::Char('q')) && !text_input_floating_is_top(state)
+    matches!(key.code, KeyCode::Char('q'))
+        && !crate::floating_input::text_input_floating_is_top(state)
 }
 
 pub fn handle_mouse_event(
@@ -85,7 +48,8 @@ pub fn handle_mouse_event(
 ) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if live_writes_confirmation_is_top(state) || staged_execution_confirmation_is_top(state)
+            if crate::floating_input::live_writes_confirmation_is_top(state)
+                || crate::floating_input::staged_execution_confirmation_is_top(state)
             {
                 return;
             }
@@ -134,158 +98,6 @@ pub fn handle_mouse_event(
         }
         _ => {}
     }
-}
-
-fn command_palette_key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Down => Some(Action::MoveCommandSelection(1)),
-        KeyCode::Up => Some(Action::MoveCommandSelection(-1)),
-        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::MoveCommandSelection(1))
-        }
-        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::MoveCommandSelection(-1))
-        }
-        KeyCode::Enter => state.command_palette.selected_action().map(Action::Execute),
-        KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        _ => to_input_request(&Event::Key(key)).map(Action::EditCommandQuery),
-    }
-}
-
-fn symbol_search_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Down => Some(Action::MoveSymbolSearchSelection(1)),
-        KeyCode::Up => Some(Action::MoveSymbolSearchSelection(-1)),
-        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::MoveSymbolSearchSelection(1))
-        }
-        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::MoveSymbolSearchSelection(-1))
-        }
-        KeyCode::Enter => Some(Action::AcceptSymbolSearch),
-        KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        _ => to_input_request(&Event::Key(key)).map(Action::EditSymbolSearchQuery),
-    }
-}
-
-fn watchlist_add_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Enter => Some(Action::AcceptWatchlistAdd),
-        KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        _ => to_input_request(&Event::Key(key)).map(Action::EditWatchlistAddQuery),
-    }
-}
-
-fn trading_profile_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Enter => Some(Action::AcceptTradingProfile),
-        KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        _ => to_input_request(&Event::Key(key)).map(Action::EditTradingProfileQuery),
-    }
-}
-
-fn live_writes_confirmation_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Enter => Some(Action::SetLiveWritesEnabled(true)),
-        KeyCode::Esc => Some(Action::CloseFocusedFloating),
-        _ => None,
-    }
-}
-
-fn staged_execution_confirmation_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Enter => Some(Action::ConfirmStagedExecution),
-        KeyCode::Esc => Some(Action::CancelStagedExecutionConfirmation),
-        _ => None,
-    }
-}
-
-fn watchlist_key_action(key: KeyEvent) -> Option<Action> {
-    if key.modifiers.contains(KeyModifiers::CONTROL)
-        || key.modifiers.contains(KeyModifiers::ALT)
-        || key.modifiers.contains(KeyModifiers::SUPER)
-    {
-        return None;
-    }
-    match (key.code, key.modifiers) {
-        (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => Some(Action::Execute(
-            crate::command::ActionId::SelectSymbolBy(-1),
-        )),
-        (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
-            Some(Action::Execute(crate::command::ActionId::SelectSymbolBy(1)))
-        }
-        (KeyCode::Left, KeyModifiers::NONE) | (KeyCode::Char('K'), KeyModifiers::SHIFT) => {
-            Some(Action::MoveSelectedWatchlistSymbol(-1))
-        }
-        (KeyCode::Right, KeyModifiers::NONE) | (KeyCode::Char('J'), KeyModifiers::SHIFT) => {
-            Some(Action::MoveSelectedWatchlistSymbol(1))
-        }
-        (KeyCode::Char('a'), KeyModifiers::NONE) => Some(Action::Execute(
-            crate::command::ActionId::OpenFloating(FloatingKind::WatchlistAdd),
-        )),
-        (KeyCode::Char('d'), KeyModifiers::NONE) => Some(Action::DeleteSelectedWatchlistSymbol),
-        (KeyCode::Char('u'), KeyModifiers::NONE) => Some(Action::UndoConfigChange),
-        _ => None,
-    }
-}
-
-fn intent_review_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveStagedChangeSelection(-1)),
-        KeyCode::Down | KeyCode::Char('j') => Some(Action::MoveStagedChangeSelection(1)),
-        KeyCode::Enter => Some(Action::ExecuteStagedChange),
-        KeyCode::Char('d') | KeyCode::Backspace => Some(Action::CloseSelectedStagedChange),
-        _ => None,
-    }
-}
-
-fn command_palette_is_top(state: &AppState) -> bool {
-    state
-        .floating
-        .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::CommandPalette)
-}
-
-fn live_writes_confirmation_is_top(state: &AppState) -> bool {
-    state
-        .floating
-        .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::LiveWritesConfirmation)
-}
-
-fn staged_execution_confirmation_is_top(state: &AppState) -> bool {
-    state
-        .floating
-        .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::StagedExecutionConfirmation)
-}
-
-fn symbol_search_is_top(state: &AppState) -> bool {
-    state
-        .floating
-        .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::SymbolSearch)
-}
-
-fn watchlist_add_is_top(state: &AppState) -> bool {
-    state
-        .floating
-        .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::WatchlistAdd)
-}
-
-fn trading_profile_is_top(state: &AppState) -> bool {
-    state
-        .floating
-        .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::TradingProfile)
-}
-
-fn text_input_floating_is_top(state: &AppState) -> bool {
-    command_palette_is_top(state)
-        || symbol_search_is_top(state)
-        || watchlist_add_is_top(state)
-        || trading_profile_is_top(state)
 }
 
 #[cfg(test)]
