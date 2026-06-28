@@ -2,7 +2,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::state::Action;
 
-const OPEN_ORDER_HINTS: &[&str] = &["up/down open order", "c stage cancel"];
 const TRANSFER_HINTS: &[&str] = &[
     "[/] transfer field",
     "left/right transfer",
@@ -15,8 +14,9 @@ pub(crate) fn account_key_action(key: KeyEvent) -> Option<Action> {
         return None;
     }
     match key.code {
-        KeyCode::Up => Some(Action::MoveOpenOrderSelection(-1)),
-        KeyCode::Down => Some(Action::MoveOpenOrderSelection(1)),
+        KeyCode::Up | KeyCode::Down | KeyCode::Char('c') => {
+            crate::open_order_controls::open_order_key_action(key)
+        }
         KeyCode::Char('[') => Some(Action::MoveTransferTicketField(-1)),
         KeyCode::Char(']') => Some(Action::MoveTransferTicketField(1)),
         KeyCode::Left => Some(Action::AdjustTransferTicketField(-1)),
@@ -25,13 +25,12 @@ pub(crate) fn account_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('i') => Some(Action::AdjustFuturesStateTicketField(1)),
         KeyCode::Char('f') => Some(Action::StageFuturesStateTicket),
         KeyCode::Char('t') => Some(Action::StageTransferTicket),
-        KeyCode::Char('c') => Some(Action::StageSelectedOpenOrderCancel),
         _ => None,
     }
 }
 
 pub(crate) fn account_key_hints() -> Vec<String> {
-    OPEN_ORDER_HINTS
+    crate::open_order_controls::OPEN_ORDER_HINTS
         .iter()
         .chain(TRANSFER_HINTS)
         .chain(FUTURES_STATE_HINTS)

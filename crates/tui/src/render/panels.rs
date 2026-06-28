@@ -18,6 +18,7 @@ use crate::theme::ThemeConfig;
 use super::account::render_account;
 use super::history;
 use super::intent_review::render_intent_review;
+use super::open_orders::render_open_orders;
 use super::provider_health;
 use super::risk_audit::render_risk_audit;
 use super::settings::render_settings;
@@ -32,6 +33,7 @@ pub(super) fn render_docked(frame: &mut Frame<'_>, state: &AppState, layout: &Co
             Panel::Watchlist => render_watchlist(frame, state, area),
             Panel::Quote => render_quote(frame, state, area),
             Panel::OrderTicket => render_order_ticket(frame, state, area),
+            Panel::OpenOrders => render_open_orders(frame, state, area),
             Panel::IntentReview => render_intent_review(frame, state, area),
             Panel::RiskAudit => render_risk_audit(frame, state, area),
             Panel::Account => render_account(frame, state, area),

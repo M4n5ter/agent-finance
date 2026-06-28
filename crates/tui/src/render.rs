@@ -8,6 +8,7 @@ mod account;
 mod chrome;
 mod history;
 mod intent_review;
+mod open_orders;
 mod panels;
 mod provider_health;
 mod risk_audit;
@@ -281,6 +282,7 @@ mod tests {
         let text = render_to_text_grid(&state, 140, 36);
 
         assert!(text.contains("Order Ticket"));
+        assert!(text.contains("Open Orders"));
         assert!(text.contains("staged order"));
         assert!(text.contains("symbol: CRDO"));
         assert!(text.contains("profile: mainnet"));
@@ -291,7 +293,39 @@ mod tests {
         assert!(text.contains("profile validation: mainnet pending"));
         assert!(text.contains("No staged changes."));
         assert!(text.contains("Stage order tickets from Order Ticket."));
-        assert!(text.contains("Stage cancels, transfers, and futures state from Account."));
+        assert!(text.contains("Stage cancels from Open Orders;"));
+    }
+
+    #[test]
+    fn trade_workspace_renders_open_orders_as_cancel_surface() {
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec!["BTCUSDT".to_string()],
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            workspace: crate::config::WorkspaceConfig {
+                current: WorkspaceKind::Trade,
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(crate::state::Action::AccountStarted {
+            generation: 1,
+            profile: "mainnet".to_string(),
+        });
+        state.reduce(crate::state::Action::AccountLoaded {
+            generation: 1,
+            snapshot: account_snapshot_with_open_orders("mainnet"),
+        });
+        state.reduce(crate::state::Action::Focus(crate::model::Panel::OpenOrders));
+        state.reduce(crate::state::Action::ToggleFocusedZoom);
+
+        let text = render_to_text_grid(&state, 150, 36);
+
+        assert!(text.contains("Open Orders"));
+        assert!(text.contains("open orders (2)"));
+        assert!(text.contains("> spot BUY 0.06 BTCUSDT @ 64000 [spot-1]"));
+        assert!(text.contains("usds-futures SELL 10 XRPUSDT @ 2 [futures-2]"));
+        assert!(text.contains("up/down open order  c stage cancel"));
     }
 
     #[test]
@@ -675,6 +709,60 @@ mod tests {
             providers: Vec::new(),
             errors: Vec::new(),
         }
+    }
+
+    fn account_snapshot_with_open_orders(profile: &str) -> crate::AccountSnapshot {
+        crate::AccountSnapshot::new(
+            profile.to_string(),
+            Provider::Binance,
+            Environment::Live,
+            crate::profile_snapshot::test_trading_profile_snapshot(),
+            vec![
+                SignedReadSnapshot::new(
+                    profile,
+                    Provider::Binance,
+                    Environment::Live,
+                    SignedReadRequest::OpenOrders {
+                        market: Market::Spot,
+                        symbol: None,
+                    },
+                    serde_json::json!([
+                        {
+                            "symbol": "BTCUSDT",
+                            "orderId": 1001,
+                            "clientOrderId": "spot-1",
+                            "side": "BUY",
+                            "type": "LIMIT",
+                            "origQty": "0.10",
+                            "executedQty": "0.04",
+                            "price": "64000"
+                        }
+                    ]),
+                ),
+                SignedReadSnapshot::new(
+                    profile,
+                    Provider::Binance,
+                    Environment::Live,
+                    SignedReadRequest::OpenOrders {
+                        market: Market::UsdsFutures,
+                        symbol: None,
+                    },
+                    serde_json::json!([
+                        {
+                            "symbol": "XRPUSDT",
+                            "orderId": 2002,
+                            "clientOrderId": "futures-2",
+                            "side": "SELL",
+                            "type": "LIMIT",
+                            "origQty": "10",
+                            "executedQty": "0",
+                            "price": "2"
+                        }
+                    ]),
+                ),
+            ],
+            Vec::new(),
+        )
     }
 
     fn render_to_text_grid(state: &AppState, width: u16, height: u16) -> String {

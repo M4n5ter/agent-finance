@@ -82,7 +82,7 @@ fn render_empty_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rec
         ]),
         Line::from("No staged changes."),
         Line::from("Stage order tickets from Order Ticket."),
-        Line::from("Stage cancels, transfers, and futures state from Account."),
+        Line::from("Stage cancels from Open Orders; transfers and futures state from Account."),
         Line::from(""),
         Line::from(vec![
             Span::styled(

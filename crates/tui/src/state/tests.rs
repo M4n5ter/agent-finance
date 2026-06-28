@@ -1840,7 +1840,7 @@ fn layout_undo_restores_persistent_floatings_without_rewinding_navigation() {
     state.reduce(Action::Execute(ActionId::SetWorkspace(
         WorkspaceKind::Trade,
     )));
-    state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Quote)));
+    state.reduce(Action::Execute(ActionId::FocusPanel(Panel::OpenOrders)));
     state.reduce(Action::ToggleFocusedZoom);
 
     assert_eq!(state.config_changes, ["layout"]);
@@ -1861,7 +1861,7 @@ fn layout_undo_restores_persistent_floatings_without_rewinding_navigation() {
             .any(|pane| pane.kind == FloatingKind::Help)
     );
     assert_eq!(state.workspace, WorkspaceKind::Trade);
-    assert_eq!(state.panels.focused(), Panel::Quote);
+    assert_eq!(state.panels.focused(), Panel::OpenOrders);
     assert!(state.zoomed);
 }
 

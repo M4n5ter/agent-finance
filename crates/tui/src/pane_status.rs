@@ -112,6 +112,7 @@ fn pane_data_state(state: &AppState, panel: Panel) -> PaneDataState {
             state.task_failures.has_source(TaskFailureSource::Quotes),
         ),
         Panel::OrderTicket => PaneDataState::new(false, SelectedDataState::Fresh, false),
+        Panel::OpenOrders => open_orders_data_state(state),
         Panel::IntentReview => PaneDataState::new(false, SelectedDataState::Fresh, false),
         Panel::RiskAudit => risk_audit_data_state(state),
         Panel::Account => PaneDataState::new(
@@ -164,6 +165,19 @@ fn pane_data_state(state: &AppState, panel: Panel) -> PaneDataState {
         ),
         Panel::Settings => PaneDataState::new(false, SelectedDataState::Fresh, false),
     }
+}
+
+fn open_orders_data_state(state: &AppState) -> PaneDataState {
+    PaneDataState::new(
+        state.account_loading(),
+        match state.account_snapshot.as_ref() {
+            Some(snapshot) if !snapshot.open_orders().is_empty() => SelectedDataState::Fresh,
+            Some(_) => SelectedDataState::Empty,
+            None if state.trading_profile.is_some() => SelectedDataState::Stale,
+            None => SelectedDataState::Empty,
+        },
+        state.task_failures.has_source(TaskFailureSource::Account),
+    )
 }
 
 fn risk_audit_data_state(state: &AppState) -> PaneDataState {

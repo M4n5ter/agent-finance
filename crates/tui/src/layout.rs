@@ -14,14 +14,16 @@ const MIDDLE_COLUMN_SPECS: [ColumnSpec; 3] = [
         &[
             Panel::Settings,
             Panel::OrderTicket,
+            Panel::OpenOrders,
             Panel::IntentReview,
             Panel::RiskAudit,
         ],
         &[
             (Panel::Settings, 34),
-            (Panel::OrderTicket, 42),
-            (Panel::IntentReview, 24),
-            (Panel::RiskAudit, 22),
+            (Panel::OrderTicket, 34),
+            (Panel::OpenOrders, 24),
+            (Panel::IntentReview, 22),
+            (Panel::RiskAudit, 20),
             (Panel::Account, 28),
             (Panel::Quote, 18),
             (Panel::History, 12),
@@ -273,6 +275,7 @@ fn active_docked_groups(config: &LayoutConfig, open_panels: &[Panel]) -> Vec<(Do
             &[
                 Panel::Settings,
                 Panel::OrderTicket,
+                Panel::OpenOrders,
                 Panel::IntentReview,
                 Panel::RiskAudit,
                 Panel::Account,

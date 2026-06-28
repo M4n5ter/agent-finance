@@ -8,6 +8,7 @@ pub(crate) fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     match state.panels.focused() {
         Panel::Watchlist => watchlist_key_action(key),
         Panel::OrderTicket => crate::order_ticket_controls::order_ticket_key_action(key),
+        Panel::OpenOrders => crate::open_order_controls::open_order_key_action(key),
         Panel::Account => crate::account_controls::account_key_action(key),
         Panel::Settings => crate::settings_controls::settings_key_action(key),
         Panel::IntentReview => intent_review_key_action(key),

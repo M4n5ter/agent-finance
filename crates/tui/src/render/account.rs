@@ -13,9 +13,9 @@ use crate::futures_state_ticket::FuturesStateTicketPreview;
 use crate::model::Panel;
 use crate::state::AppState;
 
+use super::open_orders::open_order_lines;
 use super::widgets::{compact_text, panel_block};
 
-const VISIBLE_OPEN_ORDER_LIMIT: usize = 4;
 const VISIBLE_TRANSFER_LIMIT: usize = 4;
 
 pub(super) fn render_account(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
@@ -375,64 +375,6 @@ fn ticket_field_span(
         state.theme.text_style()
     };
     Span::styled(format!("{marker}{label}: {value}"), style)
-}
-
-fn open_order_lines(state: &AppState, snapshot: &crate::AccountSnapshot) -> Vec<Line<'static>> {
-    let open_orders = snapshot.open_orders();
-    if open_orders.is_empty() {
-        return Vec::new();
-    }
-
-    let mut lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            format!("open orders ({})", open_orders.len()),
-            state.theme.accent_style().add_modifier(Modifier::BOLD),
-        )),
-    ];
-    let selected = state
-        .selected_open_order
-        .min(open_orders.len().saturating_sub(1));
-    let start = selected
-        .saturating_add(1)
-        .saturating_sub(VISIBLE_OPEN_ORDER_LIMIT);
-    if start > 0 {
-        lines.push(Line::from(Span::styled(
-            format!("+{start} earlier open orders"),
-            state.theme.warning_style(),
-        )));
-    }
-    for (index, order) in open_orders
-        .iter()
-        .enumerate()
-        .skip(start)
-        .take(VISIBLE_OPEN_ORDER_LIMIT)
-    {
-        let marker = if index == state.selected_open_order {
-            ">"
-        } else {
-            " "
-        };
-        lines.push(Line::from(format!(
-            "{marker} {} {} {} {} @ {} [{}]",
-            order.market,
-            order.side.as_deref().unwrap_or("-"),
-            order.remaining_quantity.as_deref().unwrap_or("-"),
-            order.symbol,
-            order.price.as_deref().unwrap_or("-"),
-            order.identifier()
-        )));
-    }
-    let hidden_after = open_orders
-        .len()
-        .saturating_sub(start.saturating_add(VISIBLE_OPEN_ORDER_LIMIT));
-    if hidden_after > 0 {
-        lines.push(Line::from(Span::styled(
-            format!("+{hidden_after} more open orders"),
-            state.theme.warning_style(),
-        )));
-    }
-    lines
 }
 
 fn transfer_history_lines(

@@ -32,6 +32,9 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
         InteractionMode::Normal if state.panels.focused() == Panel::OrderTicket => {
             crate::order_ticket_controls::order_ticket_key_hints()
         }
+        InteractionMode::Normal if state.panels.focused() == Panel::OpenOrders => {
+            crate::open_order_controls::open_order_key_hints()
+        }
         InteractionMode::Normal if state.panels.focused() == Panel::Account => {
             crate::account_controls::account_key_hints()
         }
@@ -312,6 +315,22 @@ mod tests {
                 "f stage state",
                 "q quit",
             ]
+        );
+    }
+
+    #[test]
+    fn open_orders_focus_shows_cancel_operation_hints() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            crate::model::WorkspaceKind::Trade,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(
+            crate::model::Panel::OpenOrders,
+        )));
+
+        assert_eq!(
+            mode_key_hints(&state),
+            vec!["up/down open order", "c stage cancel", "q quit"]
         );
     }
 

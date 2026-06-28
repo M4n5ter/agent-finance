@@ -12,6 +12,7 @@ mod input;
 mod keymap;
 mod layout;
 mod model;
+mod open_order_controls;
 mod order_ticket;
 mod order_ticket_controls;
 mod pane_status;

@@ -168,7 +168,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 60] = [
+pub const ACTION_REGISTRY: [ActionSpec; 62] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -398,6 +398,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 60] = [
         "Move keyboard focus to the staged order ticket"
     ),
     action!(
+        "focus-open-orders",
+        ActionId::FocusPanel(Panel::OpenOrders),
+        "Focus open orders",
+        "Move keyboard focus to active exchange orders"
+    ),
+    action!(
         "focus-intent-review",
         ActionId::FocusPanel(Panel::IntentReview),
         "Focus intent review",
@@ -468,6 +474,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 60] = [
         ActionId::TogglePanel(Panel::OrderTicket),
         "Toggle order ticket",
         "Show or hide the staged order ticket"
+    ),
+    action!(
+        "toggle-open-orders",
+        ActionId::TogglePanel(Panel::OpenOrders),
+        "Toggle open orders",
+        "Show or hide active exchange orders"
     ),
     action!(
         "toggle-intent-review",

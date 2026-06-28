@@ -380,6 +380,26 @@ mod tests {
     }
 
     #[test]
+    fn open_orders_focus_routes_only_cancel_surface_keys() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Trade,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(Panel::OpenOrders)));
+
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Down)),
+            Some(Action::MoveOpenOrderSelection(1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('c'))),
+            Some(Action::StageSelectedOpenOrderCancel)
+        );
+        assert_eq!(key_action(&state, KeyEvent::from(KeyCode::Char('t'))), None);
+        assert_eq!(key_action(&state, KeyEvent::from(KeyCode::Char('f'))), None);
+    }
+
+    #[test]
     fn account_local_keys_do_not_shadow_modified_global_keymap() {
         let mut state = AppState::from_config(crate::config::TuiConfig {
             keymap: KeymapConfig::from_overrides(vec![KeyBinding {

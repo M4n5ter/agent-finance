@@ -43,8 +43,8 @@ impl WorkspaceKind {
             ],
             Self::Trade => &[
                 Panel::Watchlist,
-                Panel::Quote,
                 Panel::OrderTicket,
+                Panel::OpenOrders,
                 Panel::IntentReview,
                 Panel::RiskAudit,
                 Panel::TaskLog,
@@ -200,6 +200,7 @@ pub enum Panel {
     Watchlist,
     Quote,
     OrderTicket,
+    OpenOrders,
     IntentReview,
     RiskAudit,
     Account,
@@ -213,10 +214,11 @@ pub enum Panel {
 }
 
 impl Panel {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Watchlist,
         Self::Quote,
         Self::OrderTicket,
+        Self::OpenOrders,
         Self::IntentReview,
         Self::RiskAudit,
         Self::Account,
@@ -234,6 +236,7 @@ impl Panel {
             Self::Watchlist => "Watchlist",
             Self::Quote => "Quote / Sessions",
             Self::OrderTicket => "Order Ticket",
+            Self::OpenOrders => "Open Orders",
             Self::IntentReview => "Intent Review",
             Self::RiskAudit => "Risk / Audit",
             Self::Account => "Account",
@@ -252,16 +255,17 @@ impl Panel {
             Self::Watchlist => 0,
             Self::Quote => 1,
             Self::OrderTicket => 2,
-            Self::IntentReview => 3,
-            Self::RiskAudit => 4,
-            Self::Account => 5,
-            Self::History => 6,
-            Self::Evidence => 7,
-            Self::Polymarket => 8,
-            Self::Research => 9,
-            Self::ProviderHealth => 10,
-            Self::TaskLog => 11,
-            Self::Settings => 12,
+            Self::OpenOrders => 3,
+            Self::IntentReview => 4,
+            Self::RiskAudit => 5,
+            Self::Account => 6,
+            Self::History => 7,
+            Self::Evidence => 8,
+            Self::Polymarket => 9,
+            Self::Research => 10,
+            Self::ProviderHealth => 11,
+            Self::TaskLog => 12,
+            Self::Settings => 13,
         }
     }
 }
