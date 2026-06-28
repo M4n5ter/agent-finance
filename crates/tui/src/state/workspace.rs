@@ -57,7 +57,7 @@ impl AppState {
             Some(FloatingKind::Help) => InteractionMode::Help,
             Some(
                 FloatingKind::LiveWritesConfirmation
-                | FloatingKind::StagedSubmitConfirmation
+                | FloatingKind::StagedExecutionConfirmation
                 | FloatingKind::ProviderDetails,
             ) => InteractionMode::Inspect,
             Some(
@@ -171,7 +171,7 @@ impl AppState {
             }
             FloatingKind::Help
             | FloatingKind::LiveWritesConfirmation
-            | FloatingKind::StagedSubmitConfirmation
+            | FloatingKind::StagedExecutionConfirmation
             | FloatingKind::ProviderDetails => {}
         }
     }

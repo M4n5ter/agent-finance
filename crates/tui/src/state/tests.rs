@@ -25,25 +25,33 @@ fn toggle_panel_action(panel: Panel) -> ActionId {
 }
 
 fn request_and_confirm_selected_staged_submit(state: &mut AppState) -> StagedSubmitRequest {
-    state.reduce(Action::SubmitStagedChange);
-    assert!(state.take_pending_staged_submit().is_none());
+    state.reduce(Action::ExecuteStagedChange);
+    assert!(state.take_pending_staged_execution().is_none());
     assert!(state.pending_staged_confirmation().is_some());
     assert_eq!(
         state.floating.last().map(|pane| pane.kind),
-        Some(FloatingKind::StagedSubmitConfirmation)
+        Some(FloatingKind::StagedExecutionConfirmation)
     );
 
-    state.reduce(Action::ConfirmStagedSubmit);
+    state.reduce(Action::ConfirmStagedExecution);
 
     assert!(state.pending_staged_confirmation().is_none());
     assert!(
         !state
             .floating
             .iter()
-            .any(|pane| pane.kind == FloatingKind::StagedSubmitConfirmation)
+            .any(|pane| pane.kind == FloatingKind::StagedExecutionConfirmation)
     );
     state
-        .take_pending_staged_submit()
+        .take_pending_staged_execution()
+        .and_then(|request| match request.execution {
+            StagedExecution::Submit { subject, mode } => Some(StagedSubmitRequest {
+                id: request.id,
+                subject,
+                mode,
+            }),
+            StagedExecution::LocalCommit { .. } => None,
+        })
         .expect("pending staged submit")
 }
 
@@ -92,7 +100,7 @@ fn staged_changes_use_dry_run_until_live_writes_are_confirmed() {
     )));
 
     let view = state.staged_change_views().pop().unwrap();
-    assert_eq!(view.mode, SubmitMode::DryRun);
+    assert_eq!(view.mode, Some(SubmitMode::DryRun));
 
     state.reduce(Action::CloseStagedChange("order-1".to_string()));
     state.reduce(Action::SetLiveWritesEnabled(true));
@@ -103,7 +111,7 @@ fn staged_changes_use_dry_run_until_live_writes_are_confirmed() {
     )));
 
     let view = state.staged_change_views().pop().unwrap();
-    assert_eq!(view.mode, SubmitMode::Live);
+    assert_eq!(view.mode, Some(SubmitMode::Live));
 }
 
 #[test]
@@ -135,7 +143,7 @@ fn order_ticket_staging_requires_core_valid_preview_before_review_change() {
     assert_eq!(changes[0].change_kind, StagedChangeKind::Order);
     assert_eq!(changes[0].intent_kind, Some(SubmitIntentKind::Order));
     assert_eq!(changes[0].stage, StagedChangeStage::Ready);
-    assert_eq!(changes[0].mode, SubmitMode::DryRun);
+    assert_eq!(changes[0].mode, Some(SubmitMode::DryRun));
     assert!(changes[0].intent_id.is_none());
     assert!(changes[0].summary.contains("CRDO"));
     let StagedChangeSubject::OrderTicket(review) = &changes[0].subject else {
@@ -172,13 +180,13 @@ fn submitting_ready_order_change_queues_submit_request() {
     };
     assert_eq!(review.symbol, "CRDO");
     assert_eq!(request.mode, SubmitMode::DryRun);
-    assert!(state.take_pending_staged_submit().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
     let change = state.staged_change_views().pop().unwrap();
     assert_eq!(change.stage, StagedChangeStage::SubmitQueued);
 }
 
 #[test]
-fn cancelling_staged_submit_confirmation_returns_change_to_ready() {
+fn cancelling_staged_execution_confirmation_returns_change_to_ready() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["CRDO".to_string()],
         workspace: WorkspaceConfig {
@@ -195,17 +203,17 @@ fn cancelling_staged_submit_confirmation_returns_change_to_ready() {
     state.order_ticket.set_price_text(Some("204".to_string()));
     state.reduce(Action::StageOrderTicket);
 
-    state.reduce(Action::SubmitStagedChange);
+    state.reduce(Action::ExecuteStagedChange);
     assert!(state.pending_staged_confirmation().is_some());
     assert_eq!(
         state.staged_change_views()[0].stage,
         StagedChangeStage::Ready
     );
 
-    state.reduce(Action::CancelStagedSubmitConfirmation);
+    state.reduce(Action::CancelStagedExecutionConfirmation);
 
     assert!(state.pending_staged_confirmation().is_none());
-    assert!(state.take_pending_staged_submit().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
     assert_eq!(
         state.staged_change_views()[0].stage,
         StagedChangeStage::Ready
@@ -214,7 +222,7 @@ fn cancelling_staged_submit_confirmation_returns_change_to_ready() {
         !state
             .floating
             .iter()
-            .any(|pane| pane.kind == FloatingKind::StagedSubmitConfirmation)
+            .any(|pane| pane.kind == FloatingKind::StagedExecutionConfirmation)
     );
 }
 
@@ -311,7 +319,7 @@ fn transfer_ticket_staging_creates_transfer_review_change() {
     assert_eq!(changes[0].change_kind, StagedChangeKind::Transfer);
     assert_eq!(changes[0].intent_kind, Some(SubmitIntentKind::Transfer));
     assert_eq!(changes[0].stage, StagedChangeStage::Ready);
-    assert_eq!(changes[0].mode, SubmitMode::DryRun);
+    assert_eq!(changes[0].mode, Some(SubmitMode::DryRun));
     assert!(changes[0].summary.contains("spot-to-usds-futures"));
     let StagedChangeSubject::Transfer(review) = &changes[0].subject else {
         panic!("staged transfer");
@@ -372,7 +380,7 @@ fn futures_state_ticket_staging_requires_value_then_creates_review_change() {
     assert_eq!(changes[0].change_kind, StagedChangeKind::FuturesState);
     assert_eq!(changes[0].intent_kind, Some(SubmitIntentKind::FuturesState));
     assert_eq!(changes[0].stage, StagedChangeStage::Ready);
-    assert_eq!(changes[0].mode, SubmitMode::DryRun);
+    assert_eq!(changes[0].mode, Some(SubmitMode::DryRun));
     let StagedChangeSubject::FuturesState(review) = &changes[0].subject else {
         panic!("staged futures state");
     };
@@ -604,8 +612,8 @@ fn cancel_stage_id_separates_dry_run_and_live_for_same_open_order() {
         snapshot: account_snapshot_with_open_orders("mainnet"),
     });
     state.reduce(Action::StageSelectedOpenOrderCancel);
-    state.reduce(Action::SubmitStagedChange);
-    state.reduce(Action::ConfirmStagedSubmit);
+    state.reduce(Action::ExecuteStagedChange);
+    state.reduce(Action::ConfirmStagedExecution);
     let dry_run_id = state.staged_change_views()[0].id.clone();
     for event in [
         StagedChangeEvent::IntentCreated {
@@ -631,9 +639,13 @@ fn cancel_stage_id_separates_dry_run_and_live_for_same_open_order() {
     assert!(
         changes
             .iter()
-            .any(|change| change.mode == SubmitMode::DryRun)
+            .any(|change| change.mode == Some(SubmitMode::DryRun))
     );
-    assert!(changes.iter().any(|change| change.mode == SubmitMode::Live));
+    assert!(
+        changes
+            .iter()
+            .any(|change| change.mode == Some(SubmitMode::Live))
+    );
 }
 
 #[test]
@@ -812,7 +824,7 @@ fn reducer_does_not_replace_active_staged_change_with_new_submit_mode() {
     )));
 
     let view = state.staged_change_views().pop().unwrap();
-    assert_eq!(view.mode, SubmitMode::DryRun);
+    assert_eq!(view.mode, Some(SubmitMode::DryRun));
     assert_eq!(view.stage, StagedChangeStage::Validating);
     assert_eq!(view.summary, "Dry run order");
 }
@@ -857,7 +869,7 @@ fn disabling_live_writes_abandons_pending_live_changes() {
 
     let view = state.staged_change_views().pop().unwrap();
     assert_eq!(view.stage, StagedChangeStage::Abandoned);
-    assert_eq!(view.mode, SubmitMode::DryRun);
+    assert_eq!(view.mode, Some(SubmitMode::DryRun));
     assert_eq!(state.effective_submit_mode(), SubmitMode::DryRun);
 }
 
@@ -1940,7 +1952,7 @@ fn trading_profile_revalidation_requires_selected_profile() {
 }
 
 #[test]
-fn profile_live_toggle_stages_validated_profile_risk_review_without_submit_request() {
+fn profile_live_toggle_stages_validated_profile_risk_review_for_local_commit_confirmation() {
     let mut state = AppState::from_config(TuiConfig {
         trading: crate::config::TradingConfig {
             default_profile: Some("mainnet".to_string()),
@@ -1981,14 +1993,18 @@ fn profile_live_toggle_stages_validated_profile_risk_review_without_submit_reque
     assert_eq!(review.diff, vec!["risk.allow_live: true -> false"]);
     assert_eq!(review.required_failure_count, 0);
 
-    state.reduce(Action::SubmitStagedChange);
+    state.reduce(Action::ExecuteStagedChange);
 
-    assert!(state.take_pending_staged_submit().is_none());
-    assert!(
+    assert!(state.take_pending_staged_execution().is_none());
+    assert!(matches!(
         state
-            .task_log
-            .iter()
-            .any(|entry| entry.message.contains("profile-risk is not submit-capable"))
+            .pending_staged_confirmation()
+            .map(|request| &request.execution),
+        Some(StagedExecution::LocalCommit { .. })
+    ));
+    assert_eq!(
+        state.floating.last().map(|pane| pane.kind),
+        Some(FloatingKind::StagedExecutionConfirmation)
     );
 }
 

@@ -93,7 +93,7 @@ fn non_consuming_completion_does_not_claim_core_submission_status() {
     let view = StagedChangeView::from(&change);
     assert_eq!(view.intent_id.as_deref(), Some("intent-1"));
     assert_eq!(view.intent_status, None);
-    assert_eq!(view.mode, SubmitMode::DryRun);
+    assert_eq!(view.mode, Some(SubmitMode::DryRun));
     assert!(!change.apply(StagedChangeEvent::LiveIntentClaimed {
         intent_id: "intent-1".to_string(),
     }));
@@ -120,7 +120,7 @@ fn test_completion_can_continue_to_live_without_claiming_core_submission() {
 
     let view = StagedChangeView::from(&change);
     assert_eq!(view.intent_status, None);
-    assert_eq!(view.mode, SubmitMode::Test);
+    assert_eq!(view.mode, Some(SubmitMode::Test));
     assert!(!change.apply(StagedChangeEvent::LiveIntentClaimed {
         intent_id: "intent-1".to_string(),
     }));
@@ -145,7 +145,7 @@ fn only_live_mode_changes_can_claim_live_intent() {
         assert!(!change.apply(StagedChangeEvent::LiveIntentClaimed {
             intent_id: "intent-1".to_string(),
         }));
-        assert_eq!(StagedChangeView::from(&change).mode, mode);
+        assert_eq!(StagedChangeView::from(&change).mode, Some(mode));
     }
 
     let mut live = StagedChange::from_request(request("change-1"), SubmitMode::Live);
@@ -188,7 +188,7 @@ fn live_preflight_failures_keep_core_intent_status_empty() {
     let view = StagedChangeView::from(&change);
     assert_eq!(view.stage, StagedChangeStage::LivePreflightFailed);
     assert_eq!(view.intent_status, None);
-    assert_eq!(view.mode, SubmitMode::Live);
+    assert_eq!(view.mode, Some(SubmitMode::Live));
     assert!(change.apply(StagedChangeEvent::LiveIntentClaimed {
         intent_id: "intent-1".to_string(),
     }));
@@ -260,7 +260,7 @@ fn staged_changes_do_not_replace_active_changes() {
     );
 
     let view = changes.views().pop().unwrap();
-    assert_eq!(view.mode, SubmitMode::DryRun);
+    assert_eq!(view.mode, Some(SubmitMode::DryRun));
     assert_eq!(view.stage, StagedChangeStage::Validating);
 }
 
@@ -278,7 +278,7 @@ fn draft_changes_can_be_replaced_before_validation_starts() {
     );
 
     let view = changes.views().pop().unwrap();
-    assert_eq!(view.mode, SubmitMode::Live);
+    assert_eq!(view.mode, Some(SubmitMode::Live));
     assert_eq!(view.stage, StagedChangeStage::Draft);
 }
 
@@ -298,13 +298,13 @@ fn selection_follows_new_changes_and_drives_submission() {
     assert!(!views[0].selected);
     assert!(views[1].selected);
 
-    let QueueSubmitResult::Queued(request) = changes.selected_submit_request() else {
+    let QueueExecutionResult::Queued(request) = changes.selected_execution_request() else {
         panic!("selected ready change should preview");
     };
     assert_eq!(request.id, "second");
     assert!(matches!(
-        changes.queue_submit_request(&request),
-        QueueSubmitResult::Queued(_)
+        changes.queue_execution_request(&request),
+        QueueExecutionResult::Queued(_)
     ));
 }
 
@@ -321,7 +321,7 @@ fn selection_can_move_before_submitting_or_closing() {
     );
     changes.move_selection(-1);
 
-    let QueueSubmitResult::Queued(request) = changes.selected_submit_request() else {
+    let QueueExecutionResult::Queued(request) = changes.selected_execution_request() else {
         panic!("moved selection should preview");
     };
     assert_eq!(request.id, "first");
@@ -356,13 +356,13 @@ fn selection_never_targets_hidden_review_changes() {
         format!("change-{}", VISIBLE_REVIEW_LIMIT - 1)
     );
 
-    let QueueSubmitResult::Queued(request) = changes.selected_submit_request() else {
+    let QueueExecutionResult::Queued(request) = changes.selected_execution_request() else {
         panic!("selected visible change should preview");
     };
     assert_eq!(request.id, format!("change-{}", VISIBLE_REVIEW_LIMIT - 1));
     assert!(matches!(
-        changes.queue_submit_request(&request),
-        QueueSubmitResult::Queued(_)
+        changes.queue_execution_request(&request),
+        QueueExecutionResult::Queued(_)
     ));
 }
 
@@ -384,13 +384,13 @@ fn selection_movement_wraps_inside_visible_review_window() {
         .find(|view| view.selected)
         .unwrap();
     assert_eq!(selected.id, "change-0");
-    let QueueSubmitResult::Queued(request) = changes.selected_submit_request() else {
+    let QueueExecutionResult::Queued(request) = changes.selected_execution_request() else {
         panic!("selected visible change should preview");
     };
     assert_eq!(request.id, selected.id);
     assert!(matches!(
-        changes.queue_submit_request(&request),
-        QueueSubmitResult::Queued(_)
+        changes.queue_execution_request(&request),
+        QueueExecutionResult::Queued(_)
     ));
 }
 
@@ -401,12 +401,12 @@ fn intent_created_changes_cannot_close_while_worker_may_still_report_progress() 
         changes.open_ready(request("change-1"), SubmitMode::Live),
         OpenStagedChangeResult::Opened
     );
-    let QueueSubmitResult::Queued(request) = changes.selected_submit_request() else {
+    let QueueExecutionResult::Queued(request) = changes.selected_execution_request() else {
         panic!("selected ready change should preview");
     };
     assert!(matches!(
-        changes.queue_submit_request(&request),
-        QueueSubmitResult::Queued(_)
+        changes.queue_execution_request(&request),
+        QueueExecutionResult::Queued(_)
     ));
     assert_eq!(
         changes.apply(
@@ -466,7 +466,7 @@ fn disabling_live_abandons_pending_live_changes_but_keeps_claimed_changes() {
         .expect("submitting view");
 
     assert_eq!(pending.stage, StagedChangeStage::Abandoned);
-    assert_eq!(pending.mode, SubmitMode::DryRun);
+    assert_eq!(pending.mode, Some(SubmitMode::DryRun));
     assert_eq!(submitting.stage, StagedChangeStage::LiveIntentClaimed);
-    assert_eq!(submitting.mode, SubmitMode::Live);
+    assert_eq!(submitting.mode, Some(SubmitMode::Live));
 }

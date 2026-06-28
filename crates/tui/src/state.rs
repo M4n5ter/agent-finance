@@ -43,11 +43,12 @@ pub use staged_change::StagedChangeStage;
 pub(crate) use staged_change::VISIBLE_REVIEW_LIMIT;
 pub use staged_change::{
     CancelReview, FuturesStateReview, OrderTicketReview, ProfileRiskReview, StagedChangeEvent,
-    StagedChangeRequest, StagedChangeSubject, StagedChangeView, StagedSubmitRequest,
-    StagedSubmitSubject, TransferReview,
+    StagedChangeRequest, StagedChangeSubject, StagedChangeView, StagedExecution,
+    StagedExecutionRequest, StagedLocalCommitSubject, StagedSubmitRequest, StagedSubmitSubject,
+    TransferReview,
 };
 use staged_change::{
-    CloseStagedChangeResult, OpenStagedChangeResult, QueueSubmitResult, StagedChanges,
+    CloseStagedChangeResult, OpenStagedChangeResult, QueueExecutionResult, StagedChanges,
     TransitionResult,
 };
 
@@ -91,8 +92,8 @@ pub struct AppState {
     pub transfer_ticket: TransferTicket,
     pub futures_state_ticket: FuturesStateTicket,
     staged_changes: StagedChanges,
-    pending_staged_confirmation: Option<StagedSubmitRequest>,
-    pending_staged_submit: Option<StagedSubmitRequest>,
+    pending_staged_confirmation: Option<StagedExecutionRequest>,
+    pending_staged_execution: Option<StagedExecutionRequest>,
     pending_provider_preferences_update: bool,
     pending_config_save: bool,
 }
@@ -146,7 +147,7 @@ impl AppState {
             futures_state_ticket: FuturesStateTicket::default(),
             staged_changes: StagedChanges::default(),
             pending_staged_confirmation: None,
-            pending_staged_submit: None,
+            pending_staged_execution: None,
             pending_provider_preferences_update: false,
             pending_config_save: false,
         };
@@ -216,12 +217,12 @@ impl AppState {
         self.staged_changes.len()
     }
 
-    pub fn pending_staged_confirmation(&self) -> Option<&StagedSubmitRequest> {
+    pub fn pending_staged_confirmation(&self) -> Option<&StagedExecutionRequest> {
         self.pending_staged_confirmation.as_ref()
     }
 
-    pub fn take_pending_staged_submit(&mut self) -> Option<StagedSubmitRequest> {
-        self.pending_staged_submit.take()
+    pub fn take_pending_staged_execution(&mut self) -> Option<StagedExecutionRequest> {
+        self.pending_staged_execution.take()
     }
 
     pub fn take_pending_provider_preferences_update(&mut self) -> Option<ProviderConfig> {
@@ -675,9 +676,11 @@ impl AppState {
             Action::MoveStagedChangeSelection(direction) => {
                 self.staged_changes.move_selection(direction);
             }
-            Action::SubmitStagedChange => self.request_staged_submit_confirmation(),
-            Action::ConfirmStagedSubmit => self.confirm_staged_submit(),
-            Action::CancelStagedSubmitConfirmation => self.cancel_staged_submit_confirmation(),
+            Action::ExecuteStagedChange => self.request_staged_change_confirmation(),
+            Action::ConfirmStagedExecution => self.confirm_staged_execution(),
+            Action::CancelStagedExecutionConfirmation => {
+                self.cancel_staged_execution_confirmation()
+            }
             Action::RequestConfigSave => self.request_config_save(),
             Action::ConfigSaved => self.config_saved(),
             Action::ConfigSaveFailed(error) => self.config_save_failed(error),
@@ -710,9 +713,9 @@ impl AppState {
                 if self
                     .floating
                     .last()
-                    .is_some_and(|pane| pane.kind == FloatingKind::StagedSubmitConfirmation)
+                    .is_some_and(|pane| pane.kind == FloatingKind::StagedExecutionConfirmation)
                 {
-                    self.cancel_staged_submit_confirmation();
+                    self.cancel_staged_execution_confirmation();
                 } else {
                     self.close_top_floating();
                 }
@@ -817,7 +820,7 @@ impl AppState {
                     "live writes disabled for this TUI session".to_string()
                 });
                 if !enabled {
-                    self.cancel_staged_submit_confirmation();
+                    self.cancel_staged_execution_confirmation();
                     let abandoned = self.staged_changes.disable_live();
                     if abandoned > 0 {
                         self.task_log.warning_event(format!(
@@ -868,72 +871,104 @@ impl AppState {
                     .task_log
                     .warning_event(format!("staged change cannot close while {current}")),
             },
+            Action::ProfileRiskCommitSucceeded {
+                id,
+                snapshot,
+                message,
+            } => {
+                self.apply_profile_risk_commit_success(id, snapshot, message);
+            }
+            Action::ProfileRiskCommitFailed { id, error } => {
+                self.apply_profile_risk_commit_failure(id, error);
+            }
             Action::Log(message) => self.task_log.info(message),
         }
     }
 
-    fn request_staged_submit_confirmation(&mut self) {
+    fn request_staged_change_confirmation(&mut self) {
         if self.pending_staged_confirmation.is_some() {
-            self.open_floating(FloatingKind::StagedSubmitConfirmation);
+            self.open_floating(FloatingKind::StagedExecutionConfirmation);
             return;
         }
-        match self.staged_changes.selected_submit_request() {
-            QueueSubmitResult::Queued(request) => {
+        match self.staged_changes.selected_execution_request() {
+            QueueExecutionResult::Queued(request) => {
                 self.task_log.info(format!(
-                    "staged {} change {} awaiting submit confirmation as {}",
-                    request.subject.summary(),
-                    request.id,
-                    request.mode
+                    "staged {} change {} awaiting execution confirmation",
+                    request.summary(),
+                    request.id
                 ));
                 self.pending_staged_confirmation = Some(request);
-                self.open_floating(FloatingKind::StagedSubmitConfirmation);
+                self.open_floating(FloatingKind::StagedExecutionConfirmation);
             }
-            QueueSubmitResult::Missing => self
+            QueueExecutionResult::Missing => self
                 .task_log
-                .warning_event("no selected staged change to submit".to_string()),
-            QueueSubmitResult::Rejected { current } => self.task_log.warning_event(format!(
-                "selected staged change cannot submit from current state {current}"
+                .warning_event("no selected staged change to execute".to_string()),
+            QueueExecutionResult::Rejected { current } => self.task_log.warning_event(format!(
+                "selected staged change cannot execute from current state {current}"
             )),
         }
     }
 
-    fn confirm_staged_submit(&mut self) {
+    fn confirm_staged_execution(&mut self) {
         let Some(request) = self.pending_staged_confirmation.take() else {
             self.task_log
-                .warning_event("no staged submit confirmation is pending".to_string());
-            self.close_floating(FloatingKind::StagedSubmitConfirmation);
+                .warning_event("no staged execution confirmation is pending".to_string());
+            self.close_floating(FloatingKind::StagedExecutionConfirmation);
             return;
         };
-        match self.staged_changes.queue_submit_request(&request) {
-            QueueSubmitResult::Queued(request) => {
+        match self.staged_changes.queue_execution_request(&request) {
+            QueueExecutionResult::Queued(request) => {
                 self.task_log.info(format!(
-                    "submitting staged {} change {} as {}",
-                    request.subject.summary(),
-                    request.id,
-                    request.mode
+                    "executing staged {} change {}",
+                    request.summary(),
+                    request.id
                 ));
-                self.pending_staged_submit = Some(request);
+                self.pending_staged_execution = Some(request);
             }
-            QueueSubmitResult::Missing => self
+            QueueExecutionResult::Missing => self
                 .task_log
-                .warning_event("pending staged submit confirmation disappeared".to_string()),
-            QueueSubmitResult::Rejected { current } => self.task_log.warning_event(format!(
-                "pending staged submit confirmation cannot submit from {current}"
+                .warning_event("pending staged execution confirmation disappeared".to_string()),
+            QueueExecutionResult::Rejected { current } => self.task_log.warning_event(format!(
+                "pending staged execution confirmation cannot execute from {current}"
             )),
         }
-        self.close_floating(FloatingKind::StagedSubmitConfirmation);
+        self.close_floating(FloatingKind::StagedExecutionConfirmation);
     }
 
-    fn cancel_staged_submit_confirmation(&mut self) {
+    fn cancel_staged_execution_confirmation(&mut self) {
         let Some(request) = self.pending_staged_confirmation.take() else {
-            self.close_floating(FloatingKind::StagedSubmitConfirmation);
+            self.close_floating(FloatingKind::StagedExecutionConfirmation);
             return;
         };
         self.task_log.info(format!(
-            "cancelled staged submit confirmation for {}",
+            "cancelled staged execution confirmation for {}",
             request.id
         ));
-        self.close_floating(FloatingKind::StagedSubmitConfirmation);
+        self.close_floating(FloatingKind::StagedExecutionConfirmation);
+    }
+
+    fn apply_profile_risk_commit_success(
+        &mut self,
+        id: String,
+        snapshot: ProfileValidationSnapshot,
+        message: String,
+    ) {
+        self.reduce(Action::ApplyStagedChangeEvent {
+            id,
+            event: StagedChangeEvent::LocalCommitSucceeded,
+        });
+        if self.trading_profile.as_deref() == Some(snapshot.profile.as_str()) {
+            self.profile_validation = ProfileValidationState::ready(snapshot);
+        }
+        self.task_log.info(message);
+    }
+
+    fn apply_profile_risk_commit_failure(&mut self, id: String, error: String) {
+        self.reduce(Action::ApplyStagedChangeEvent {
+            id,
+            event: StagedChangeEvent::LocalCommitFailed,
+        });
+        self.task_log.warning_event(error);
     }
 }
 
@@ -1074,9 +1109,18 @@ pub enum Action {
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     MoveStagedChangeSelection(isize),
-    SubmitStagedChange,
-    ConfirmStagedSubmit,
-    CancelStagedSubmitConfirmation,
+    ExecuteStagedChange,
+    ConfirmStagedExecution,
+    CancelStagedExecutionConfirmation,
+    ProfileRiskCommitSucceeded {
+        id: String,
+        snapshot: ProfileValidationSnapshot,
+        message: String,
+    },
+    ProfileRiskCommitFailed {
+        id: String,
+        error: String,
+    },
     RequestConfigSave,
     ConfigSaved,
     ConfigSaveFailed(String),

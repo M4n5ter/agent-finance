@@ -7,12 +7,14 @@ use std::fmt;
 
 #[cfg(test)]
 use super::subject::StagedChangeRequest;
-use super::subject::{StagedChangeKind, StagedChangeSubject};
+use super::subject::{
+    StagedChangeKind, StagedChangeSubject, StagedExecution, StagedExecutionRequest,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StagedChange {
     pub(crate) id: String,
-    pub(crate) default_mode: SubmitMode,
+    pub(crate) execution: StagedChangeExecution,
     pub(crate) state: StagedChangeState,
     pub(crate) subject: StagedChangeSubject,
 }
@@ -22,7 +24,7 @@ impl StagedChange {
     pub(crate) fn from_request(request: StagedChangeRequest, default_mode: SubmitMode) -> Self {
         Self {
             id: request.id,
-            default_mode,
+            execution: StagedChangeExecution::from_subject(&request.subject, default_mode),
             state: StagedChangeState::Draft,
             subject: request.subject,
         }
@@ -35,7 +37,7 @@ impl StagedChange {
 
     pub fn apply(&mut self, event: StagedChangeEvent) -> bool {
         if matches!(event, StagedChangeEvent::LiveIntentClaimed { .. })
-            && self.default_mode != SubmitMode::Live
+            && self.execution.mode(&self.state) != Some(SubmitMode::Live)
         {
             return false;
         }
@@ -47,12 +49,81 @@ impl StagedChange {
     }
 
     pub(crate) fn disable_live(&mut self) -> bool {
-        if self.default_mode != SubmitMode::Live || !self.state.can_disable_live() {
+        if !self.execution.uses_live_default() || !self.state.can_disable_live() {
             return false;
         }
-        self.default_mode = SubmitMode::DryRun;
+        self.execution.disable_live_default();
         self.state = StagedChangeState::Abandoned;
         true
+    }
+
+    pub(crate) fn execution_request(&self) -> StagedExecutionRequest {
+        StagedExecutionRequest {
+            id: self.id.clone(),
+            execution: self.execution.request_execution(&self.subject, &self.state),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum StagedChangeExecution {
+    Submit { default_mode: SubmitMode },
+    LocalCommit,
+}
+
+impl StagedChangeExecution {
+    pub(crate) fn from_subject(subject: &StagedChangeSubject, default_mode: SubmitMode) -> Self {
+        match subject {
+            StagedChangeSubject::ProfileRisk(_) => Self::LocalCommit,
+            StagedChangeSubject::OrderTicket(_)
+            | StagedChangeSubject::Cancel(_)
+            | StagedChangeSubject::Transfer(_)
+            | StagedChangeSubject::FuturesState(_) => Self::Submit { default_mode },
+            #[cfg(test)]
+            StagedChangeSubject::Text { .. } => Self::Submit { default_mode },
+        }
+    }
+
+    fn mode(&self, state: &StagedChangeState) -> Option<SubmitMode> {
+        match self {
+            Self::Submit { default_mode } => Some(state.mode(*default_mode)),
+            Self::LocalCommit => None,
+        }
+    }
+
+    fn uses_live_default(&self) -> bool {
+        matches!(
+            self,
+            Self::Submit {
+                default_mode: SubmitMode::Live
+            }
+        )
+    }
+
+    fn disable_live_default(&mut self) {
+        if let Self::Submit { default_mode } = self {
+            *default_mode = SubmitMode::DryRun;
+        }
+    }
+
+    fn request_execution(
+        &self,
+        subject: &StagedChangeSubject,
+        state: &StagedChangeState,
+    ) -> StagedExecution {
+        match self {
+            Self::Submit { default_mode } => StagedExecution::Submit {
+                subject: subject
+                    .submit_subject()
+                    .expect("submit execution should have submit subject"),
+                mode: state.mode(*default_mode),
+            },
+            Self::LocalCommit => StagedExecution::LocalCommit {
+                subject: subject
+                    .local_commit_subject()
+                    .expect("local commit execution should have local commit subject"),
+            },
+        }
     }
 }
 
@@ -88,6 +159,9 @@ pub enum StagedChangeEvent {
     LiveSubmitFailed {
         intent_id: String,
     },
+    LocalCommitQueued,
+    LocalCommitSucceeded,
+    LocalCommitFailed,
     FailedBeforeIntent,
     Abandoned,
 }
@@ -119,6 +193,9 @@ pub(crate) enum StagedChangeState {
     IntentFailed {
         intent_id: String,
     },
+    LocalCommitQueued,
+    LocalCommitted,
+    LocalCommitFailed,
     Abandoned,
 }
 
@@ -183,6 +260,14 @@ impl StagedChangeState {
                 Self::LiveIntentClaimed { intent_id },
                 StagedChangeEvent::LiveSubmitFailed { intent_id: next_id },
             ) if intent_id == &next_id => Some(Self::IntentFailed { intent_id: next_id }),
+            (Self::Ready, StagedChangeEvent::LocalCommitQueued) => Some(Self::LocalCommitQueued),
+            (Self::LocalCommitQueued, StagedChangeEvent::LocalCommitSucceeded) => {
+                Some(Self::LocalCommitted)
+            }
+            (Self::LocalCommitQueued, StagedChangeEvent::LocalCommitFailed) => {
+                Some(Self::LocalCommitFailed)
+            }
+            (Self::LocalCommitFailed, StagedChangeEvent::Abandoned) => Some(Self::Abandoned),
             _ => None,
         }
     }
@@ -218,6 +303,9 @@ impl StagedChangeState {
             Self::LiveSubmitted { .. } => StagedChangeStage::LiveSubmitted,
             Self::FailedBeforeIntent => StagedChangeStage::FailedBeforeIntent,
             Self::IntentFailed { .. } => StagedChangeStage::IntentFailed,
+            Self::LocalCommitQueued => StagedChangeStage::LocalCommitQueued,
+            Self::LocalCommitted => StagedChangeStage::LocalCommitted,
+            Self::LocalCommitFailed => StagedChangeStage::LocalCommitFailed,
             Self::Abandoned => StagedChangeStage::Abandoned,
         }
     }
@@ -256,14 +344,21 @@ impl StagedChangeState {
     pub(crate) fn accepts_replacement(&self) -> bool {
         matches!(
             self,
-            Self::Draft | Self::FailedBeforeIntent | Self::IntentFailed { .. } | Self::Abandoned
+            Self::Draft
+                | Self::FailedBeforeIntent
+                | Self::IntentFailed { .. }
+                | Self::LocalCommitFailed
+                | Self::Abandoned
         )
     }
 
     pub(crate) fn blocks_close(&self) -> bool {
         matches!(
             self,
-            Self::SubmitQueued | Self::IntentCreated { .. } | Self::LiveIntentClaimed { .. }
+            Self::SubmitQueued
+                | Self::IntentCreated { .. }
+                | Self::LiveIntentClaimed { .. }
+                | Self::LocalCommitQueued
         )
     }
 
@@ -315,6 +410,9 @@ pub enum StagedChangeStage {
     LiveSubmitted,
     FailedBeforeIntent,
     IntentFailed,
+    LocalCommitQueued,
+    LocalCommitted,
+    LocalCommitFailed,
     Abandoned,
 }
 
@@ -335,6 +433,9 @@ impl StagedChangeStage {
             Self::LiveSubmitted => "live-submitted",
             Self::FailedBeforeIntent => "failed-before-intent",
             Self::IntentFailed => "intent-failed",
+            Self::LocalCommitQueued => "local-commit-queued",
+            Self::LocalCommitted => "local-committed",
+            Self::LocalCommitFailed => "local-commit-failed",
             Self::Abandoned => "abandoned",
         }
     }
@@ -353,7 +454,7 @@ pub struct StagedChangeView {
     pub change_kind: StagedChangeKind,
     pub intent_kind: Option<SubmitIntentKind>,
     pub stage: StagedChangeStage,
-    pub mode: SubmitMode,
+    pub mode: Option<SubmitMode>,
     pub intent_id: Option<String>,
     pub intent_status: Option<IntentStatus>,
     pub summary: String,
@@ -374,7 +475,7 @@ impl StagedChangeView {
             change_kind: change.subject.kind(),
             intent_kind: change.subject.submit_intent_kind(),
             stage: change.state.stage(),
-            mode: change.state.mode(change.default_mode),
+            mode: change.execution.mode(&change.state),
             intent_id: change.state.intent_id().map(ToString::to_string),
             intent_status: change.state.intent_status(),
             summary: change.subject.summary(),

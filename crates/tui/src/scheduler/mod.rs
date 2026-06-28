@@ -517,11 +517,8 @@ fn handle_profile_validation_command(command: ProfileValidationCommand) -> Sched
 
 fn load_profile_validation_snapshot(profile: &str) -> Result<ProfileValidationSnapshot> {
     let store = ProfileStore::from_default_dir()?;
-    let loaded = store.load(profile)?;
-    Ok(ProfileValidationSnapshot::from_profile(
-        &loaded,
-        store.path(profile),
-    ))
+    let loaded = store.load_report(profile)?;
+    Ok(ProfileValidationSnapshot::from_loaded(loaded))
 }
 
 fn scheduler_runtime(

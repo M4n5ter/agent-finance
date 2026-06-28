@@ -1,6 +1,10 @@
 use crate::config::{TuiConfig, TuiLaunch};
+use crate::profile_snapshot::ProfileValidationSnapshot;
 use crate::scheduler::Scheduler;
-use crate::state::{Action, AppState, StagedChangeEvent};
+use crate::state::{
+    Action, AppState, StagedChangeEvent, StagedExecution, StagedLocalCommitSubject,
+    StagedSubmitRequest,
+};
 
 use super::{SymbolLoadRuntimes, request_provider_backed_symbol_loads, request_refresh};
 
@@ -17,15 +21,36 @@ pub(super) fn drain_pending_app_requests(
     mut context: PendingAppRequests<'_>,
     state: &mut AppState,
 ) {
-    request_pending_staged_submit(context.scheduler, state);
+    execute_pending_staged_change(context.scheduler, state);
     apply_pending_provider_preferences(&mut context, state);
     persist_pending_config_save(&context, state);
 }
 
-fn request_pending_staged_submit(scheduler: &Scheduler, state: &mut AppState) {
-    let Some(request) = state.take_pending_staged_submit() else {
+fn execute_pending_staged_change(scheduler: &Scheduler, state: &mut AppState) {
+    let Some(request) = state.take_pending_staged_execution() else {
         return;
     };
+    match request.execution {
+        StagedExecution::Submit { subject, mode } => request_pending_staged_submit(
+            scheduler,
+            state,
+            StagedSubmitRequest {
+                id: request.id,
+                subject,
+                mode,
+            },
+        ),
+        StagedExecution::LocalCommit { subject } => {
+            commit_pending_staged_local_change(state, request.id, subject);
+        }
+    }
+}
+
+fn request_pending_staged_submit(
+    scheduler: &Scheduler,
+    state: &mut AppState,
+    request: crate::state::StagedSubmitRequest,
+) {
     let id = request.id.clone();
     match scheduler.request_staged_submit(request) {
         Ok(()) => {}
@@ -37,6 +62,64 @@ fn request_pending_staged_submit(scheduler: &Scheduler, state: &mut AppState) {
             state.reduce(Action::Log(error.to_string()));
         }
     }
+}
+
+fn commit_pending_staged_local_change(
+    state: &mut AppState,
+    id: String,
+    subject: StagedLocalCommitSubject,
+) {
+    match subject {
+        StagedLocalCommitSubject::ProfileRisk(review) => {
+            let committed = profile_store_for_review_path(&review.path).and_then(|store| {
+                let expected_path = store.path(&review.profile);
+                if expected_path != review.path {
+                    anyhow::bail!(
+                        "profile review path {} does not match profile store path {}",
+                        review.path.display(),
+                        expected_path.display()
+                    );
+                }
+                store
+                    .plan_replace_unchanged(&review.expected_content_hash, &review.next_profile)
+                    .and_then(|plan| store.commit_write_plan(plan))
+            });
+            match committed {
+                Ok(report) => {
+                    let backup = report
+                        .backup_path
+                        .as_ref()
+                        .map(|path| format!(" with backup {}", path.display()))
+                        .unwrap_or_default();
+                    state.reduce(Action::ProfileRiskCommitSucceeded {
+                        id,
+                        snapshot: ProfileValidationSnapshot::from_profile(
+                            &review.next_profile,
+                            report.path.clone(),
+                        ),
+                        message: format!(
+                            "committed profile risk change for {} to {}{}",
+                            report.profile,
+                            report.path.display(),
+                            backup
+                        ),
+                    });
+                }
+                Err(error) => state.reduce(Action::ProfileRiskCommitFailed {
+                    id,
+                    error: format!("failed to commit profile risk change: {error:#}"),
+                }),
+            }
+        }
+    }
+}
+
+fn profile_store_for_review_path(
+    path: &std::path::Path,
+) -> anyhow::Result<agent_finance_core::ProfileStore> {
+    path.parent()
+        .map(agent_finance_core::ProfileStore::from_root)
+        .ok_or_else(|| anyhow::anyhow!("profile path {} has no parent directory", path.display()))
 }
 
 fn apply_pending_provider_preferences(context: &mut PendingAppRequests<'_>, state: &mut AppState) {
@@ -84,6 +167,9 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+    use crate::profile_snapshot::{
+        ProfileValidationSnapshot, ProfileValidationState, test_profile,
+    };
 
     #[test]
     fn explicit_config_save_persists_runtime_config_and_clears_dirty() {
@@ -217,11 +303,128 @@ mod tests {
         assert!(!path.exists());
     }
 
+    #[test]
+    fn pending_profile_risk_local_commit_writes_profile_backup_and_refreshes_validation() {
+        let root = unique_temp_profile_dir("profile-risk-commit");
+        fs::create_dir_all(&root).expect("create temp profile dir");
+        let store = agent_finance_core::ProfileStore::from_root(&root);
+        let profile = test_profile("mainnet");
+        store.write(&profile).expect("write source profile");
+        let mut state = AppState::from_config(TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::ProfileValidationStarted {
+            generation: 1,
+            profile: "mainnet".to_string(),
+        });
+        state.reduce(Action::ProfileValidationLoaded {
+            generation: 1,
+            snapshot: ProfileValidationSnapshot::from_profile(&profile, store.path("mainnet")),
+        });
+        state.reduce(Action::Execute(
+            crate::command::ActionId::StageProfileLiveToggle,
+        ));
+        state.reduce(Action::ExecuteStagedChange);
+        state.reduce(Action::ConfirmStagedExecution);
+
+        commit_pending_staged_local_change_for_test(&mut state);
+
+        let updated = store.load("mainnet").expect("load updated profile");
+        assert!(!updated.risk.allow_live);
+        let backups = fs::read_dir(&root)
+            .expect("read profile dir")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".bak-"))
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            state.staged_change_views()[0].stage,
+            crate::state::StagedChangeStage::LocalCommitted
+        );
+        assert!(matches!(
+            &state.profile_validation,
+            ProfileValidationState::Ready {
+                profile,
+                profile_config,
+                ..
+            } if profile == "mainnet" && !profile_config.risk.allow_live
+        ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pending_profile_risk_local_commit_rejects_profile_changed_after_staging() {
+        let root = unique_temp_profile_dir("profile-risk-stale");
+        fs::create_dir_all(&root).expect("create temp profile dir");
+        let store = agent_finance_core::ProfileStore::from_root(&root);
+        let profile = test_profile("mainnet");
+        store.write(&profile).expect("write source profile");
+        let mut state = AppState::from_config(TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::ProfileValidationStarted {
+            generation: 1,
+            profile: "mainnet".to_string(),
+        });
+        state.reduce(Action::ProfileValidationLoaded {
+            generation: 1,
+            snapshot: ProfileValidationSnapshot::from_profile(&profile, store.path("mainnet")),
+        });
+        state.reduce(Action::Execute(
+            crate::command::ActionId::StageProfileLiveToggle,
+        ));
+        state.reduce(Action::ExecuteStagedChange);
+        state.reduce(Action::ConfirmStagedExecution);
+        let mut external = profile.clone();
+        external.permissions.spot_trading = false;
+        store.write(&external).expect("external profile edit");
+
+        commit_pending_staged_local_change_for_test(&mut state);
+
+        let loaded = store.load("mainnet").expect("load current profile");
+        assert!(!loaded.permissions.spot_trading);
+        assert!(loaded.risk.allow_live);
+        assert_eq!(
+            state.staged_change_views()[0].stage,
+            crate::state::StagedChangeStage::LocalCommitFailed
+        );
+        assert!(state.task_log.iter().any(|entry| {
+            entry
+                .message
+                .contains("changed after validation; revalidate before replacing it")
+        }));
+        let _ = fs::remove_dir_all(root);
+    }
+
     fn unique_temp_config_path(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be after unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("agent-finance-tui-app-{name}-{nanos}.toml"))
+    }
+
+    fn unique_temp_profile_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("agent-finance-tui-app-{name}-{nanos}"))
+    }
+
+    fn commit_pending_staged_local_change_for_test(state: &mut AppState) {
+        let request = state
+            .take_pending_staged_execution()
+            .expect("pending staged execution");
+        let StagedExecution::LocalCommit { subject } = request.execution else {
+            panic!("expected local commit execution");
+        };
+        commit_pending_staged_local_change(state, request.id, subject);
     }
 }

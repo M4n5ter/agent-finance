@@ -57,6 +57,7 @@ impl AppState {
             profile,
             path,
             profile_config,
+            source_content_hash,
             ..
         } = &self.profile_validation
         else {
@@ -72,7 +73,12 @@ impl AppState {
             return;
         }
 
-        let review = ProfileRiskReview::allow_live_toggle(profile, path.clone(), profile_config);
+        let review = ProfileRiskReview::allow_live_toggle(
+            profile,
+            path.clone(),
+            source_content_hash.clone(),
+            profile_config,
+        );
         let request = StagedChangeRequest {
             id: profile_risk_staged_change_id(profile, "allow-live", review.target_value()),
             subject: StagedChangeSubject::ProfileRisk(review),

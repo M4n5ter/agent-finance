@@ -6,12 +6,13 @@ mod workflow;
 mod tests;
 
 pub(crate) use collection::{
-    CloseStagedChangeResult, OpenStagedChangeResult, QueueSubmitResult, StagedChanges,
+    CloseStagedChangeResult, OpenStagedChangeResult, QueueExecutionResult, StagedChanges,
     TransitionResult, VISIBLE_REVIEW_LIMIT,
 };
 pub use subject::{
     CancelReview, FuturesStateReview, OrderTicketReview, ProfileRiskReview, StagedChangeRequest,
-    StagedChangeSubject, StagedSubmitRequest, StagedSubmitSubject, TransferReview,
+    StagedChangeSubject, StagedExecution, StagedExecutionRequest, StagedLocalCommitSubject,
+    StagedSubmitRequest, StagedSubmitSubject, TransferReview,
 };
 #[cfg(test)]
 pub use subject::{ProfileRiskChange, StagedChangeKind};

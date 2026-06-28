@@ -16,9 +16,9 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
     if state
         .floating
         .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::StagedSubmitConfirmation)
+        .is_some_and(|pane| pane.kind == FloatingKind::StagedExecutionConfirmation)
     {
-        return vec!["enter confirm submit".to_string(), "esc cancel".to_string()];
+        return vec!["enter confirm".to_string(), "esc cancel".to_string()];
     }
 
     if let Some(spec) = active_input_mode_spec(state) {
@@ -190,7 +190,7 @@ fn input_mode_spec_for_kind(kind: FloatingKind) -> Option<InputModeSpec> {
         }),
         FloatingKind::Help
         | FloatingKind::LiveWritesConfirmation
-        | FloatingKind::StagedSubmitConfirmation
+        | FloatingKind::StagedExecutionConfirmation
         | FloatingKind::ProviderDetails => None,
     }
 }

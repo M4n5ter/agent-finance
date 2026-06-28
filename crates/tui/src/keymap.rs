@@ -324,6 +324,7 @@ fn persisted_action_id(id: &str) -> Option<ActionId> {
             Some(ActionId::SetWorkspace(WorkspaceKind::Market))
         }
         "workspace-crypto" => Some(ActionId::SetWorkspace(WorkspaceKind::Research)),
+        "submit-staged-change" => Some(ActionId::ExecuteStagedChange),
         value => action_by_id(value),
     }
 }
@@ -393,9 +394,13 @@ mod tests {
             [[overrides]]
             key = "r"
             action = "workspace-crypto"
+
+            [[overrides]]
+            key = "e"
+            action = "submit-staged-change"
             "#,
         )
-        .expect("legacy workspace actions should load");
+        .expect("legacy actions should load");
 
         assert_eq!(
             decoded.overrides[0].action,
@@ -405,12 +410,15 @@ mod tests {
             decoded.overrides[1].action,
             ActionId::SetWorkspace(WorkspaceKind::Research)
         );
+        assert_eq!(decoded.overrides[2].action, ActionId::ExecuteStagedChange);
 
         let encoded = toml::to_string(&decoded).expect("encode");
         assert!(encoded.contains("action = \"workspace-market\""));
         assert!(encoded.contains("action = \"workspace-research\""));
+        assert!(encoded.contains("action = \"execute-staged-change\""));
         assert!(!encoded.contains("workspace-overview"));
         assert!(!encoded.contains("workspace-crypto"));
+        assert!(!encoded.contains("submit-staged-change"));
     }
 
     #[test]

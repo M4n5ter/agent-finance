@@ -366,7 +366,7 @@ pub enum FloatingKind {
     CommandPalette,
     Help,
     LiveWritesConfirmation,
-    StagedSubmitConfirmation,
+    StagedExecutionConfirmation,
     TradingProfile,
     ProviderDetails,
     SymbolSearch,
@@ -378,7 +378,7 @@ impl FloatingKind {
         match self {
             Self::CommandPalette
             | Self::LiveWritesConfirmation
-            | Self::StagedSubmitConfirmation
+            | Self::StagedExecutionConfirmation
             | Self::TradingProfile
             | Self::SymbolSearch
             | Self::WatchlistAdd => false,
@@ -398,7 +398,7 @@ impl FloatingKind {
             Self::CommandPalette => "Command Palette",
             Self::Help => "Help",
             Self::LiveWritesConfirmation => "Enable Live Writes",
-            Self::StagedSubmitConfirmation => "Confirm Staged Submit",
+            Self::StagedExecutionConfirmation => "Confirm Staged Execution",
             Self::TradingProfile => "Trading Profile",
             Self::ProviderDetails => "Provider Details",
             Self::SymbolSearch => "Symbol Search",
@@ -441,10 +441,12 @@ impl FloatingSize {
                 width_ratio: 70,
                 height_ratio: 40,
             },
-            FloatingKind::LiveWritesConfirmation | FloatingKind::StagedSubmitConfirmation => Self {
-                width_ratio: 56,
-                height_ratio: 34,
-            },
+            FloatingKind::LiveWritesConfirmation | FloatingKind::StagedExecutionConfirmation => {
+                Self {
+                    width_ratio: 56,
+                    height_ratio: 34,
+                }
+            }
             FloatingKind::Help => Self {
                 width_ratio: 64,
                 height_ratio: 70,

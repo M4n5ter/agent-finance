@@ -1,8 +1,9 @@
 use agent_finance_core::submit::SubmitMode;
 
-use super::subject::{StagedChangeRequest, StagedSubmitRequest};
+use super::subject::{StagedChangeRequest, StagedExecutionRequest};
 use super::workflow::{
-    StagedChange, StagedChangeEvent, StagedChangeStage, StagedChangeState, StagedChangeView,
+    StagedChange, StagedChangeEvent, StagedChangeExecution, StagedChangeStage, StagedChangeState,
+    StagedChangeView,
 };
 
 pub(crate) const VISIBLE_REVIEW_LIMIT: usize = 8;
@@ -34,39 +35,40 @@ impl StagedChanges {
         self.changes.len()
     }
 
-    pub(crate) fn selected_submit_request(&mut self) -> QueueSubmitResult {
+    pub(crate) fn selected_execution_request(&mut self) -> QueueExecutionResult {
         self.normalize_selection();
         let Some(change) = self.changes.get(self.selected) else {
-            return QueueSubmitResult::Missing;
+            return QueueExecutionResult::Missing;
         };
-        submit_request_for(change)
+        execution_request_for(change)
     }
 
-    pub(crate) fn queue_submit_request(
+    pub(crate) fn queue_execution_request(
         &mut self,
-        expected: &StagedSubmitRequest,
-    ) -> QueueSubmitResult {
+        expected: &StagedExecutionRequest,
+    ) -> QueueExecutionResult {
         let Some(change) = self
             .changes
             .iter_mut()
             .find(|change| change.id == expected.id)
         else {
-            return QueueSubmitResult::Missing;
+            return QueueExecutionResult::Missing;
         };
-        let QueueSubmitResult::Queued(request) = submit_request_for(change) else {
-            return QueueSubmitResult::Rejected {
-                current: format!("{:?}", change.state),
-            };
-        };
-        if &request != expected {
-            return QueueSubmitResult::Rejected {
+        if change.state.stage() != StagedChangeStage::Ready {
+            return QueueExecutionResult::Rejected {
                 current: format!("{:?}", change.state),
             };
         }
-        if change.apply(StagedChangeEvent::SubmitQueued) {
-            QueueSubmitResult::Queued(request)
+        let request = change.execution_request();
+        if &request != expected {
+            return QueueExecutionResult::Rejected {
+                current: format!("{:?}", change.state),
+            };
+        }
+        if change.apply(request.queue_event()) {
+            QueueExecutionResult::Queued(request)
         } else {
-            QueueSubmitResult::Rejected {
+            QueueExecutionResult::Rejected {
                 current: format!("{:?}", change.state),
             }
         }
@@ -106,7 +108,7 @@ impl StagedChanges {
             .retain(|change| change.id != request.id || !change.state.accepts_replacement());
         self.changes.push(StagedChange {
             id: request.id,
-            default_mode: mode,
+            execution: StagedChangeExecution::from_subject(&request.subject, mode),
             state,
             subject: request.subject,
         });
@@ -210,8 +212,8 @@ pub(crate) enum CloseStagedChangeResult {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum QueueSubmitResult {
-    Queued(StagedSubmitRequest),
+pub(crate) enum QueueExecutionResult {
+    Queued(StagedExecutionRequest),
     Missing,
     Rejected { current: String },
 }
@@ -234,19 +236,11 @@ fn shift_index(index: usize, len: usize, direction: isize) -> usize {
     (index as isize + direction).rem_euclid(len) as usize
 }
 
-fn submit_request_for(change: &StagedChange) -> QueueSubmitResult {
+fn execution_request_for(change: &StagedChange) -> QueueExecutionResult {
     if change.state.stage() != StagedChangeStage::Ready {
-        return QueueSubmitResult::Rejected {
+        return QueueExecutionResult::Rejected {
             current: format!("{:?}", change.state),
         };
     }
-    change
-        .subject
-        .submit_request(change.id.clone(), change.state.mode(change.default_mode))
-        .map_or_else(
-            || QueueSubmitResult::Rejected {
-                current: format!("{} is not submit-capable", change.subject.kind_label()),
-            },
-            QueueSubmitResult::Queued,
-        )
+    QueueExecutionResult::Queued(change.execution_request())
 }

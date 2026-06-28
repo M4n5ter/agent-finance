@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use agent_finance_core::{DiagnosticCheck, Profile, ProfilePermission, RiskPolicy};
+use agent_finance_core::{
+    DiagnosticCheck, Profile, ProfileLoadReport, ProfilePermission, ProfileStore, RiskPolicy,
+};
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -16,16 +18,31 @@ pub struct ProfileValidationSnapshot {
     pub profile: String,
     pub path: PathBuf,
     pub profile_config: Profile,
+    pub source_content_hash: String,
     pub checks: Vec<DiagnosticCheck>,
 }
 
 impl ProfileValidationSnapshot {
     pub fn from_profile(profile: &Profile, path: PathBuf) -> Self {
+        let source_content_hash =
+            ProfileStore::encoded_content_hash(profile).expect("test profile should encode");
         Self {
             profile: profile.name.clone(),
             path,
             profile_config: profile.clone(),
+            source_content_hash,
             checks: agent_finance_core::local_profile_checks(profile),
+        }
+    }
+
+    pub fn from_loaded(report: ProfileLoadReport) -> Self {
+        let checks = agent_finance_core::local_profile_checks(&report.profile);
+        Self {
+            profile: report.profile.name.clone(),
+            path: report.path,
+            profile_config: report.profile,
+            source_content_hash: report.content_hash,
+            checks,
         }
     }
 }
@@ -40,6 +57,7 @@ pub enum ProfileValidationState {
         profile: String,
         path: PathBuf,
         profile_config: Box<Profile>,
+        source_content_hash: String,
         checks: Vec<DiagnosticCheck>,
     },
     Failed {
@@ -62,6 +80,7 @@ impl ProfileValidationState {
             profile: snapshot.profile,
             path: snapshot.path,
             profile_config: Box::new(snapshot.profile_config),
+            source_content_hash: snapshot.source_content_hash,
             checks: snapshot.checks,
         }
     }

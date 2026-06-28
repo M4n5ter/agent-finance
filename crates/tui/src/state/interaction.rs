@@ -70,9 +70,9 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::StageSelectedOpenOrderCancel);
             }
-            ActionId::SubmitStagedChange => {
+            ActionId::ExecuteStagedChange => {
                 self.close_text_input_floatings();
-                self.reduce(Action::SubmitStagedChange);
+                self.reduce(Action::ExecuteStagedChange);
             }
             ActionId::RevalidateTradingProfile => {
                 self.close_text_input_floatings();

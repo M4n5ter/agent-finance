@@ -35,8 +35,8 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     if live_writes_confirmation_is_top(state) {
         return live_writes_confirmation_key_action(key);
     }
-    if staged_submit_confirmation_is_top(state) {
-        return staged_submit_confirmation_key_action(key);
+    if staged_execution_confirmation_is_top(state) {
+        return staged_execution_confirmation_key_action(key);
     }
     if state.panels.focused() == Panel::Watchlist
         && let Some(action) = watchlist_key_action(key)
@@ -71,7 +71,7 @@ pub fn should_quit(state: &AppState, key: KeyEvent) -> bool {
     if matches!(key.code, KeyCode::Char('c')) && key.modifiers.contains(KeyModifiers::CONTROL) {
         return true;
     }
-    if live_writes_confirmation_is_top(state) || staged_submit_confirmation_is_top(state) {
+    if live_writes_confirmation_is_top(state) || staged_execution_confirmation_is_top(state) {
         return false;
     }
     matches!(key.code, KeyCode::Char('q')) && !text_input_floating_is_top(state)
@@ -85,7 +85,8 @@ pub fn handle_mouse_event(
 ) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if live_writes_confirmation_is_top(state) || staged_submit_confirmation_is_top(state) {
+            if live_writes_confirmation_is_top(state) || staged_execution_confirmation_is_top(state)
+            {
                 return;
             }
             let layout = layout::build(
@@ -191,10 +192,10 @@ fn live_writes_confirmation_key_action(key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn staged_submit_confirmation_key_action(key: KeyEvent) -> Option<Action> {
+fn staged_execution_confirmation_key_action(key: KeyEvent) -> Option<Action> {
     match key.code {
-        KeyCode::Enter => Some(Action::ConfirmStagedSubmit),
-        KeyCode::Esc => Some(Action::CancelStagedSubmitConfirmation),
+        KeyCode::Enter => Some(Action::ConfirmStagedExecution),
+        KeyCode::Esc => Some(Action::CancelStagedExecutionConfirmation),
         _ => None,
     }
 }
@@ -271,7 +272,7 @@ fn intent_review_key_action(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveStagedChangeSelection(-1)),
         KeyCode::Down | KeyCode::Char('j') => Some(Action::MoveStagedChangeSelection(1)),
-        KeyCode::Enter => Some(Action::SubmitStagedChange),
+        KeyCode::Enter => Some(Action::ExecuteStagedChange),
         KeyCode::Char('d') | KeyCode::Backspace => Some(Action::CloseSelectedStagedChange),
         _ => None,
     }
@@ -291,11 +292,11 @@ fn live_writes_confirmation_is_top(state: &AppState) -> bool {
         .is_some_and(|pane| pane.kind == FloatingKind::LiveWritesConfirmation)
 }
 
-fn staged_submit_confirmation_is_top(state: &AppState) -> bool {
+fn staged_execution_confirmation_is_top(state: &AppState) -> bool {
     state
         .floating
         .last()
-        .is_some_and(|pane| pane.kind == FloatingKind::StagedSubmitConfirmation)
+        .is_some_and(|pane| pane.kind == FloatingKind::StagedExecutionConfirmation)
 }
 
 fn symbol_search_is_top(state: &AppState) -> bool {
@@ -465,7 +466,7 @@ mod tests {
 
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Enter)),
-            Some(Action::SubmitStagedChange)
+            Some(Action::ExecuteStagedChange)
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('k'))),
@@ -598,8 +599,8 @@ mod tests {
     }
 
     #[test]
-    fn staged_submit_confirmation_blocks_normal_keys_until_confirmed_or_cancelled() {
-        let state = staged_submit_confirmation_state();
+    fn staged_execution_confirmation_blocks_normal_keys_until_confirmed_or_cancelled() {
+        let state = staged_execution_confirmation_state();
 
         assert!(!should_quit(&state, KeyEvent::from(KeyCode::Char('q'))));
         assert!(should_quit(
@@ -608,11 +609,11 @@ mod tests {
         ));
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Enter)),
-            Some(Action::ConfirmStagedSubmit)
+            Some(Action::ConfirmStagedExecution)
         );
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Esc)),
-            Some(Action::CancelStagedSubmitConfirmation)
+            Some(Action::CancelStagedExecutionConfirmation)
         );
         assert_eq!(key_action(&state, KeyEvent::from(KeyCode::Char('j'))), None);
     }
@@ -643,8 +644,8 @@ mod tests {
     }
 
     #[test]
-    fn staged_submit_confirmation_blocks_mouse_focus_behind_the_modal() {
-        let mut state = staged_submit_confirmation_state();
+    fn staged_execution_confirmation_blocks_mouse_focus_behind_the_modal() {
+        let mut state = staged_execution_confirmation_state();
         let mut drag = MouseDrag::default();
 
         handle_mouse_event(
@@ -661,7 +662,7 @@ mod tests {
 
         assert_eq!(
             state.floating.last().map(|pane| pane.kind),
-            Some(FloatingKind::StagedSubmitConfirmation)
+            Some(FloatingKind::StagedExecutionConfirmation)
         );
     }
 
@@ -871,7 +872,7 @@ mod tests {
         }
     }
 
-    fn staged_submit_confirmation_state() -> AppState {
+    fn staged_execution_confirmation_state() -> AppState {
         let mut state = AppState::from_config(crate::config::TuiConfig {
             watchlist: vec!["CRDO".to_string()],
             workspace: crate::config::WorkspaceConfig {
@@ -888,7 +889,7 @@ mod tests {
             .set_quantity_text(Some("0.05".to_string()));
         state.order_ticket.set_price_text(Some("204".to_string()));
         state.reduce(Action::StageOrderTicket);
-        state.reduce(Action::SubmitStagedChange);
+        state.reduce(Action::ExecuteStagedChange);
         state
     }
 

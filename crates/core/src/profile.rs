@@ -40,6 +40,13 @@ pub struct ProfileWriteReport {
     pub backup_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProfileLoadReport {
+    pub profile: Profile,
+    pub path: PathBuf,
+    pub content_hash: String,
+}
+
 impl ProfileStore {
     pub fn from_default_dir() -> Result<Self> {
         Ok(Self {
@@ -56,34 +63,25 @@ impl ProfileStore {
     }
 
     pub fn load(&self, name: &str) -> Result<Profile> {
+        Ok(self.load_report(name)?.profile)
+    }
+
+    pub fn load_report(&self, name: &str) -> Result<ProfileLoadReport> {
         validate_profile_name(name)?;
         let path = self.path(name);
         let content = fs::read_to_string(&path)
             .with_context(|| format!("failed to read profile {}", path.display()))?;
-        let profile: Profile = toml::from_str(&content)
-            .with_context(|| format!("failed to parse profile {}", path.display()))?;
-        if profile.name != name {
-            return Err(anyhow!(
-                "profile file name '{}' does not match profile.name '{}'",
-                name,
-                profile.name
-            ));
-        }
-        Ok(profile)
+        let profile = parse_profile_content(name, &path, &content)?;
+        Ok(ProfileLoadReport {
+            profile,
+            path,
+            content_hash: content_hash(&content),
+        })
     }
 
     pub fn plan_write(&self, profile: &Profile) -> Result<ProfileWritePlan> {
         validate_profile_name(&profile.name)?;
-        let content = toml::to_string_pretty(profile).context("failed to encode profile TOML")?;
-        let parsed: Profile =
-            toml::from_str(&content).context("encoded profile TOML did not roundtrip")?;
-        if parsed.name != profile.name {
-            return Err(anyhow!(
-                "encoded profile name '{}' does not match profile.name '{}'",
-                parsed.name,
-                profile.name
-            ));
-        }
+        let content = encode_profile_content(profile)?;
         let path = self.path(&profile.name);
         let old_content = if path.exists() {
             Some(
@@ -103,6 +101,38 @@ impl ProfileStore {
             old_content_hash: old_content.as_deref().map(content_hash),
             replace_existing,
         })
+    }
+
+    pub fn plan_replace_unchanged(
+        &self,
+        expected_content_hash: &str,
+        next: &Profile,
+    ) -> Result<ProfileWritePlan> {
+        validate_profile_name(&next.name)?;
+        let path = self.path(&next.name);
+        let old_content = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read profile {}", path.display()))?;
+        let old_content_hash = content_hash(&old_content);
+        if old_content_hash != expected_content_hash {
+            return Err(anyhow!(
+                "profile {} changed after validation; revalidate before replacing it",
+                path.display()
+            ));
+        }
+
+        let content = encode_profile_content(next)?;
+        Ok(ProfileWritePlan {
+            profile: next.name.clone(),
+            path: path.clone(),
+            backup_path: Some(backup_path(&path)),
+            content,
+            old_content_hash: Some(old_content_hash),
+            replace_existing: true,
+        })
+    }
+
+    pub fn encoded_content_hash(profile: &Profile) -> Result<String> {
+        encode_profile_content(profile).map(|content| content_hash(&content))
     }
 
     pub fn write(&self, profile: &Profile) -> Result<ProfileWriteReport> {
@@ -240,6 +270,33 @@ fn validate_profile_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+fn parse_profile_content(name: &str, path: &Path, content: &str) -> Result<Profile> {
+    let profile: Profile = toml::from_str(content)
+        .with_context(|| format!("failed to parse profile {}", path.display()))?;
+    if profile.name != name {
+        return Err(anyhow!(
+            "profile file name '{}' does not match profile.name '{}'",
+            name,
+            profile.name
+        ));
+    }
+    Ok(profile)
+}
+
+fn encode_profile_content(profile: &Profile) -> Result<String> {
+    let content = toml::to_string_pretty(profile).context("failed to encode profile TOML")?;
+    let parsed: Profile =
+        toml::from_str(&content).context("encoded profile TOML did not roundtrip")?;
+    if parsed.name != profile.name {
+        return Err(anyhow!(
+            "encoded profile name '{}' does not match profile.name '{}'",
+            parsed.name,
+            profile.name
+        ));
+    }
+    Ok(content)
+}
+
 fn backup_path(path: &Path) -> PathBuf {
     let file_name = path
         .file_name()
@@ -264,6 +321,7 @@ fn content_hash(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use rust_decimal::Decimal;
@@ -301,6 +359,59 @@ mod tests {
         assert!(backup.contains("allow_live = false"));
         let loaded = store.load("mainnet").expect("load replacement");
         assert!(loaded.risk.allow_live);
+    }
+
+    #[test]
+    fn plan_replace_unchanged_rejects_profile_changed_after_validation() {
+        let root = TempProfileRoot::new("replace-unchanged-profile");
+        let store = ProfileStore::from_root(root.path());
+        let expected = profile("mainnet");
+        store.write(&expected).expect("initial write");
+        let mut changed = expected.clone();
+        changed.permissions.spot_trading = false;
+        store.write(&changed).expect("external replacement");
+        let mut next = expected.clone();
+        next.risk.allow_live = true;
+        let expected_hash =
+            ProfileStore::encoded_content_hash(&expected).expect("expected profile hash");
+
+        let error = store
+            .plan_replace_unchanged(&expected_hash, &next)
+            .expect_err("changed profile should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("changed after validation; revalidate before replacing it")
+        );
+    }
+
+    #[test]
+    fn plan_replace_unchanged_rejects_raw_content_changed_after_validation() {
+        let root = TempProfileRoot::new("replace-unchanged-profile-comment");
+        let store = ProfileStore::from_root(root.path());
+        let expected = profile("mainnet");
+        store.write(&expected).expect("initial write");
+        let expected_hash =
+            ProfileStore::encoded_content_hash(&expected).expect("expected profile hash");
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(store.path("mainnet"))
+            .expect("open profile for comment append");
+        file.write_all(b"\n# external comment\n")
+            .expect("append external comment");
+        let mut next = expected.clone();
+        next.risk.allow_live = true;
+
+        let error = store
+            .plan_replace_unchanged(&expected_hash, &next)
+            .expect_err("raw content change should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("changed after validation; revalidate before replacing it")
+        );
     }
 
     #[test]

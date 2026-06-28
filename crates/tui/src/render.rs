@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn staged_submit_confirmation_renders_selected_change_review() {
+    fn staged_execution_confirmation_renders_selected_change_review() {
         let mut state = AppState::from_config(TuiConfig {
             watchlist: vec!["CRDO".to_string()],
             trading: crate::config::TradingConfig {
@@ -327,12 +327,12 @@ mod tests {
             .set_quantity_text(Some("0.05".to_string()));
         state.order_ticket.set_price_text(Some("204".to_string()));
         state.reduce(crate::state::Action::StageOrderTicket);
-        state.reduce(crate::state::Action::SubmitStagedChange);
+        state.reduce(crate::state::Action::ExecuteStagedChange);
 
         let text = render_to_text_grid(&state, 160, 60);
 
-        assert!(text.contains("Confirm Staged Submit"));
-        assert!(text.contains("Review the selected staged change before submitting."));
+        assert!(text.contains("Confirm Staged Execution"));
+        assert!(text.contains("Review the selected staged change before executing it."));
         assert!(text.contains("mode: dry-run"));
         assert!(text.contains("summary: buy 0.05 CRDO spot limit-maker @ 204"));
         assert!(text.contains("Enter: confirm submit"));

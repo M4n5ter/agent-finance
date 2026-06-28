@@ -1,10 +1,12 @@
 use agent_finance_core::{
     DecimalValue, DiagnosticCheck, FuturesStateChange, Market, OrderIdentifier, OrderKind,
-    OrderSide, OrderSpec, TimeInForce, TransferDirection,
+    OrderSide, OrderSpec, Profile, TimeInForce, TransferDirection,
     submit::{SubmitIntentKind, SubmitMode},
 };
 use serde::Serialize;
 use std::path::PathBuf;
+
+use super::workflow::StagedChangeEvent;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagedChangeRequest {
@@ -30,6 +32,81 @@ pub struct StagedSubmitRequest {
     pub id: String,
     pub subject: StagedSubmitSubject,
     pub mode: SubmitMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StagedExecutionRequest {
+    pub id: String,
+    pub execution: StagedExecution,
+}
+
+impl StagedExecutionRequest {
+    pub fn kind_label(&self) -> &'static str {
+        self.execution.kind_label()
+    }
+
+    pub fn summary(&self) -> String {
+        self.execution.summary()
+    }
+
+    pub fn queue_event(&self) -> StagedChangeEvent {
+        self.execution.queue_event()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum StagedExecution {
+    Submit {
+        subject: StagedSubmitSubject,
+        mode: SubmitMode,
+    },
+    LocalCommit {
+        subject: StagedLocalCommitSubject,
+    },
+}
+
+impl StagedExecution {
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            Self::Submit { subject, .. } => subject.kind_label(),
+            Self::LocalCommit { subject } => subject.kind_label(),
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Submit { subject, .. } => subject.summary(),
+            Self::LocalCommit { subject } => subject.summary(),
+        }
+    }
+
+    pub fn queue_event(&self) -> StagedChangeEvent {
+        match self {
+            Self::Submit { .. } => StagedChangeEvent::SubmitQueued,
+            Self::LocalCommit { .. } => StagedChangeEvent::LocalCommitQueued,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum StagedLocalCommitSubject {
+    ProfileRisk(ProfileRiskReview),
+}
+
+impl StagedLocalCommitSubject {
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            Self::ProfileRisk(_) => "profile-risk",
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        match self {
+            Self::ProfileRisk(review) => review.summary(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -133,27 +210,35 @@ impl StagedChangeSubject {
         }
     }
 
-    pub fn kind_label(&self) -> &'static str {
-        self.kind().label()
-    }
-
-    pub fn submit_request(&self, id: String, mode: SubmitMode) -> Option<StagedSubmitRequest> {
-        let subject = match self {
-            Self::OrderTicket(review) => StagedSubmitSubject::OrderTicket(review.clone()),
-            Self::Cancel(review) => StagedSubmitSubject::Cancel(review.clone()),
-            Self::Transfer(review) => StagedSubmitSubject::Transfer(review.clone()),
-            Self::FuturesState(review) => StagedSubmitSubject::FuturesState(review.clone()),
-            Self::ProfileRisk(_) => return None,
+    pub(crate) fn submit_subject(&self) -> Option<StagedSubmitSubject> {
+        match self {
+            Self::OrderTicket(review) => Some(StagedSubmitSubject::OrderTicket(review.clone())),
+            Self::Transfer(review) => Some(StagedSubmitSubject::Transfer(review.clone())),
+            Self::FuturesState(review) => Some(StagedSubmitSubject::FuturesState(review.clone())),
+            Self::Cancel(review) => Some(StagedSubmitSubject::Cancel(review.clone())),
+            Self::ProfileRisk(_) => None,
             #[cfg(test)]
             Self::Text {
                 intent_kind,
                 summary,
-            } => StagedSubmitSubject::Text {
+            } => Some(StagedSubmitSubject::Text {
                 intent_kind: *intent_kind,
                 summary: summary.clone(),
-            },
-        };
-        Some(StagedSubmitRequest { id, subject, mode })
+            }),
+        }
+    }
+
+    pub(crate) fn local_commit_subject(&self) -> Option<StagedLocalCommitSubject> {
+        match self {
+            Self::ProfileRisk(review) => {
+                Some(StagedLocalCommitSubject::ProfileRisk(review.clone()))
+            }
+            Self::OrderTicket(_) | Self::Cancel(_) | Self::Transfer(_) | Self::FuturesState(_) => {
+                None
+            }
+            #[cfg(test)]
+            Self::Text { .. } => None,
+        }
     }
 }
 
@@ -169,20 +254,6 @@ pub enum StagedChangeKind {
     Text,
 }
 
-impl StagedChangeKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Order => "order",
-            Self::Cancel => "cancel",
-            Self::Transfer => "transfer",
-            Self::FuturesState => "futures-state",
-            Self::ProfileRisk => "profile-risk",
-            #[cfg(test)]
-            Self::Text => "text",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ProfileRiskReview {
     pub profile: String,
@@ -191,12 +262,17 @@ pub struct ProfileRiskReview {
     pub diff: Vec<String>,
     pub checks: Vec<DiagnosticCheck>,
     pub required_failure_count: usize,
+    #[serde(skip)]
+    pub expected_content_hash: String,
+    #[serde(skip)]
+    pub next_profile: Box<Profile>,
 }
 
 impl ProfileRiskReview {
     pub fn allow_live_toggle(
         profile: &str,
         path: PathBuf,
+        expected_content_hash: String,
         profile_config: &agent_finance_core::Profile,
     ) -> Self {
         let before = profile_config.risk.allow_live;
@@ -216,6 +292,8 @@ impl ProfileRiskReview {
             diff: vec![format!("risk.allow_live: {before} -> {after}")],
             checks,
             required_failure_count,
+            expected_content_hash,
+            next_profile: Box::new(next_profile),
         }
     }
 

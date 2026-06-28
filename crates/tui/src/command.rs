@@ -105,7 +105,7 @@ pub enum ActionId {
     StageTransferTicket,
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
-    SubmitStagedChange,
+    ExecuteStagedChange,
     RevalidateTradingProfile,
     StageProfileLiveToggle,
     SaveConfig,
@@ -283,10 +283,10 @@ pub const ACTION_REGISTRY: [ActionSpec; 57] = [
         "Move the selected open order into intent review as a cancel"
     ),
     action!(
-        "submit-staged-change",
-        ActionId::SubmitStagedChange,
-        "Submit staged change",
-        "Review the selected ready staged change in a confirmation modal before trading runtime submit"
+        "execute-staged-change",
+        ActionId::ExecuteStagedChange,
+        "Execute staged change",
+        "Review the selected ready staged change before provider submit or local profile commit"
     ),
     action!(
         "open-trading-profile-editor",

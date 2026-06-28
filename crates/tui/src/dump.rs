@@ -12,11 +12,11 @@ use crate::order_ticket::OrderTicketPreview;
 use crate::pane_status::{TuiPaneStatus, pane_health};
 use crate::profile_snapshot::ProfileValidationState;
 use crate::provider_health::{ProviderHealthReport, ProviderHealthTask};
-use crate::state::{AppState, StagedChangeView, StagedSubmitRequest};
+use crate::state::{AppState, StagedChangeView, StagedExecutionRequest};
 use crate::theme::ThemeConfig;
 use crate::transfer_ticket::TransferTicketPreview;
 
-const TUI_DUMP_SCHEMA_VERSION: u32 = 16;
+const TUI_DUMP_SCHEMA_VERSION: u32 = 19;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
@@ -42,7 +42,7 @@ pub struct TuiDump {
     pub transfer_ticket: TransferTicketPreview,
     pub futures_state_ticket: FuturesStateTicketPreview,
     pub staged_changes: Vec<StagedChangeView>,
-    pub pending_staged_confirmation: Option<StagedSubmitRequest>,
+    pub pending_staged_confirmation: Option<StagedExecutionRequest>,
     pub errors: Vec<String>,
     pub key_hints: Vec<String>,
 }
@@ -439,6 +439,7 @@ mod tests {
 
         assert_eq!(staged["change_kind"], "profile-risk");
         assert!(staged["intent_kind"].is_null());
+        assert!(staged["mode"].is_null());
         assert_eq!(staged["subject"]["type"], "profile-risk");
         assert_eq!(staged["subject"]["profile"], "mainnet");
         assert_eq!(staged["subject"]["change"]["field"], "allow-live");
@@ -447,6 +448,16 @@ mod tests {
         assert_eq!(
             staged["subject"]["diff"][0],
             "risk.allow_live: true -> false"
+        );
+        state.reduce(Action::ExecuteStagedChange);
+        let value = serde_json::to_value(TuiDump::from_state(&state, false)).expect("serialize");
+        assert_eq!(
+            value["pending_staged_confirmation"]["execution"]["type"],
+            "local-commit"
+        );
+        assert_eq!(
+            value["pending_staged_confirmation"]["execution"]["subject"]["type"],
+            "profile-risk"
         );
         assert!(
             !value["profile_validation"]
@@ -587,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn dump_exposes_pending_staged_submit_confirmation() {
+    fn dump_exposes_pending_staged_execution_confirmation() {
         let mut state = AppState::from_config(TuiConfig {
             watchlist: vec!["CRDO".to_string()],
             workspace: WorkspaceConfig {
@@ -605,7 +616,7 @@ mod tests {
         state.reduce(Action::StageOrderTicket);
         let staged_change_id = state.staged_change_views()[0].id.clone();
 
-        state.reduce(Action::SubmitStagedChange);
+        state.reduce(Action::ExecuteStagedChange);
 
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
         assert_eq!(value["schema_version"], TUI_DUMP_SCHEMA_VERSION);
@@ -613,24 +624,99 @@ mod tests {
             value["pending_staged_confirmation"]["id"],
             staged_change_id.as_str()
         );
-        assert_eq!(value["pending_staged_confirmation"]["mode"], "dry-run");
+        assert_eq!(
+            value["pending_staged_confirmation"]["execution"]["type"],
+            "submit"
+        );
+        assert_eq!(
+            value["pending_staged_confirmation"]["execution"]["mode"],
+            "dry-run"
+        );
         assert_eq!(value["staged_changes"][0]["stage"], "ready");
         assert_eq!(
-            value["pending_staged_confirmation"]["subject"]["type"],
+            value["pending_staged_confirmation"]["execution"]["subject"]["type"],
             "order-ticket"
         );
         assert_eq!(
-            value["pending_staged_confirmation"]["subject"]["symbol"],
+            value["pending_staged_confirmation"]["execution"]["subject"]["symbol"],
             "CRDO"
         );
         assert_eq!(
-            value["pending_staged_confirmation"]["subject"]["quantity"],
+            value["pending_staged_confirmation"]["execution"]["subject"]["quantity"],
             "0.05"
         );
         assert_eq!(
-            value["pending_staged_confirmation"]["subject"]["price"],
+            value["pending_staged_confirmation"]["execution"]["subject"]["price"],
             "204"
         );
+    }
+
+    #[test]
+    fn dump_hides_profile_risk_local_commit_payload() {
+        let mut state = AppState::from_config(TuiConfig {
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Settings,
+            },
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::ProfileValidationStarted {
+            generation: 1,
+            profile: "mainnet".to_string(),
+        });
+        state.reduce(Action::ProfileValidationLoaded {
+            generation: 1,
+            snapshot: ProfileValidationSnapshot::from_profile(
+                &test_profile("mainnet"),
+                PathBuf::from("/tmp/mainnet.toml"),
+            ),
+        });
+        state.reduce(Action::Execute(ActionId::StageProfileLiveToggle));
+        state.reduce(Action::ExecuteStagedChange);
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
+        assert_eq!(
+            value["pending_staged_confirmation"]["execution"]["type"],
+            "local-commit"
+        );
+        assert_eq!(
+            value["pending_staged_confirmation"]["execution"]["subject"]["type"],
+            "profile-risk"
+        );
+        assert!(value["staged_changes"][0]["mode"].is_null());
+        assert!(
+            value["staged_changes"][0]["subject"]["next_profile"].is_null(),
+            "staged profile risk view must not expose the hidden write payload"
+        );
+        assert!(
+            value["pending_staged_confirmation"]["execution"]["subject"]["next_profile"].is_null(),
+            "pending local commit confirmation must not expose the hidden write payload"
+        );
+
+        let profile_risk_views = [
+            &value["staged_changes"][0]["subject"],
+            &value["pending_staged_confirmation"]["execution"]["subject"],
+        ];
+        for hidden in [
+            "next_profile",
+            "expected_content_hash",
+            "api_key_env",
+            "api_secret_env",
+            "BINANCE_API_KEY",
+            "BINANCE_PRIVATE_KEY",
+            "provider",
+        ] {
+            for profile_risk_view in profile_risk_views {
+                let serialized =
+                    serde_json::to_string(profile_risk_view).expect("serialize profile risk view");
+                assert!(
+                    !serialized.contains(hidden),
+                    "profile risk dump leaked hidden profile detail: {hidden}"
+                );
+            }
+        }
     }
 
     #[test]

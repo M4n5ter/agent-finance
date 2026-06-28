@@ -205,11 +205,15 @@ fn format_staged_change_review(
         .intent_kind
         .map(|kind| kind.to_string())
         .unwrap_or_else(|| "-".to_string());
+    let mode = change
+        .mode
+        .map(|mode| mode.to_string())
+        .unwrap_or_else(|| "-".to_string());
     let text = match &change.subject {
         StagedChangeSubject::OrderTicket(review) => format!(
             "{marker} {}  {}  {}  {} {} {} {} {} @ {} {}{} [{}]",
             change.stage,
-            change.mode,
+            mode,
             intent_kind,
             review.side,
             review.quantity,
@@ -228,7 +232,7 @@ fn format_staged_change_review(
         StagedChangeSubject::Cancel(review) => format!(
             "{marker} {}  {}  {}  cancel {} {} [{}] [{}]",
             change.stage,
-            change.mode,
+            mode,
             intent_kind,
             review.market,
             review.symbol,
@@ -238,7 +242,7 @@ fn format_staged_change_review(
         StagedChangeSubject::Transfer(review) => format!(
             "{marker} {}  {}  {}  transfer {} {} {} [{}]",
             change.stage,
-            change.mode,
+            mode,
             intent_kind,
             review.direction,
             review.amount,
@@ -248,7 +252,7 @@ fn format_staged_change_review(
         StagedChangeSubject::FuturesState(review) => format!(
             "{marker} {}  {}  {}  futures-state {} [{}]",
             change.stage,
-            change.mode,
+            mode,
             intent_kind,
             review.change.review_label(),
             review.profile
@@ -256,7 +260,7 @@ fn format_staged_change_review(
         StagedChangeSubject::ProfileRisk(review) => format!(
             "{marker} {}  {}  {}  profile-risk {}  {}  checks:{} required-failures:{}",
             change.stage,
-            change.mode,
+            mode,
             intent_kind,
             review.profile,
             review.diff.join("; "),
@@ -266,7 +270,7 @@ fn format_staged_change_review(
         #[cfg(test)]
         StagedChangeSubject::Text { .. } => format!(
             "{marker} {}  {}  {}  {}",
-            change.stage, change.mode, intent_kind, change.summary
+            change.stage, mode, intent_kind, change.summary
         ),
     };
     if change.selected {

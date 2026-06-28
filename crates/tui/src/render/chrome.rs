@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, 
 
 use crate::hints;
 use crate::model::{FloatingKind, WorkspaceKind};
-use crate::state::AppState;
+use crate::state::{AppState, StagedExecution};
 use crate::theme::ThemeConfig;
 
 pub(super) fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
@@ -77,8 +77,8 @@ pub(super) fn render_floating(
         render_trading_profile(frame, state, area);
         return;
     }
-    if kind == FloatingKind::StagedSubmitConfirmation {
-        render_staged_submit_confirmation(frame, state, area);
+    if kind == FloatingKind::StagedExecutionConfirmation {
+        render_staged_execution_confirmation(frame, state, area);
         return;
     }
 
@@ -87,8 +87,8 @@ pub(super) fn render_floating(
         FloatingKind::SymbolSearch => unreachable!("symbol search is rendered separately"),
         FloatingKind::WatchlistAdd => unreachable!("watchlist add is rendered separately"),
         FloatingKind::TradingProfile => unreachable!("trading profile is rendered separately"),
-        FloatingKind::StagedSubmitConfirmation => {
-            unreachable!("staged submit confirmation is rendered separately")
+        FloatingKind::StagedExecutionConfirmation => {
+            unreachable!("staged execution confirmation is rendered separately")
         }
         FloatingKind::Help => vec![
             Line::from("agent-finance cockpit"),
@@ -147,16 +147,16 @@ pub(super) fn render_floating(
     );
 }
 
-fn render_staged_submit_confirmation(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+fn render_staged_execution_confirmation(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     let Some(request) = state.pending_staged_confirmation() else {
         frame.render_widget(
             Paragraph::new(vec![
-                Line::from("No staged submit is waiting for confirmation."),
+                Line::from("No staged execution is waiting for confirmation."),
                 Line::from(""),
                 Line::from("Esc: close"),
             ])
             .block(floating_block(
-                FloatingKind::StagedSubmitConfirmation.title(),
+                FloatingKind::StagedExecutionConfirmation.title(),
                 &state.theme,
             ))
             .wrap(Wrap { trim: true }),
@@ -165,29 +165,49 @@ fn render_staged_submit_confirmation(frame: &mut Frame<'_>, state: &AppState, ar
         return;
     };
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(Span::styled(
-            "Review the selected staged change before submitting.",
+            "Review the selected staged change before executing it.",
             state.theme.accent_style().add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(format!("mode: {}", request.mode)),
-        Line::from(format!("kind: {}", request.subject.kind_label())),
+        Line::from(format!("kind: {}", request.kind_label())),
         Line::from(format!("id: {}", request.id)),
-        Line::from(format!("summary: {}", request.subject.summary())),
+        Line::from(format!("summary: {}", request.summary())),
         Line::from(""),
-        Line::from("This creates an intent and runs the trading runtime gates."),
-        Line::from(
-            "Live mode still requires profile permissions, risk policy, intent claim lock, and audit logging.",
-        ),
-        Line::from(""),
-        Line::from("Enter: confirm submit"),
-        Line::from("Esc: cancel and return to ready"),
     ];
+    match &request.execution {
+        StagedExecution::Submit { mode, .. } => {
+            lines.push(Line::from(format!("mode: {mode}")));
+            lines.push(Line::from(""));
+            lines.push(Line::from(
+                "This creates an intent and runs the trading runtime gates.",
+            ));
+            lines.push(Line::from(
+                "Live mode still requires profile permissions, risk policy, intent claim lock, and audit logging.",
+            ));
+            lines.push(Line::from(""));
+            lines.push(Line::from("Enter: confirm submit"));
+        }
+        StagedExecution::LocalCommit { .. } => {
+            lines.push(Line::from(
+                "This writes the profile file through the core profile store.",
+            ));
+            lines.push(Line::from(
+                "A backup is created before replacing an existing profile.",
+            ));
+            lines.push(Line::from(
+                "The write fails if the profile changes before commit.",
+            ));
+            lines.push(Line::from(""));
+            lines.push(Line::from("Enter: confirm local write"));
+        }
+    }
+    lines.push(Line::from("Esc: cancel and return to ready"));
     frame.render_widget(
         Paragraph::new(lines)
             .block(floating_block(
-                FloatingKind::StagedSubmitConfirmation.title(),
+                FloatingKind::StagedExecutionConfirmation.title(),
                 &state.theme,
             ))
             .wrap(Wrap { trim: true }),
