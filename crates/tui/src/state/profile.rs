@@ -3,7 +3,8 @@ use agent_finance_core::submit::SubmitMode;
 use crate::model::{FloatingKind, Panel};
 use crate::profile_snapshot::ProfileValidationState;
 use crate::state::{
-    AppState, OpenStagedChangeResult, ProfileRiskReview, StagedChangeRequest, StagedChangeSubject,
+    AppState, LocalConfigEdit, OpenStagedChangeResult, ProfileRiskReview, StagedChangeRequest,
+    StagedChangeSubject,
 };
 use crate::task_failure::TaskFailureSource;
 
@@ -16,10 +17,12 @@ impl AppState {
             return;
         }
 
-        self.trading_profile = next;
-        self.trading_profile_edited = true;
-        self.invalidate_account_snapshot_for_profile_change();
-        self.mark_config_changed("trading");
+        self.edit_local_config(|state| {
+            state.trading_profile = next;
+            state.trading_profile_edited = true;
+            state.invalidate_account_snapshot_for_profile_change();
+            Some(LocalConfigEdit::new("trading", ()))
+        });
         match self.trading_profile.as_deref() {
             Some(profile) => self
                 .task_log
@@ -98,7 +101,7 @@ impl AppState {
         }
     }
 
-    fn invalidate_account_snapshot_for_profile_change(&mut self) {
+    pub(super) fn invalidate_account_snapshot_for_profile_change(&mut self) {
         if let Some(active) = self.account.cancel() {
             self.task_log.warning_event(format!(
                 "cancelled {} account snapshot loading after profile change",

@@ -1822,6 +1822,39 @@ fn config_changes_track_only_persistent_floating_layout_changes() {
 }
 
 #[test]
+fn layout_undo_restores_persistent_floatings_without_rewinding_navigation() {
+    let mut state = AppState::from_config(TuiConfig::default());
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
+    state.reduce(Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Trade,
+    )));
+    state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Quote)));
+    state.reduce(Action::ToggleFocusedZoom);
+
+    assert_eq!(state.config_changes, ["layout"]);
+    assert!(
+        state
+            .floating
+            .iter()
+            .any(|pane| pane.kind == FloatingKind::Help)
+    );
+
+    state.reduce(Action::UndoConfigChange);
+
+    assert!(state.config_changes.is_empty());
+    assert!(
+        !state
+            .floating
+            .iter()
+            .any(|pane| pane.kind == FloatingKind::Help)
+    );
+    assert_eq!(state.workspace, WorkspaceKind::Trade);
+    assert_eq!(state.panels.focused(), Panel::Quote);
+    assert!(state.zoomed);
+}
+
+#[test]
 fn config_save_request_lifecycle_clears_changes_only_after_success() {
     let mut clean = AppState::from_config(TuiConfig::default());
     clean.reduce(Action::RequestConfigSave);
@@ -1894,6 +1927,69 @@ fn trading_profile_editor_updates_exported_config_and_can_clear_profile() {
     assert_eq!(state.trading_profile, None);
     let config = state.export_config(&TuiConfig::default());
     assert_eq!(config.trading.default_profile, None);
+}
+
+#[test]
+fn trading_profile_undo_restores_profile_and_rejects_cancelled_account_loads() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::AccountStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::AccountLoaded {
+        generation: 1,
+        snapshot: account_snapshot("mainnet"),
+    });
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for _ in 0.."mainnet".len() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::DeletePrevChar,
+        ));
+    }
+    for character in "hedge".chars() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptTradingProfile);
+    state.reduce(Action::AccountStarted {
+        generation: 2,
+        profile: "hedge".to_string(),
+    });
+
+    assert_eq!(state.trading_profile.as_deref(), Some("hedge"));
+    assert!(state.account_loading());
+
+    state.reduce(Action::UndoConfigChange);
+    state.reduce(Action::AccountLoaded {
+        generation: 2,
+        snapshot: account_snapshot("hedge"),
+    });
+
+    assert_eq!(state.trading_profile.as_deref(), Some("mainnet"));
+    assert!(state.config_changes.is_empty());
+    assert!(!state.trading_profile_edited);
+    assert!(!state.account_loading());
+    assert!(state.account_snapshot.is_none());
+
+    state.reduce(Action::AccountStarted {
+        generation: 3,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::AccountLoaded {
+        generation: 3,
+        snapshot: account_snapshot("mainnet"),
+    });
+
+    assert_eq!(state.account_snapshot.as_ref().unwrap().profile, "mainnet");
 }
 
 #[test]
@@ -2082,6 +2178,54 @@ fn settings_theme_edit_exports_without_provider_runtime_update() {
 }
 
 #[test]
+fn settings_provider_edit_can_be_undone_and_reloads_runtime_preferences() {
+    let mut state = AppState::from_config(TuiConfig {
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        ..TuiConfig::default()
+    });
+    let initial_equity = state.providers.equity;
+
+    state.reduce(Action::AdjustSelectedSetting(1));
+    assert_eq!(state.providers.equity, crate::config::EquityProvider::Yahoo);
+    assert_eq!(state.config_changes, ["providers"]);
+    assert!(state.config_undo_available());
+    assert!(state.take_pending_provider_preferences_update().is_some());
+
+    state.reduce(Action::UndoConfigChange);
+
+    assert_eq!(state.providers.equity, initial_equity);
+    assert!(state.config_changes.is_empty());
+    assert!(!state.config_undo_available());
+    let pending = state
+        .take_pending_provider_preferences_update()
+        .expect("undo should refresh runtime providers");
+    assert_eq!(pending.equity, initial_equity);
+}
+
+#[test]
+fn settings_theme_edit_undo_restores_clean_config_without_provider_reload() {
+    let mut state = AppState::from_config(TuiConfig {
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        ..TuiConfig::default()
+    });
+    let initial_accent = state.theme.accent;
+
+    state.reduce(Action::MoveSettingsSelection(2));
+    state.reduce(Action::AdjustSelectedSetting(1));
+    assert_eq!(state.theme.accent, ThemeColor::Gray);
+
+    state.reduce(Action::UndoConfigChange);
+
+    assert_eq!(state.theme.accent, initial_accent);
+    assert!(state.config_changes.is_empty());
+    assert!(state.take_pending_provider_preferences_update().is_none());
+}
+
+#[test]
 fn watchlist_edits_normalize_reorder_delete_and_export_config() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["AAPL".to_string(), "CRDO".to_string()],
@@ -2108,6 +2252,77 @@ fn watchlist_edits_normalize_reorder_delete_and_export_config() {
 
     let config = state.export_config(&TuiConfig::default());
     assert_eq!(config.watchlist, ["AAPL", "CRDO"]);
+}
+
+#[test]
+fn watchlist_config_edits_can_be_undone_in_reverse_order() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["AAPL".to_string(), "CRDO".to_string()],
+        ..TuiConfig::default()
+    });
+    for character in "lite".chars() {
+        state.reduce(Action::EditWatchlistAddQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptWatchlistAdd);
+    state.reduce(Action::MoveSelectedWatchlistSymbol(-1));
+    state.reduce(Action::DeleteSelectedWatchlistSymbol);
+
+    assert_eq!(state.watchlist, ["AAPL", "CRDO"]);
+    assert_eq!(state.selected_symbol(), Some("CRDO"));
+    assert!(state.config_undo_available());
+
+    state.reduce(Action::UndoConfigChange);
+    assert_eq!(state.watchlist, ["AAPL", "LITE", "CRDO"]);
+    assert_eq!(state.selected_symbol(), Some("CRDO"));
+
+    state.reduce(Action::UndoConfigChange);
+    assert_eq!(state.watchlist, ["AAPL", "CRDO", "LITE"]);
+    assert_eq!(state.selected_symbol(), Some("CRDO"));
+
+    state.reduce(Action::UndoConfigChange);
+    assert_eq!(state.watchlist, ["AAPL", "CRDO"]);
+    assert_eq!(state.selected_symbol(), Some("CRDO"));
+    assert!(state.config_changes.is_empty());
+    assert!(!state.config_undo_available());
+    assert_eq!(
+        state.export_config(&TuiConfig::default()).watchlist,
+        ["AAPL", "CRDO"]
+    );
+}
+
+#[test]
+fn config_undo_does_not_restore_later_runtime_navigation() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["AAPL".to_string(), "CRDO".to_string(), "LITE".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::MoveSettingsSelection(2));
+    state.reduce(Action::AdjustSelectedSetting(1));
+    state.reduce(Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Market,
+    )));
+    state.reduce(Action::Execute(ActionId::SelectSymbolBy(2)));
+    state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Quote)));
+    state.reduce(Action::ToggleFocusedZoom);
+
+    assert_eq!(state.workspace, WorkspaceKind::Market);
+    assert_eq!(state.selected_symbol(), Some("LITE"));
+    assert_eq!(state.panels.focused(), Panel::Quote);
+    assert!(state.zoomed);
+
+    state.reduce(Action::UndoConfigChange);
+
+    assert_eq!(state.workspace, WorkspaceKind::Market);
+    assert_eq!(state.selected_symbol(), Some("LITE"));
+    assert_eq!(state.panels.focused(), Panel::Quote);
+    assert!(state.zoomed);
+    assert!(state.config_changes.is_empty());
 }
 
 #[test]

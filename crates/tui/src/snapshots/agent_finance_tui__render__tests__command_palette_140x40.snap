@@ -7,7 +7,7 @@ expression: "render_to_text_grid(&state, 140, 40)"
 │> CRDO -                                      ││CRDO market snapshot                                                                      │
 │  BTCUSDT -                                   ││No quote loaded yet. Waiting for the next refresh.                                        │
 │                                              ││                                                                                          │
-│a add  d delete  left/right move              ││                                                                                          │
+│a add  d delete  left/right move  u undo      ││                                                                                          │
 │                                              ││                                                                                          │
 │                                              ││                                                                                          │
 │                                              ││                                                                                          │

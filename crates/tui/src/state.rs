@@ -12,7 +12,6 @@ use crate::config::{
     FloatingConfig, LayoutConfig, PanelConfig, ProviderConfig, TuiConfig, WorkspaceConfig,
 };
 use crate::futures_state_ticket::{FuturesStateTicket, FuturesStateTicketPreview};
-use crate::keymap::KeymapConfig;
 use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 use crate::order_ticket::{OrderTicket, OrderTicketPreview};
 use crate::profile_editor::ProfileEditorState;
@@ -21,10 +20,10 @@ use crate::search::SymbolSearchState;
 use crate::settings_editor::SettingsEditorState;
 use crate::task_failure::TaskFailures;
 use crate::task_log::TaskLog;
-use crate::theme::ThemeConfig;
 use crate::transfer_ticket::{TransferTicket, TransferTicketPreview};
 use crate::watchlist_editor::WatchlistAddState;
 
+mod config_undo;
 mod interaction;
 mod lifecycle;
 mod load;
@@ -32,6 +31,8 @@ mod profile;
 mod staged_change;
 mod workspace;
 
+pub(super) use config_undo::LocalConfigEdit;
+use config_undo::LocalConfigHistory;
 use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
@@ -57,6 +58,7 @@ pub struct AppState {
     pub watchlist: Vec<String>,
     pub selected_symbol: usize,
     pub config_changes: Vec<String>,
+    config_undo_history: LocalConfigHistory,
     pub workspace: WorkspaceKind,
     pub zoomed: bool,
     pub layout: LayoutConfig,
@@ -66,7 +68,7 @@ pub struct AppState {
     pub symbol_search: SymbolSearchState,
     pub watchlist_add: WatchlistAddState,
     pub profile_editor: ProfileEditorState,
-    pub keymap: KeymapConfig,
+    pub keymap: crate::keymap::KeymapConfig,
     pub providers: ProviderConfig,
     pub settings_editor: SettingsEditorState,
     pub task_log: TaskLog,
@@ -83,7 +85,7 @@ pub struct AppState {
     pub selected_open_order: usize,
     pub task_failures: TaskFailures,
     pub scheduler_error: Option<String>,
-    pub theme: ThemeConfig,
+    pub theme: crate::theme::ThemeConfig,
     pub default_submit_mode: SubmitMode,
     pub live_writes_enabled: bool,
     pub trading_profile: Option<String>,
@@ -111,6 +113,7 @@ impl AppState {
             watchlist: config.watchlist,
             selected_symbol: 0,
             config_changes: Vec::new(),
+            config_undo_history: LocalConfigHistory::default(),
             workspace: config.workspace.current,
             zoomed: false,
             layout: config.layout,
@@ -215,6 +218,10 @@ impl AppState {
 
     pub fn staged_change_count(&self) -> usize {
         self.staged_changes.len()
+    }
+
+    pub fn config_undo_available(&self) -> bool {
+        self.config_undo_history.available()
     }
 
     pub fn pending_staged_confirmation(&self) -> Option<&StagedExecutionRequest> {
@@ -413,25 +420,21 @@ impl AppState {
 
     fn adjust_selected_setting(&mut self, direction: isize) {
         let row = self.settings_editor.selected();
-        let Some(change) = row.adjust(&mut self.providers, &mut self.theme, direction) else {
+        let Some(change) = self.edit_local_config(|state| {
+            row.adjust(&mut state.providers, &mut state.theme, direction)
+                .map(|change| LocalConfigEdit::new(change.section, change))
+        }) else {
             return;
         };
 
         if change.requires_provider_reload {
             self.pending_provider_preferences_update = true;
         }
-        self.mark_config_changed(change.section);
         self.task_log.info(format!(
             "setting updated: {}={}",
             row.label(),
             row.value(&self.providers, &self.theme)
         ));
-    }
-
-    pub(super) fn mark_config_changed(&mut self, section: &str) {
-        if !self.config_changes.iter().any(|change| change == section) {
-            self.config_changes.push(section.to_string());
-        }
     }
 
     fn request_config_save(&mut self) {
@@ -448,6 +451,7 @@ impl AppState {
 
     fn config_saved(&mut self) {
         self.config_changes.clear();
+        self.config_undo_history.clear();
         self.pending_config_save = false;
         self.task_log.info("config saved".to_string());
     }
@@ -456,6 +460,34 @@ impl AppState {
         self.pending_config_save = false;
         self.task_log
             .warning_event(format!("config save failed: {error}"));
+    }
+
+    fn undo_config_change(&mut self) {
+        let Some(snapshot) = self.config_undo_history.pop() else {
+            self.task_log
+                .info("no local config change to undo".to_string());
+            return;
+        };
+
+        let provider_changed = self.providers != snapshot.config.providers;
+        let trading_profile_changed =
+            self.trading_profile != snapshot.config.trading.default_profile;
+        self.restore_local_config_snapshot(snapshot);
+        if provider_changed {
+            self.invalidate_provider_backed_loads();
+            self.pending_provider_preferences_update = true;
+        }
+        if trading_profile_changed {
+            self.invalidate_account_snapshot_for_profile_change();
+        }
+        self.task_log.info(if self.config_changes.is_empty() {
+            "undid local config change; config is clean".to_string()
+        } else {
+            format!(
+                "undid local config change; pending config: {}",
+                self.config_changes.join(", ")
+            )
+        });
     }
 
     fn tracked_layout_snapshot(&self) -> TrackedLayoutSnapshot {
@@ -475,10 +507,11 @@ impl AppState {
 
     fn track_layout_change(&mut self, mutate: impl FnOnce(&mut Self)) {
         let before = self.tracked_layout_snapshot();
-        mutate(self);
-        if self.tracked_layout_snapshot() != before {
-            self.mark_config_changed("layout");
-        }
+        self.edit_local_config(|state| {
+            mutate(state);
+            (state.tracked_layout_snapshot() != before)
+                .then_some(LocalConfigEdit::new("layout", ()))
+        });
     }
 
     fn add_watchlist_symbols(&mut self) {
@@ -491,19 +524,22 @@ impl AppState {
 
         let mut added = Vec::new();
         let mut selected = None;
-        for symbol in symbols {
-            if let Some(index) = self
-                .watchlist
-                .iter()
-                .position(|candidate| candidate == &symbol)
-            {
-                selected.get_or_insert(index);
-            } else {
-                self.watchlist.push(symbol.clone());
-                added.push(symbol);
-                selected.get_or_insert(self.watchlist.len() - 1);
+        self.edit_local_config(|state| {
+            for symbol in symbols {
+                if let Some(index) = state
+                    .watchlist
+                    .iter()
+                    .position(|candidate| candidate == &symbol)
+                {
+                    selected.get_or_insert(index);
+                } else {
+                    state.watchlist.push(symbol.clone());
+                    added.push(symbol);
+                    selected.get_or_insert(state.watchlist.len() - 1);
+                }
             }
-        }
+            (!added.is_empty()).then_some(LocalConfigEdit::new("watchlist", ()))
+        });
 
         if let Some(index) = selected {
             self.selected_symbol = index;
@@ -512,7 +548,6 @@ impl AppState {
             self.task_log
                 .info("watchlist already contains symbol".to_string());
         } else {
-            self.mark_config_changed("watchlist");
             self.task_log
                 .info(format!("added {} to watchlist", added.join(", ")));
         }
@@ -526,10 +561,14 @@ impl AppState {
                 .warning_event("watchlist must keep at least one symbol".to_string());
             return;
         }
-        let index = self.selected_symbol.min(self.watchlist.len() - 1);
-        let removed = self.watchlist.remove(index);
-        self.selected_symbol = index.min(self.watchlist.len() - 1);
-        self.mark_config_changed("watchlist");
+        let removed = self
+            .edit_local_config(|state| {
+                let index = state.selected_symbol.min(state.watchlist.len() - 1);
+                let removed = state.watchlist.remove(index);
+                state.selected_symbol = index.min(state.watchlist.len() - 1);
+                Some(LocalConfigEdit::new("watchlist", removed))
+            })
+            .expect("prevalidated watchlist delete must produce an edit");
         self.task_log
             .info(format!("removed {removed} from watchlist"));
     }
@@ -543,11 +582,13 @@ impl AppState {
         if next < 0 || next >= self.watchlist.len() as isize {
             return;
         }
-        let next = next as usize;
-        let symbol = self.watchlist.remove(current);
-        self.watchlist.insert(next, symbol);
-        self.selected_symbol = next;
-        self.mark_config_changed("watchlist");
+        self.edit_local_config(|state| {
+            let next = next as usize;
+            let symbol = state.watchlist.remove(current);
+            state.watchlist.insert(next, symbol);
+            state.selected_symbol = next;
+            Some(LocalConfigEdit::new("watchlist", ()))
+        });
     }
 
     fn stage_selected_open_order_cancel(&mut self) {
@@ -681,6 +722,7 @@ impl AppState {
             Action::CancelStagedExecutionConfirmation => {
                 self.cancel_staged_execution_confirmation()
             }
+            Action::UndoConfigChange => self.undo_config_change(),
             Action::RequestConfigSave => self.request_config_save(),
             Action::ConfigSaved => self.config_saved(),
             Action::ConfigSaveFailed(error) => self.config_save_failed(error),
@@ -1122,6 +1164,7 @@ pub enum Action {
         error: String,
     },
     RequestConfigSave,
+    UndoConfigChange,
     ConfigSaved,
     ConfigSaveFailed(String),
     Execute(ActionId),

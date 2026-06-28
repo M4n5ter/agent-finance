@@ -47,6 +47,7 @@ fn settings_key_hints() -> Vec<String> {
         "up/down select setting",
         "left/right adjust",
         "enter next value",
+        "u undo",
         "q quit",
     ]
     .into_iter()
@@ -286,6 +287,7 @@ mod tests {
                 "up/down select setting",
                 "left/right adjust",
                 "enter next value",
+                "u undo",
                 "q quit",
             ]
         );

@@ -179,6 +179,7 @@ function smokeDumpState() {
     "mode",
     "selected_symbol",
     "config_changes",
+    "config_undo_available",
     "watchlist_add_query",
     "panes",
     "provider_health",
@@ -199,7 +200,7 @@ function smokeDumpState() {
   if (dump.workspace !== "market") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
   }
-  if (dump.schema_version !== 19) {
+  if (dump.schema_version !== 20) {
     fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
   }
   if (

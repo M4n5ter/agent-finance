@@ -340,9 +340,9 @@ fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         .iter()
         .any(|change| change == "watchlist")
     {
-        "a add  d delete  left/right move  config: watchlist"
+        "a add  d delete  left/right move  u undo  config: watchlist"
     } else {
-        "a add  d delete  left/right move"
+        "a add  d delete  left/right move  u undo"
     };
     items.push(ListItem::new(Line::from(Span::styled(
         watchlist_hint,

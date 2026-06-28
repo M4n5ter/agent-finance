@@ -224,6 +224,7 @@ fn watchlist_key_action(key: KeyEvent) -> Option<Action> {
             crate::command::ActionId::OpenFloating(FloatingKind::WatchlistAdd),
         )),
         (KeyCode::Char('d'), KeyModifiers::NONE) => Some(Action::DeleteSelectedWatchlistSymbol),
+        (KeyCode::Char('u'), KeyModifiers::NONE) => Some(Action::UndoConfigChange),
         _ => None,
     }
 }
@@ -264,6 +265,7 @@ fn settings_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
             Some(Action::AdjustSelectedSetting(1))
         }
+        KeyCode::Char('u') => Some(Action::UndoConfigChange),
         _ => None,
     }
 }
@@ -496,6 +498,10 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('d'))),
             Some(Action::DeleteSelectedWatchlistSymbol)
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('u'))),
+            Some(Action::UndoConfigChange)
         );
         assert_eq!(
             key_action(
@@ -912,6 +918,10 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('h'))),
             Some(Action::AdjustSelectedSetting(-1))
+        );
+        assert_eq!(
+            key_action(&state, KeyEvent::from(KeyCode::Char('u'))),
+            Some(Action::UndoConfigChange)
         );
     }
 }

@@ -16,7 +16,7 @@ use crate::state::{AppState, StagedChangeView, StagedExecutionRequest};
 use crate::theme::ThemeConfig;
 use crate::transfer_ticket::TransferTicketPreview;
 
-const TUI_DUMP_SCHEMA_VERSION: u32 = 19;
+const TUI_DUMP_SCHEMA_VERSION: u32 = 20;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
@@ -25,6 +25,7 @@ pub struct TuiDump {
     pub mode: InteractionMode,
     pub selected_symbol: Option<String>,
     pub config_changes: Vec<String>,
+    pub config_undo_available: bool,
     pub watchlist_add_query: String,
     pub partial: bool,
     pub panes: Vec<TuiPaneDump>,
@@ -67,6 +68,7 @@ impl TuiDump {
             mode: state.interaction_mode(),
             selected_symbol: state.selected_symbol().map(ToString::to_string),
             config_changes: state.config_changes.clone(),
+            config_undo_available: state.config_undo_available(),
             watchlist_add_query: state.watchlist_add.query().to_string(),
             partial,
             panes: Panel::ALL
@@ -727,6 +729,7 @@ mod tests {
         )));
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
         assert_eq!(value["watchlist_add_query"], "");
+        assert_eq!(value["config_undo_available"], false);
         assert_eq!(
             value["key_hints"],
             serde_json::json!(["type symbols", "enter add", "esc close"])
@@ -742,6 +745,7 @@ mod tests {
         let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
 
         assert_eq!(value["config_changes"][0], "watchlist");
+        assert_eq!(value["config_undo_available"], true);
         assert_eq!(value["selected_symbol"], "LITE");
         assert_eq!(value["watchlist_add_query"], "");
     }

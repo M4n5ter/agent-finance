@@ -109,6 +109,7 @@ pub enum ActionId {
     RevalidateTradingProfile,
     StageProfileLiveToggle,
     SaveConfig,
+    UndoConfigChange,
     DeleteSelectedWatchlistSymbol,
     MoveSelectedWatchlistSymbol(isize),
     CloseCommandPalette,
@@ -167,7 +168,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 57] = [
+pub const ACTION_REGISTRY: [ActionSpec; 58] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -311,6 +312,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 57] = [
         ActionId::SaveConfig,
         "Save config",
         "Persist pending local TUI configuration changes"
+    ),
+    action!(
+        "undo-config-change",
+        ActionId::UndoConfigChange,
+        "Undo config change",
+        "Revert the latest local TUI configuration edit"
     ),
     action!(
         "delete-selected-watchlist-symbol",
@@ -592,6 +599,17 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(visible.contains(&"Focus settings"));
         assert!(visible.contains(&"Toggle settings"));
+    }
+
+    #[test]
+    fn command_palette_can_find_config_undo_action() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "undo config".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(palette.selected_action(), Some(ActionId::UndoConfigChange));
     }
 
     #[test]

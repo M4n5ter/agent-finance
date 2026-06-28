@@ -86,6 +86,10 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::RequestConfigSave);
             }
+            ActionId::UndoConfigChange => {
+                self.close_text_input_floatings();
+                self.reduce(Action::UndoConfigChange);
+            }
             ActionId::DeleteSelectedWatchlistSymbol => {
                 self.close_text_input_floatings();
                 self.reduce(Action::DeleteSelectedWatchlistSymbol);
