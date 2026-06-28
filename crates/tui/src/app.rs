@@ -18,6 +18,9 @@ use crate::config::{TuiConfig, TuiLaunch};
 use crate::dump::TuiDump;
 use crate::input::{self, MouseDrag};
 use crate::model::Panel;
+use crate::profile_validation_load::{
+    ProfileValidationLoadRuntime, request_profile_validation_load,
+};
 use crate::render;
 use crate::scheduler::{Scheduler, SchedulerEvent, SymbolTaskKind};
 use crate::state::{Action, AppState, SelectedSymbolLoad, SymbolSnapshot};
@@ -43,8 +46,10 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
     let scheduler = Scheduler::start(&launch, runtime_config.providers.clone());
     let mut next_refresh_generation = 1;
     let mut account_load = account_load_runtime(&launch);
+    let mut profile_validation_load = ProfileValidationLoadRuntime::new();
     let mut symbol_loads = SymbolLoadRuntimes::new();
     request_refresh(&scheduler, &mut state, &mut next_refresh_generation);
+    request_profile_validation_load(&scheduler, &mut state, &mut profile_validation_load);
     request_account_load(&scheduler, &mut state, &mut account_load, false);
     request_symbol_loads(&scheduler, &mut state, &mut symbol_loads, false);
 
@@ -58,6 +63,7 @@ pub fn run(launch: TuiLaunch) -> Result<()> {
             next_refresh_generation: &mut next_refresh_generation,
             symbol_loads: &mut symbol_loads,
             account_load: &mut account_load,
+            profile_validation_load: &mut profile_validation_load,
             launch: &launch,
             runtime_config: &runtime_config,
             persisted_config: &persisted_config,
@@ -90,15 +96,18 @@ fn run_dump_state(
     let scheduler = Scheduler::start(launch, runtime_config.providers.clone());
     let mut next_refresh_generation = 1;
     let mut account_load = account_load_runtime(launch);
+    let mut profile_validation_load = ProfileValidationLoadRuntime::new();
     let mut symbol_loads = SymbolLoadRuntimes::new();
     let deadline = Instant::now() + Duration::from_secs(options.wait_seconds);
 
     request_refresh(&scheduler, &mut state, &mut next_refresh_generation);
+    request_profile_validation_load(&scheduler, &mut state, &mut profile_validation_load);
     request_account_load(&scheduler, &mut state, &mut account_load, false);
     request_symbol_loads(&scheduler, &mut state, &mut symbol_loads, false);
 
     while Instant::now() < deadline {
         drain_scheduler_events(&scheduler, &mut state);
+        request_profile_validation_load(&scheduler, &mut state, &mut profile_validation_load);
         request_account_load(&scheduler, &mut state, &mut account_load, false);
         request_symbol_loads(&scheduler, &mut state, &mut symbol_loads, false);
         if dump_is_ready(&state) {
@@ -139,6 +148,7 @@ fn run_loop(
         terminal.draw(|frame| render::render(frame, state))?;
 
         drain_scheduler_events(context.scheduler, state);
+        request_profile_validation_load(context.scheduler, state, context.profile_validation_load);
         request_account_load(context.scheduler, state, context.account_load, false);
         request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
 
@@ -181,6 +191,11 @@ fn run_loop(
                     state,
                 );
                 request_account_load(context.scheduler, state, context.account_load, false);
+                request_profile_validation_load(
+                    context.scheduler,
+                    state,
+                    context.profile_validation_load,
+                );
                 request_symbol_loads(context.scheduler, state, context.symbol_loads, false);
             }
         }
@@ -285,6 +300,22 @@ fn apply_scheduler_event(state: &mut AppState, event: SchedulerEvent) {
             profile,
             error,
         }),
+        SchedulerEvent::ProfileValidation {
+            generation,
+            snapshot,
+        } => state.reduce(Action::ProfileValidationLoaded {
+            generation,
+            snapshot,
+        }),
+        SchedulerEvent::ProfileValidationFailed {
+            generation,
+            profile,
+            error,
+        } => state.reduce(Action::ProfileValidationFailed {
+            generation,
+            profile,
+            error,
+        }),
         SchedulerEvent::StagedChangeProgress { id, event, message } => {
             state.reduce(Action::ApplyStagedChangeEvent { id, event });
             if let Some(message) = message {
@@ -303,6 +334,9 @@ fn dump_is_ready(state: &AppState) -> bool {
         return false;
     }
     if state.account_loading() {
+        return false;
+    }
+    if state.profile_validation_loading() {
         return false;
     }
     if state.market_snapshot.is_none() && !state.task_failures.has_source(TaskFailureSource::Quotes)
@@ -332,6 +366,7 @@ struct LoopContext<'a> {
     next_refresh_generation: &'a mut u64,
     symbol_loads: &'a mut SymbolLoadRuntimes,
     account_load: &'a mut AccountLoadRuntime,
+    profile_validation_load: &'a mut ProfileValidationLoadRuntime,
     launch: &'a TuiLaunch,
     runtime_config: &'a TuiConfig,
     persisted_config: &'a TuiConfig,

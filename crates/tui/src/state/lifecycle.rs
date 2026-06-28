@@ -4,6 +4,7 @@ use agent_finance_market::research_snapshot::ResearchContextSnapshot;
 use agent_finance_market::snapshot::MarketSnapshot;
 
 use crate::account::AccountSnapshot;
+use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState};
 use crate::task_failure::{TaskFailure, TaskFailureSource};
 use crate::task_log::TaskKey;
 
@@ -299,6 +300,88 @@ impl AppState {
         }
     }
 
+    pub(super) fn profile_validation_started(&mut self, generation: u64, profile: String) {
+        self.task_log.running(
+            TaskKey::ProfileValidation {
+                generation,
+                profile: profile.clone(),
+            },
+            format!("{profile} profile validation loading"),
+        );
+        self.profile_validation_request
+            .start(generation, profile.clone());
+        self.profile_validation = ProfileValidationState::loading(profile);
+    }
+
+    pub(super) fn profile_validation_loaded(
+        &mut self,
+        generation: u64,
+        snapshot: ProfileValidationSnapshot,
+    ) {
+        if let Some(active) = self.profile_validation_request.finish(generation) {
+            if self.trading_profile.as_deref() != Some(snapshot.profile.as_str()) {
+                self.task_log.warning(
+                    TaskKey::ProfileValidation {
+                        generation: active.generation,
+                        profile: active.key,
+                    },
+                    format!("ignored stale profile validation for {}", snapshot.profile),
+                );
+                self.profile_validation = ProfileValidationState::idle();
+                return;
+            }
+
+            let failed_required = snapshot
+                .checks
+                .iter()
+                .filter(|check| check.required && !check.ok)
+                .count();
+            if failed_required == 0 {
+                self.task_log.succeeded(
+                    TaskKey::ProfileValidation {
+                        generation: active.generation,
+                        profile: active.key.clone(),
+                    },
+                    format!("{} profile validation passed", snapshot.profile),
+                );
+            } else {
+                self.task_log.warning(
+                    TaskKey::ProfileValidation {
+                        generation: active.generation,
+                        profile: active.key.clone(),
+                    },
+                    format!(
+                        "{} profile validation has {} required failure(s)",
+                        snapshot.profile, failed_required
+                    ),
+                );
+            }
+            self.profile_validation = ProfileValidationState::ready(snapshot);
+        } else {
+            self.task_log.warning_event(format!(
+                "ignored stale profile validation generation {generation}",
+            ));
+        }
+    }
+
+    pub(super) fn profile_validation_failed(
+        &mut self,
+        generation: u64,
+        profile: String,
+        error: String,
+    ) {
+        if let Some(active) = self.profile_validation_request.finish(generation) {
+            self.task_log.failed(
+                TaskKey::ProfileValidation {
+                    generation: active.generation,
+                    profile: active.key,
+                },
+                format!("{profile} profile validation failed: {error}"),
+            );
+            self.profile_validation = ProfileValidationState::failed(profile, error);
+        }
+    }
+
     pub(super) fn scheduler_failed(&mut self, error: String) {
         if let Some(active) = self.refresh.cancel() {
             self.task_log.failed(
@@ -343,6 +426,17 @@ impl AppState {
                 },
                 format!("{} account loading cancelled: {error}", active.key),
             );
+        }
+        if let Some(active) = self.profile_validation_request.cancel() {
+            self.task_log.failed(
+                TaskKey::ProfileValidation {
+                    generation: active.generation,
+                    profile: active.key.clone(),
+                },
+                format!("{} profile validation cancelled: {error}", active.key),
+            );
+            self.profile_validation =
+                ProfileValidationState::failed(active.key, format!("scheduler failed: {error}"));
         }
         self.scheduler_error = Some(error.clone());
         self.task_failures

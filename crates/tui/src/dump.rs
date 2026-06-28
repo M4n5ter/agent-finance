@@ -1,4 +1,6 @@
-use agent_finance_core::submit::SubmitMode;
+use std::path::PathBuf;
+
+use agent_finance_core::{DiagnosticCheck, submit::SubmitMode};
 use serde::Serialize;
 
 use crate::account::AccountSnapshot;
@@ -8,12 +10,13 @@ use crate::hints;
 use crate::model::{InteractionMode, Panel, WorkspaceKind};
 use crate::order_ticket::OrderTicketPreview;
 use crate::pane_status::{TuiPaneStatus, pane_health};
+use crate::profile_snapshot::ProfileValidationState;
 use crate::provider_health::{ProviderHealthReport, ProviderHealthTask};
 use crate::state::{AppState, StagedChangeView, StagedSubmitRequest};
 use crate::theme::ThemeConfig;
 use crate::transfer_ticket::TransferTicketPreview;
 
-const TUI_DUMP_SCHEMA_VERSION: u32 = 14;
+const TUI_DUMP_SCHEMA_VERSION: u32 = 15;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
@@ -33,6 +36,7 @@ pub struct TuiDump {
     pub live_writes_enabled: bool,
     pub effective_submit_mode: SubmitMode,
     pub trading_profile: Option<String>,
+    pub profile_validation: ProfileValidationDump,
     pub account: Option<AccountSnapshot>,
     pub order_ticket: OrderTicketPreview,
     pub transfer_ticket: TransferTicketPreview,
@@ -76,6 +80,7 @@ impl TuiDump {
             live_writes_enabled: state.live_writes_enabled,
             effective_submit_mode: state.effective_submit_mode(),
             trading_profile: state.trading_profile.clone(),
+            profile_validation: ProfileValidationDump::from_state(&state.profile_validation),
             account: state.account_snapshot.clone(),
             order_ticket: state.order_ticket_preview(),
             transfer_ticket: state.transfer_ticket_preview(),
@@ -124,7 +129,99 @@ fn dump_errors(state: &AppState) -> Vec<String> {
                 .map(|error| format!("{} account read warning: {}", error.label, error.error)),
         );
     }
+    if let ProfileValidationState::Failed { profile, error } = &state.profile_validation {
+        errors.push(format!("{profile} profile validation failed: {error}"));
+    }
+    if let ProfileValidationState::Ready {
+        profile, checks, ..
+    } = &state.profile_validation
+    {
+        let required_failure_count = required_failures(checks).len();
+        if required_failure_count > 0 {
+            errors.push(format!(
+                "{profile} profile validation has {required_failure_count} required failure(s)"
+            ));
+        }
+    }
     errors
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProfileValidationDump {
+    pub status: ProfileValidationDumpStatus,
+    pub profile: Option<String>,
+    pub path: Option<PathBuf>,
+    pub checks: Vec<DiagnosticCheck>,
+    pub required_failure_count: usize,
+    pub required_failures: Vec<DiagnosticCheck>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProfileValidationDumpStatus {
+    Idle,
+    Loading,
+    Ready,
+    Failed,
+}
+
+impl ProfileValidationDump {
+    fn from_state(state: &ProfileValidationState) -> Self {
+        match state {
+            ProfileValidationState::Idle => Self {
+                status: ProfileValidationDumpStatus::Idle,
+                profile: None,
+                path: None,
+                checks: Vec::new(),
+                required_failure_count: 0,
+                required_failures: Vec::new(),
+                error: None,
+            },
+            ProfileValidationState::Loading { profile } => Self {
+                status: ProfileValidationDumpStatus::Loading,
+                profile: Some(profile.clone()),
+                path: None,
+                checks: Vec::new(),
+                required_failure_count: 0,
+                required_failures: Vec::new(),
+                error: None,
+            },
+            ProfileValidationState::Ready {
+                profile,
+                path,
+                checks,
+            } => {
+                let required_failures = required_failures(checks);
+                Self {
+                    status: ProfileValidationDumpStatus::Ready,
+                    profile: Some(profile.clone()),
+                    path: Some(path.clone()),
+                    checks: checks.clone(),
+                    required_failure_count: required_failures.len(),
+                    required_failures,
+                    error: None,
+                }
+            }
+            ProfileValidationState::Failed { profile, error } => Self {
+                status: ProfileValidationDumpStatus::Failed,
+                profile: Some(profile.clone()),
+                path: None,
+                checks: Vec::new(),
+                required_failure_count: 0,
+                required_failures: Vec::new(),
+                error: Some(error.clone()),
+            },
+        }
+    }
+}
+
+fn required_failures(checks: &[DiagnosticCheck]) -> Vec<DiagnosticCheck> {
+    checks
+        .iter()
+        .filter(|check| check.required && !check.ok)
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -133,10 +230,11 @@ mod tests {
     use crate::command::ActionId;
     use crate::config::{EquityProvider, ProviderConfig, TuiConfig, WorkspaceConfig};
     use crate::model::FloatingKind;
+    use crate::profile_snapshot::ProfileValidationSnapshot;
     use crate::state::{Action, StagedChangeEvent};
     use crate::theme::{ThemeColor, ThemeConfig};
-    use agent_finance_core::submit::SubmitMode;
     use agent_finance_core::{Environment, Provider, SignedReadSnapshot};
+    use std::path::PathBuf;
 
     #[test]
     fn dump_marks_only_workspace_panels_visible() {
@@ -255,6 +353,95 @@ mod tests {
                 .expect("key_hints")
                 .iter()
                 .any(|hint| hint == "q quit")
+        );
+    }
+
+    #[test]
+    fn dump_exposes_profile_validation_snapshot() {
+        let mut state = AppState::from_config(TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::ProfileValidationStarted {
+            generation: 1,
+            profile: "mainnet".to_string(),
+        });
+        state.reduce(Action::ProfileValidationLoaded {
+            generation: 1,
+            snapshot: ProfileValidationSnapshot {
+                profile: "mainnet".to_string(),
+                path: PathBuf::from("mainnet.toml"),
+                checks: vec![
+                    DiagnosticCheck::optional("profile-parse", true, "parsed"),
+                    DiagnosticCheck::required(
+                        "profile-permission-spot-trading",
+                        false,
+                        "spot trading permission disabled",
+                    ),
+                ],
+            },
+        });
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, false)).expect("serialize");
+
+        assert_eq!(value["schema_version"], TUI_DUMP_SCHEMA_VERSION);
+        assert_eq!(value["profile_validation"]["status"], "ready");
+        assert_eq!(value["profile_validation"]["profile"], "mainnet");
+        assert_eq!(value["profile_validation"]["required_failure_count"], 1);
+        assert_eq!(
+            value["profile_validation"]["checks"][0]["name"],
+            "profile-parse"
+        );
+        assert_eq!(
+            value["profile_validation"]["checks"][1]["message"],
+            "spot trading permission disabled"
+        );
+        assert_eq!(
+            value["profile_validation"]["required_failures"][0]["name"],
+            "profile-permission-spot-trading"
+        );
+        assert!(
+            value["errors"]
+                .as_array()
+                .expect("errors")
+                .iter()
+                .any(|error| error == "mainnet profile validation has 1 required failure(s)")
+        );
+    }
+
+    #[test]
+    fn dump_exposes_profile_validation_failure_in_errors() {
+        let mut state = AppState::from_config(TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("missing".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::ProfileValidationStarted {
+            generation: 1,
+            profile: "missing".to_string(),
+        });
+        state.reduce(Action::ProfileValidationFailed {
+            generation: 1,
+            profile: "missing".to_string(),
+            error: "profile not found".to_string(),
+        });
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, false)).expect("serialize");
+
+        assert_eq!(value["schema_version"], TUI_DUMP_SCHEMA_VERSION);
+        assert_eq!(value["profile_validation"]["status"], "failed");
+        assert_eq!(value["profile_validation"]["profile"], "missing");
+        assert_eq!(value["profile_validation"]["required_failure_count"], 0);
+        assert_eq!(value["profile_validation"]["error"], "profile not found");
+        assert!(
+            value["errors"]
+                .as_array()
+                .expect("errors")
+                .iter()
+                .any(|error| error == "missing profile validation failed: profile not found")
         );
     }
 

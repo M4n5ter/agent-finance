@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const session = `agent-finance-tui-smoke-${process.pid}`;
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-finance-tui-"));
 const configPath = path.join(tempDir, "tui.toml");
+const configHome = path.join(tempDir, "config-home");
 const statusPath = path.join(tempDir, "status");
 const baseTuiCommand = process.env.AGENT_FINANCE_TUI_CMD || "cargo run --quiet -- tui";
 
@@ -31,6 +32,7 @@ fs.writeFileSync(
     "",
   ].join("\n"),
 );
+writeSmokeProfile();
 
 smokeDumpState();
 
@@ -48,7 +50,7 @@ const tuiCommand =
     "--symbols",
     "AAPL,BTCUSDT",
   ]);
-const wrappedCommand = `cd ${shellQuote(root)} && ${tuiCommand}; printf '%s' "$?" > ${shellQuote(statusPath)}`;
+const wrappedCommand = `cd ${shellQuote(root)} && AGENT_FINANCE_CONFIG_HOME=${shellQuote(configHome)} ${tuiCommand}; printf '%s' "$?" > ${shellQuote(statusPath)}`;
 
 try {
   runTmux([
@@ -146,11 +148,15 @@ function smokeDumpState() {
     "market",
     "--dump-state",
     "--wait-seconds",
-    "0",
+    "3",
     "--json",
   ]);
   const result = spawnSync("sh", ["-lc", command], {
     cwd: root,
+    env: {
+      ...process.env,
+      AGENT_FINANCE_CONFIG_HOME: configHome,
+    },
     encoding: "utf8",
   });
   if (result.error) {
@@ -178,6 +184,7 @@ function smokeDumpState() {
     "provider_health",
     "provider_preferences",
     "theme_preferences",
+    "profile_validation",
     "tasks",
     "transfer_ticket",
     "futures_state_ticket",
@@ -192,8 +199,19 @@ function smokeDumpState() {
   if (dump.workspace !== "market") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
   }
-  if (dump.schema_version !== 14) {
+  if (dump.schema_version !== 15) {
     fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
+  }
+  if (
+    !dump.profile_validation ||
+    dump.profile_validation.status !== "ready" ||
+    dump.profile_validation.profile !== "smoke" ||
+    !String(dump.profile_validation.path || "").endsWith("profiles/smoke.toml") ||
+    dump.profile_validation.required_failure_count !== 0 ||
+    !Array.isArray(dump.profile_validation.checks) ||
+    !dump.profile_validation.checks.some((check) => check.name === "profile-parse")
+  ) {
+    fail("dump-state did not load and validate the smoke trading profile");
   }
   if (
     !dump.provider_preferences ||
@@ -240,6 +258,37 @@ function smokeDumpState() {
   if (!Array.isArray(dump.panes) || !dump.panes.some((pane) => pane.panel === "history" && pane.visible)) {
     fail("dump-state JSON is missing a visible history pane");
   }
+}
+
+function writeSmokeProfile() {
+  const profileDir = path.join(configHome, "profiles");
+  fs.mkdirSync(profileDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(profileDir, "smoke.toml"),
+    [
+      'name = "smoke"',
+      "",
+      "[provider]",
+      'provider = "binance"',
+      'environment = "testnet"',
+      'api_key_env = "BINANCE_API_KEY"',
+      'api_secret_env = "BINANCE_PRIVATE_KEY"',
+      "",
+      "[permissions]",
+      "spot_trading = true",
+      "usds_futures = false",
+      "universal_transfer = false",
+      "",
+      "[risk]",
+      "allow_live = false",
+      "",
+      '[risk.allowed_symbols.BTCUSDT]',
+      'markets = ["spot"]',
+      'order_kinds = ["limit"]',
+      'max_order_notional_usdt = "25"',
+      "",
+    ].join("\n"),
+  );
 }
 
 function executePaletteCommand(query, filterMarkers, resultMarkers, context) {

@@ -637,7 +637,7 @@ impl SignedReadSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiagnosticCheck {
     pub name: String,
     pub ok: bool,

@@ -16,6 +16,7 @@ use crate::keymap::KeymapConfig;
 use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 use crate::order_ticket::{OrderTicket, OrderTicketPreview};
 use crate::profile_editor::ProfileEditorState;
+use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState};
 use crate::search::SymbolSearchState;
 use crate::settings_editor::SettingsEditorState;
 use crate::task_failure::TaskFailures;
@@ -71,6 +72,8 @@ pub struct AppState {
     pub research: SelectedSymbolLoad<ResearchContextSnapshot>,
     account: LoadSlot<String>,
     pub account_snapshot: Option<AccountSnapshot>,
+    profile_validation_request: LoadSlot<String>,
+    pub profile_validation: ProfileValidationState,
     pub selected_open_order: usize,
     pub task_failures: TaskFailures,
     pub scheduler_error: Option<String>,
@@ -123,6 +126,8 @@ impl AppState {
             research: SelectedSymbolLoad::new(),
             account: LoadSlot::new(),
             account_snapshot: None,
+            profile_validation_request: LoadSlot::new(),
+            profile_validation: ProfileValidationState::idle(),
             selected_open_order: 0,
             task_failures: TaskFailures::default(),
             scheduler_error: None,
@@ -182,6 +187,16 @@ impl AppState {
 
     pub fn account_loading(&self) -> bool {
         self.account.loading()
+    }
+
+    pub fn profile_validation_loading(&self) -> bool {
+        self.profile_validation_request.loading()
+    }
+
+    pub fn has_current_profile_validation(&self) -> bool {
+        self.trading_profile
+            .as_ref()
+            .is_some_and(|profile| self.profile_validation.terminal_for(profile))
     }
 
     pub fn staged_change_views(&self) -> Vec<StagedChangeView> {
@@ -769,6 +784,19 @@ impl AppState {
                 profile,
                 error,
             } => self.account_failed(generation, profile, error),
+            Action::ProfileValidationStarted {
+                generation,
+                profile,
+            } => self.profile_validation_started(generation, profile),
+            Action::ProfileValidationLoaded {
+                generation,
+                snapshot,
+            } => self.profile_validation_loaded(generation, snapshot),
+            Action::ProfileValidationFailed {
+                generation,
+                profile,
+                error,
+            } => self.profile_validation_failed(generation, profile, error),
             Action::SchedulerFailed(error) => self.scheduler_failed(error),
             Action::SetDefaultSubmitMode(mode) => {
                 self.default_submit_mode = mode;
@@ -1117,6 +1145,19 @@ pub enum Action {
         snapshot: AccountSnapshot,
     },
     AccountFailed {
+        generation: u64,
+        profile: String,
+        error: String,
+    },
+    ProfileValidationStarted {
+        generation: u64,
+        profile: String,
+    },
+    ProfileValidationLoaded {
+        generation: u64,
+        snapshot: ProfileValidationSnapshot,
+    },
+    ProfileValidationFailed {
         generation: u64,
         profile: String,
         error: String,

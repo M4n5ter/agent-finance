@@ -78,13 +78,13 @@ pub(crate) async fn run_profile(args: ProfileArgs, timeout_seconds: u64) -> Resu
             let profile = store.load(&args.profile)?;
             let report = ProfileDoctorReport {
                 profile: args.profile,
-                checks: local_profile_checks(&profile),
+                checks: agent_finance_core::local_profile_checks(&profile),
             };
             print_profile_check_report(args.json, &report)
         }
         ProfileCommand::Doctor(args) => {
             let profile = store.load(&args.profile)?;
-            let mut checks = local_profile_checks(&profile);
+            let mut checks = agent_finance_core::local_profile_checks(&profile);
             let key_ok = std::env::var(&profile.provider.api_key_env).is_ok();
             let secret_ok = std::env::var(&profile.provider.api_secret_env).is_ok();
             checks.push(agent_finance_core::DiagnosticCheck::required(
@@ -140,18 +140,6 @@ pub(crate) async fn run_profile(args: ProfileArgs, timeout_seconds: u64) -> Resu
 struct ProfileDoctorReport {
     profile: String,
     checks: Vec<agent_finance_core::DiagnosticCheck>,
-}
-
-fn local_profile_checks(
-    profile: &agent_finance_core::Profile,
-) -> Vec<agent_finance_core::DiagnosticCheck> {
-    let mut checks = vec![agent_finance_core::DiagnosticCheck::optional(
-        "profile-parse",
-        true,
-        "profile TOML parsed successfully",
-    )];
-    checks.extend(agent_finance_core::check_profile_permission_policy(profile));
-    checks
 }
 
 fn print_profile_check_report(json_output: bool, report: &ProfileDoctorReport) -> Result<()> {

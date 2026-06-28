@@ -14,6 +14,7 @@ mod order_ticket;
 mod pane_status;
 mod profile_editor;
 mod profile_snapshot;
+mod profile_validation_load;
 mod provider_health;
 mod render;
 mod scheduler;

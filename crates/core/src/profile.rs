@@ -215,6 +215,16 @@ impl ProfileWritePlan {
     }
 }
 
+pub fn local_profile_checks(profile: &Profile) -> Vec<DiagnosticCheck> {
+    let mut checks = vec![DiagnosticCheck::optional(
+        "profile-parse",
+        true,
+        "profile TOML parsed successfully",
+    )];
+    checks.extend(crate::risk::check_profile_permission_policy(profile));
+    checks
+}
+
 fn validate_profile_name(name: &str) -> Result<()> {
     if name.trim() != name || name.is_empty() || matches!(name, "." | "..") {
         return Err(anyhow!("profile name must be a non-empty file-safe label"));

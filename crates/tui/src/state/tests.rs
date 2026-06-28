@@ -3,20 +3,22 @@ use crate::account::ACCOUNT_READ_PLAN;
 use crate::command::ActionId;
 use crate::config::MAX_LEFT_MAIN_RATIO;
 use crate::model::InteractionMode;
+use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState};
 use crate::task_failure::TaskFailureSource;
 use crate::task_log::TaskStatus;
 use crate::theme::ThemeColor;
 use agent_finance_core::intent::IntentStatus;
 use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
 use agent_finance_core::{
-    Environment, FuturesStateChange, Market, OrderSpec, Provider, SignedReadRequest,
-    SignedReadSnapshot,
+    DiagnosticCheck, Environment, FuturesStateChange, Market, OrderSpec, Provider,
+    SignedReadRequest, SignedReadSnapshot,
 };
 use agent_finance_market::args::CryptoProvider;
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::research_snapshot::ResearchContextSnapshot;
 use agent_finance_market::snapshot::{QuoteSnapshot, RegularBasisSnapshot};
+use std::path::PathBuf;
 
 fn toggle_panel_action(panel: Panel) -> ActionId {
     ActionId::TogglePanel(panel)
@@ -931,6 +933,221 @@ fn reducer_ignores_account_snapshot_for_previous_trading_profile() {
             .iter()
             .any(|entry| entry.message.contains("ignored stale account generation"))
     );
+}
+
+#[test]
+fn reducer_keeps_profile_validation_for_current_profile_only() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.trading_profile = Some("hedge".to_string());
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 2,
+        profile: "hedge".to_string(),
+    });
+    state.reduce(Action::ProfileValidationLoaded {
+        generation: 1,
+        snapshot: profile_validation_snapshot("mainnet", true),
+    });
+
+    assert!(state.profile_validation_loading());
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Loading { .. }
+    ));
+
+    state.reduce(Action::ProfileValidationLoaded {
+        generation: 2,
+        snapshot: profile_validation_snapshot("hedge", true),
+    });
+
+    assert!(!state.profile_validation_loading());
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Ready { profile, .. } if profile == "hedge"
+    ));
+    assert!(state.has_current_profile_validation());
+}
+
+#[test]
+fn reducer_rejects_profile_validation_for_previous_trading_profile() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("hedge".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::ProfileValidationLoaded {
+        generation: 1,
+        snapshot: profile_validation_snapshot("mainnet", true),
+    });
+
+    assert!(!state.profile_validation_loading());
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Idle
+    ));
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message.contains("ignored stale profile validation"))
+    );
+}
+
+#[test]
+fn reducer_keeps_profile_validation_failure_as_current_terminal_state() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("missing".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "missing".to_string(),
+    });
+    state.reduce(Action::ProfileValidationFailed {
+        generation: 1,
+        profile: "missing".to_string(),
+        error: "profile not found".to_string(),
+    });
+
+    assert!(!state.profile_validation_loading());
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Failed { profile, error }
+            if profile == "missing" && error == "profile not found"
+    ));
+    assert!(state.has_current_profile_validation());
+}
+
+#[test]
+fn scheduler_failure_terminates_active_profile_validation() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::SchedulerFailed(
+        "scheduler worker stopped".to_string(),
+    ));
+
+    assert!(!state.profile_validation_loading());
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Failed { profile, error }
+            if profile == "mainnet" && error.contains("scheduler failed")
+    ));
+}
+
+#[test]
+fn trading_profile_change_invalidates_profile_validation_snapshot() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::ProfileValidationLoaded {
+        generation: 1,
+        snapshot: profile_validation_snapshot("mainnet", true),
+    });
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Ready { .. }
+    ));
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for _ in 0.."mainnet".len() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::DeletePrevChar,
+        ));
+    }
+    for character in "hedge".chars() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptTradingProfile);
+
+    assert_eq!(state.trading_profile.as_deref(), Some("hedge"));
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Idle
+    ));
+    assert!(!state.has_current_profile_validation());
+}
+
+#[test]
+fn trading_profile_change_invalidates_profile_validation_failure() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("missing".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "missing".to_string(),
+    });
+    state.reduce(Action::ProfileValidationFailed {
+        generation: 1,
+        profile: "missing".to_string(),
+        error: "profile not found".to_string(),
+    });
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Failed { .. }
+    ));
+
+    state.reduce(Action::Execute(ActionId::OpenFloating(
+        FloatingKind::TradingProfile,
+    )));
+    for _ in 0.."missing".len() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::DeletePrevChar,
+        ));
+    }
+    for character in "hedge".chars() {
+        state.reduce(Action::EditTradingProfileQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptTradingProfile);
+
+    assert_eq!(state.trading_profile.as_deref(), Some("hedge"));
+    assert!(matches!(
+        &state.profile_validation,
+        ProfileValidationState::Idle
+    ));
+    assert!(!state.has_current_profile_validation());
 }
 
 #[test]
@@ -2071,6 +2288,25 @@ fn account_snapshot(profile: &str) -> crate::account::AccountSnapshot {
         account_reads(profile),
         Vec::new(),
     )
+}
+
+fn profile_validation_snapshot(profile: &str, passed: bool) -> ProfileValidationSnapshot {
+    ProfileValidationSnapshot {
+        profile: profile.to_string(),
+        path: PathBuf::from(format!("{profile}.toml")),
+        checks: vec![
+            DiagnosticCheck::optional("profile-parse", true, "parsed"),
+            DiagnosticCheck::required(
+                "profile-permission-spot-trading",
+                passed,
+                if passed {
+                    "spot trading permission enabled"
+                } else {
+                    "spot trading permission disabled"
+                },
+            ),
+        ],
+    }
 }
 
 fn account_snapshot_with_open_orders(profile: &str) -> crate::account::AccountSnapshot {

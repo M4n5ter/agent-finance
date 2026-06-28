@@ -1,4 +1,5 @@
 use crate::model::FloatingKind;
+use crate::profile_snapshot::ProfileValidationState;
 use crate::state::AppState;
 use crate::task_failure::TaskFailureSource;
 
@@ -31,7 +32,14 @@ impl AppState {
                 active.key
             ));
         }
+        if let Some(active) = self.profile_validation_request.cancel() {
+            self.task_log.warning_event(format!(
+                "cancelled {} profile validation after profile change",
+                active.key
+            ));
+        }
         self.account_snapshot = None;
+        self.profile_validation = ProfileValidationState::idle();
         self.selected_open_order = 0;
         self.task_failures.clear_source(TaskFailureSource::Account);
     }

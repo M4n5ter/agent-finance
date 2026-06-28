@@ -1,4 +1,6 @@
-use agent_finance_core::{Profile, ProfilePermission, RiskPolicy};
+use std::path::PathBuf;
+
+use agent_finance_core::{DiagnosticCheck, Profile, ProfilePermission, RiskPolicy};
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -7,6 +9,70 @@ pub struct TradingProfileSnapshot {
     pub required_permissions: Vec<ProfilePermission>,
     pub missing_permissions: Vec<ProfilePermission>,
     pub risk: RiskPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProfileValidationSnapshot {
+    pub profile: String,
+    pub path: PathBuf,
+    pub checks: Vec<DiagnosticCheck>,
+}
+
+impl ProfileValidationSnapshot {
+    pub fn from_profile(profile: &Profile, path: PathBuf) -> Self {
+        Self {
+            profile: profile.name.clone(),
+            path,
+            checks: agent_finance_core::local_profile_checks(profile),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProfileValidationState {
+    Idle,
+    Loading {
+        profile: String,
+    },
+    Ready {
+        profile: String,
+        path: PathBuf,
+        checks: Vec<DiagnosticCheck>,
+    },
+    Failed {
+        profile: String,
+        error: String,
+    },
+}
+
+impl ProfileValidationState {
+    pub const fn idle() -> Self {
+        Self::Idle
+    }
+
+    pub fn loading(profile: String) -> Self {
+        Self::Loading { profile }
+    }
+
+    pub fn ready(snapshot: ProfileValidationSnapshot) -> Self {
+        Self::Ready {
+            profile: snapshot.profile,
+            path: snapshot.path,
+            checks: snapshot.checks,
+        }
+    }
+
+    pub fn failed(profile: String, error: String) -> Self {
+        Self::Failed { profile, error }
+    }
+
+    pub fn terminal_for(&self, profile: &str) -> bool {
+        matches!(
+            self,
+            Self::Ready { profile: active, .. } | Self::Failed { profile: active, .. }
+                if active == profile
+        )
+    }
 }
 
 impl From<&Profile> for TradingProfileSnapshot {
@@ -117,5 +183,19 @@ mod tests {
             snapshot.missing_permissions,
             vec![ProfilePermission::SpotTrading]
         );
+    }
+
+    #[test]
+    fn profile_validation_snapshot_summarizes_required_failures() {
+        let mut profile = test_profile();
+        profile.permissions.spot_trading = false;
+        let snapshot =
+            ProfileValidationSnapshot::from_profile(&profile, PathBuf::from("mainnet.toml"));
+
+        assert_eq!(snapshot.profile, "mainnet");
+        assert_eq!(snapshot.path, PathBuf::from("mainnet.toml"));
+        assert!(snapshot.checks.iter().any(|check| {
+            check.name == "profile-permission-spot-trading" && check.required && !check.ok
+        }));
     }
 }

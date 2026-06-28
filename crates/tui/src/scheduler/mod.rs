@@ -3,6 +3,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
+use agent_finance_core::ProfileStore;
 use agent_finance_market::{
     args::CryptoInstrument,
     crypto_evidence_snapshot::{
@@ -18,7 +19,7 @@ use anyhow::{Result, anyhow};
 
 use crate::account::{ACCOUNT_READ_PLAN, AccountReadError, AccountSnapshot};
 use crate::config::{EquityProvider, ProviderConfig, TuiLaunch};
-use crate::profile_snapshot::TradingProfileSnapshot;
+use crate::profile_snapshot::{ProfileValidationSnapshot, TradingProfileSnapshot};
 use crate::state::{StagedChangeEvent, StagedSubmitRequest};
 
 mod write;
@@ -32,6 +33,7 @@ pub struct Scheduler {
     evidence_commands: Sender<EvidenceCommand>,
     research_commands: Sender<ResearchCommand>,
     account_commands: Sender<AccountCommand>,
+    profile_validation_commands: Sender<ProfileValidationCommand>,
     write_commands: Sender<WriteCommand>,
     provider_policy: Arc<RwLock<TuiProviderPolicy>>,
     events: Receiver<SchedulerEvent>,
@@ -45,6 +47,7 @@ impl Scheduler {
         let (evidence_commands, evidence_command_rx) = mpsc::channel();
         let (research_commands, research_command_rx) = mpsc::channel();
         let (account_commands, account_command_rx) = mpsc::channel();
+        let (profile_validation_commands, profile_validation_command_rx) = mpsc::channel();
         let (write_commands, write_command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let runtime = MarketRuntime::new(
@@ -107,6 +110,7 @@ impl Scheduler {
             handle_research_command,
         );
         spawn_account_worker(launch, account_command_rx, event_tx.clone());
+        spawn_profile_validation_worker(profile_validation_command_rx, event_tx.clone());
         spawn_write_worker(launch, write_command_rx, event_tx);
 
         Self {
@@ -115,6 +119,7 @@ impl Scheduler {
             evidence_commands,
             research_commands,
             account_commands,
+            profile_validation_commands,
             write_commands,
             provider_policy: policy,
             events,
@@ -162,6 +167,15 @@ impl Scheduler {
                 profile,
             })
             .map_err(|error| anyhow!("failed to request TUI account snapshot: {error}"))
+    }
+
+    pub fn request_profile_validation(&self, generation: u64, profile: String) -> Result<()> {
+        self.profile_validation_commands
+            .send(ProfileValidationCommand {
+                generation,
+                profile,
+            })
+            .map_err(|error| anyhow!("failed to request TUI profile validation: {error}"))
     }
 
     pub fn request_staged_submit(&self, request: StagedSubmitRequest) -> Result<()> {
@@ -228,6 +242,12 @@ struct AccountCommand {
     profile: String,
 }
 
+#[derive(Debug)]
+struct ProfileValidationCommand {
+    generation: u64,
+    profile: String,
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SymbolTaskKind {
     History,
@@ -284,6 +304,15 @@ pub enum SchedulerEvent {
         snapshot: AccountSnapshot,
     },
     AccountFailed {
+        generation: u64,
+        profile: String,
+        error: String,
+    },
+    ProfileValidation {
+        generation: u64,
+        snapshot: ProfileValidationSnapshot,
+    },
+    ProfileValidationFailed {
         generation: u64,
         profile: String,
         error: String,
@@ -349,6 +378,27 @@ fn spawn_account_worker(
             }
         })
         .unwrap_or_else(|error| panic!("failed to spawn TUI account scheduler thread: {error}"));
+}
+
+fn spawn_profile_validation_worker(
+    commands: Receiver<ProfileValidationCommand>,
+    events: Sender<SchedulerEvent>,
+) {
+    thread::Builder::new()
+        .name("agent-finance-tui-profile-validation".to_string())
+        .spawn(move || {
+            while let Ok(command) = commands.recv() {
+                if events
+                    .send(handle_profile_validation_command(command))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .unwrap_or_else(|error| {
+            panic!("failed to spawn TUI profile validation scheduler thread: {error}")
+        });
 }
 
 fn handle_refresh_command(
@@ -445,6 +495,33 @@ fn handle_account_command(
             error: error.to_string(),
         },
     }
+}
+
+fn handle_profile_validation_command(command: ProfileValidationCommand) -> SchedulerEvent {
+    let ProfileValidationCommand {
+        generation,
+        profile,
+    } = command;
+    match load_profile_validation_snapshot(&profile) {
+        Ok(snapshot) => SchedulerEvent::ProfileValidation {
+            generation,
+            snapshot,
+        },
+        Err(error) => SchedulerEvent::ProfileValidationFailed {
+            generation,
+            profile,
+            error: error.to_string(),
+        },
+    }
+}
+
+fn load_profile_validation_snapshot(profile: &str) -> Result<ProfileValidationSnapshot> {
+    let store = ProfileStore::from_default_dir()?;
+    let loaded = store.load(profile)?;
+    Ok(ProfileValidationSnapshot::from_profile(
+        &loaded,
+        store.path(profile),
+    ))
 }
 
 fn scheduler_runtime(
