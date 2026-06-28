@@ -106,6 +106,7 @@ pub enum ActionId {
     StageFuturesStateTicket,
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
+    RevalidateTradingProfile,
     SaveConfig,
     DeleteSelectedWatchlistSymbol,
     MoveSelectedWatchlistSymbol(isize),
@@ -165,7 +166,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 55] = [
+pub const ACTION_REGISTRY: [ActionSpec; 56] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -291,6 +292,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 55] = [
         ActionId::OpenFloating(FloatingKind::TradingProfile),
         "Set trading profile",
         "Edit the default trading profile used by order, cancel, transfer, and futures state tickets"
+    ),
+    action!(
+        "revalidate-trading-profile",
+        ActionId::RevalidateTradingProfile,
+        "Revalidate trading profile",
+        "Reload and validate the selected trading profile from disk"
     ),
     action!(
         "save-config",
@@ -529,6 +536,20 @@ mod tests {
         assert_eq!(
             palette.selected_action(),
             Some(ActionId::OpenFloating(FloatingKind::TradingProfile))
+        );
+    }
+
+    #[test]
+    fn command_palette_can_revalidate_trading_profile() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "revalidate profile".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::RevalidateTradingProfile)
         );
     }
 

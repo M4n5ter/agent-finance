@@ -1882,6 +1882,62 @@ fn trading_profile_editor_updates_exported_config_and_can_clear_profile() {
 }
 
 #[test]
+fn trading_profile_revalidation_clears_terminal_validation_without_persisted_config_change() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::ProfileValidationLoaded {
+        generation: 1,
+        snapshot: ProfileValidationSnapshot {
+            profile: "mainnet".to_string(),
+            path: PathBuf::from("/tmp/mainnet.toml"),
+            checks: vec![DiagnosticCheck::new("env", true, true, "ok")],
+        },
+    });
+    assert!(state.has_current_profile_validation());
+
+    state.reduce(Action::Execute(ActionId::RevalidateTradingProfile));
+
+    assert!(!state.has_current_profile_validation());
+    assert!(matches!(
+        state.profile_validation,
+        ProfileValidationState::Idle
+    ));
+    assert!(state.config_changes.is_empty());
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message == "mainnet profile validation queued")
+    );
+}
+
+#[test]
+fn trading_profile_revalidation_requires_selected_profile() {
+    let mut state = AppState::from_config(TuiConfig::default());
+
+    state.reduce(Action::Execute(ActionId::RevalidateTradingProfile));
+
+    assert!(matches!(
+        state.profile_validation,
+        ProfileValidationState::Idle
+    ));
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message == "no trading profile selected for validation")
+    );
+}
+
+#[test]
 fn settings_provider_preferences_edit_export_and_request_runtime_update() {
     let mut state = AppState::from_config(TuiConfig {
         workspace: WorkspaceConfig {

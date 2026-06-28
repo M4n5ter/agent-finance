@@ -73,7 +73,7 @@ pub(super) fn render_settings(frame: &mut Frame<'_>, state: &AppState, area: Rec
         Line::from(
             ": command palette  a add symbols  d delete symbol  watchlist left/right reorder",
         ),
-        Line::from("profile: command palette -> Set trading profile"),
+        Line::from("profile: command palette -> Set trading profile / Revalidate trading profile"),
         Line::from("save: command palette -> Save config"),
     ]);
     for change in state.config_changes.iter().take(3) {

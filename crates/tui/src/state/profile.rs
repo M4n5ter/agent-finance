@@ -25,6 +25,24 @@ impl AppState {
         self.close_floating(FloatingKind::TradingProfile);
     }
 
+    pub(super) fn revalidate_trading_profile(&mut self) {
+        let Some(profile) = self.trading_profile.as_deref() else {
+            self.task_log
+                .warning_event("no trading profile selected for validation".to_string());
+            return;
+        };
+
+        if self.profile_validation_request.loading() {
+            self.task_log
+                .warning_event(format!("{profile} profile validation is already loading"));
+            return;
+        }
+
+        self.profile_validation = ProfileValidationState::idle();
+        self.task_log
+            .info(format!("{profile} profile validation queued"));
+    }
+
     fn invalidate_account_snapshot_for_profile_change(&mut self) {
         if let Some(active) = self.account.cancel() {
             self.task_log.warning_event(format!(

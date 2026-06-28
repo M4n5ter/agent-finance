@@ -74,6 +74,10 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::SubmitStagedChange);
             }
+            ActionId::RevalidateTradingProfile => {
+                self.close_text_input_floatings();
+                self.revalidate_trading_profile();
+            }
             ActionId::SaveConfig => {
                 self.close_text_input_floatings();
                 self.reduce(Action::RequestConfigSave);

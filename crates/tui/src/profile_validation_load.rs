@@ -65,6 +65,9 @@ mod tests {
     use super::*;
     use crate::config::{TradingConfig, TuiConfig};
     use crate::profile_snapshot::ProfileValidationState;
+    use crate::{command::ActionId, profile_snapshot::ProfileValidationSnapshot};
+    use agent_finance_core::DiagnosticCheck;
+    use std::path::PathBuf;
 
     #[test]
     fn profile_validation_load_treats_failure_as_terminal_until_profile_changes() {
@@ -91,6 +94,39 @@ mod tests {
         assert!(matches!(
             &state.profile_validation,
             ProfileValidationState::Failed { profile, .. } if profile == "missing"
+        ));
+    }
+
+    #[test]
+    fn profile_validation_load_requeues_after_explicit_revalidation() {
+        let mut state = AppState::from_config(TuiConfig {
+            trading: TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        let mut runtime = ProfileValidationLoadRuntime::new();
+        let first = prepare_profile_validation_request(&mut state, &mut runtime)
+            .expect("first validation request");
+        state.reduce(Action::ProfileValidationLoaded {
+            generation: first.generation,
+            snapshot: ProfileValidationSnapshot {
+                profile: "mainnet".to_string(),
+                path: PathBuf::from("/tmp/mainnet.toml"),
+                checks: vec![DiagnosticCheck::new("env", true, true, "ok")],
+            },
+        });
+        assert!(state.has_current_profile_validation());
+
+        state.reduce(Action::Execute(ActionId::RevalidateTradingProfile));
+        let second = prepare_profile_validation_request(&mut state, &mut runtime)
+            .expect("revalidation request");
+
+        assert_eq!(second.profile, "mainnet");
+        assert!(second.generation > first.generation);
+        assert!(matches!(
+            &state.profile_validation,
+            ProfileValidationState::Loading { profile } if profile == "mainnet"
         ));
     }
 }
