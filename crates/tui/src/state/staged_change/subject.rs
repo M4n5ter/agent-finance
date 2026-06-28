@@ -1,9 +1,10 @@
 use agent_finance_core::{
-    DecimalValue, FuturesStateChange, Market, OrderIdentifier, OrderKind, OrderSide, OrderSpec,
-    TimeInForce, TransferDirection,
+    DecimalValue, DiagnosticCheck, FuturesStateChange, Market, OrderIdentifier, OrderKind,
+    OrderSide, OrderSpec, TimeInForce, TransferDirection,
     submit::{SubmitIntentKind, SubmitMode},
 };
 use serde::Serialize;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagedChangeRequest {
@@ -27,13 +28,13 @@ impl StagedChangeRequest {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StagedSubmitRequest {
     pub id: String,
-    pub subject: StagedChangeSubject,
+    pub subject: StagedSubmitSubject,
     pub mode: SubmitMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum StagedChangeSubject {
+pub enum StagedSubmitSubject {
     OrderTicket(OrderTicketReview),
     Cancel(CancelReview),
     Transfer(TransferReview),
@@ -45,7 +46,7 @@ pub enum StagedChangeSubject {
     },
 }
 
-impl StagedChangeSubject {
+impl StagedSubmitSubject {
     pub fn intent_kind(&self) -> SubmitIntentKind {
         match self {
             Self::OrderTicket(_) => SubmitIntentKind::Order,
@@ -54,17 +55,6 @@ impl StagedChangeSubject {
             Self::FuturesState(_) => SubmitIntentKind::FuturesState,
             #[cfg(test)]
             Self::Text { intent_kind, .. } => *intent_kind,
-        }
-    }
-
-    pub fn summary(&self) -> String {
-        match self {
-            Self::OrderTicket(review) => review.summary(),
-            Self::Cancel(review) => review.summary(),
-            Self::Transfer(review) => review.summary(),
-            Self::FuturesState(review) => review.summary(),
-            #[cfg(test)]
-            Self::Text { summary, .. } => summary.clone(),
         }
     }
 
@@ -79,23 +69,175 @@ impl StagedChangeSubject {
         }
     }
 
-    pub fn submit_request(&self, id: String, mode: SubmitMode) -> Option<StagedSubmitRequest> {
+    pub fn summary(&self) -> String {
         match self {
-            Self::OrderTicket(_) | Self::Cancel(_) | Self::Transfer(_) | Self::FuturesState(_) => {
-                Some(StagedSubmitRequest {
-                    id,
-                    subject: self.clone(),
-                    mode,
-                })
-            }
+            Self::OrderTicket(review) => review.summary(),
+            Self::Cancel(review) => review.summary(),
+            Self::Transfer(review) => review.summary(),
+            Self::FuturesState(review) => review.summary(),
             #[cfg(test)]
-            Self::Text { .. } => Some(StagedSubmitRequest {
-                id,
-                subject: self.clone(),
-                mode,
-            }),
+            Self::Text { summary, .. } => summary.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum StagedChangeSubject {
+    OrderTicket(OrderTicketReview),
+    Cancel(CancelReview),
+    Transfer(TransferReview),
+    FuturesState(FuturesStateReview),
+    ProfileRisk(ProfileRiskReview),
+    #[cfg(test)]
+    Text {
+        intent_kind: SubmitIntentKind,
+        summary: String,
+    },
+}
+
+impl StagedChangeSubject {
+    pub fn kind(&self) -> StagedChangeKind {
+        match self {
+            Self::OrderTicket(_) => StagedChangeKind::Order,
+            Self::Cancel(_) => StagedChangeKind::Cancel,
+            Self::Transfer(_) => StagedChangeKind::Transfer,
+            Self::FuturesState(_) => StagedChangeKind::FuturesState,
+            Self::ProfileRisk(_) => StagedChangeKind::ProfileRisk,
+            #[cfg(test)]
+            Self::Text { .. } => StagedChangeKind::Text,
+        }
+    }
+
+    pub fn submit_intent_kind(&self) -> Option<SubmitIntentKind> {
+        match self {
+            Self::OrderTicket(_) => Some(SubmitIntentKind::Order),
+            Self::Cancel(_) => Some(SubmitIntentKind::Cancel),
+            Self::Transfer(_) => Some(SubmitIntentKind::Transfer),
+            Self::FuturesState(_) => Some(SubmitIntentKind::FuturesState),
+            Self::ProfileRisk(_) => None,
+            #[cfg(test)]
+            Self::Text { intent_kind, .. } => Some(*intent_kind),
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        match self {
+            Self::OrderTicket(review) => review.summary(),
+            Self::Cancel(review) => review.summary(),
+            Self::Transfer(review) => review.summary(),
+            Self::FuturesState(review) => review.summary(),
+            Self::ProfileRisk(review) => review.summary(),
+            #[cfg(test)]
+            Self::Text { summary, .. } => summary.clone(),
+        }
+    }
+
+    pub fn kind_label(&self) -> &'static str {
+        self.kind().label()
+    }
+
+    pub fn submit_request(&self, id: String, mode: SubmitMode) -> Option<StagedSubmitRequest> {
+        let subject = match self {
+            Self::OrderTicket(review) => StagedSubmitSubject::OrderTicket(review.clone()),
+            Self::Cancel(review) => StagedSubmitSubject::Cancel(review.clone()),
+            Self::Transfer(review) => StagedSubmitSubject::Transfer(review.clone()),
+            Self::FuturesState(review) => StagedSubmitSubject::FuturesState(review.clone()),
+            Self::ProfileRisk(_) => return None,
+            #[cfg(test)]
+            Self::Text {
+                intent_kind,
+                summary,
+            } => StagedSubmitSubject::Text {
+                intent_kind: *intent_kind,
+                summary: summary.clone(),
+            },
+        };
+        Some(StagedSubmitRequest { id, subject, mode })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StagedChangeKind {
+    Order,
+    Cancel,
+    Transfer,
+    FuturesState,
+    ProfileRisk,
+    #[cfg(test)]
+    Text,
+}
+
+impl StagedChangeKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Order => "order",
+            Self::Cancel => "cancel",
+            Self::Transfer => "transfer",
+            Self::FuturesState => "futures-state",
+            Self::ProfileRisk => "profile-risk",
+            #[cfg(test)]
+            Self::Text => "text",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProfileRiskReview {
+    pub profile: String,
+    pub path: PathBuf,
+    pub change: ProfileRiskChange,
+    pub diff: Vec<String>,
+    pub checks: Vec<DiagnosticCheck>,
+    pub required_failure_count: usize,
+}
+
+impl ProfileRiskReview {
+    pub fn allow_live_toggle(
+        profile: &str,
+        path: PathBuf,
+        profile_config: &agent_finance_core::Profile,
+    ) -> Self {
+        let before = profile_config.risk.allow_live;
+        let after = !before;
+        let mut next_profile = profile_config.clone();
+        next_profile.risk.allow_live = after;
+        let checks = agent_finance_core::local_profile_checks(&next_profile);
+        let required_failure_count = checks
+            .iter()
+            .filter(|check| check.required && !check.ok)
+            .count();
+
+        Self {
+            profile: profile.to_string(),
+            path,
+            change: ProfileRiskChange::AllowLive { before, after },
+            diff: vec![format!("risk.allow_live: {before} -> {after}")],
+            checks,
+            required_failure_count,
+        }
+    }
+
+    pub fn summary(&self) -> String {
+        match self.change {
+            ProfileRiskChange::AllowLive { before: _, after } => {
+                format!("profile-risk {} risk.allow_live -> {after}", self.profile)
+            }
+        }
+    }
+
+    pub fn target_value(&self) -> bool {
+        match self.change {
+            ProfileRiskChange::AllowLive { before: _, after } => after,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(tag = "field", rename_all = "kebab-case")]
+pub enum ProfileRiskChange {
+    AllowLive { before: bool, after: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

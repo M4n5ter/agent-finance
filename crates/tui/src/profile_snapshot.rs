@@ -11,10 +11,11 @@ pub struct TradingProfileSnapshot {
     pub risk: RiskPolicy,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProfileValidationSnapshot {
     pub profile: String,
     pub path: PathBuf,
+    pub profile_config: Profile,
     pub checks: Vec<DiagnosticCheck>,
 }
 
@@ -23,6 +24,7 @@ impl ProfileValidationSnapshot {
         Self {
             profile: profile.name.clone(),
             path,
+            profile_config: profile.clone(),
             checks: agent_finance_core::local_profile_checks(profile),
         }
     }
@@ -37,6 +39,7 @@ pub enum ProfileValidationState {
     Ready {
         profile: String,
         path: PathBuf,
+        profile_config: Box<Profile>,
         checks: Vec<DiagnosticCheck>,
     },
     Failed {
@@ -58,6 +61,7 @@ impl ProfileValidationState {
         Self::Ready {
             profile: snapshot.profile,
             path: snapshot.path,
+            profile_config: Box::new(snapshot.profile_config),
             checks: snapshot.checks,
         }
     }
@@ -103,11 +107,20 @@ impl From<&Profile> for TradingProfileSnapshot {
 
 #[cfg(test)]
 pub(crate) fn test_trading_profile_snapshot() -> TradingProfileSnapshot {
-    TradingProfileSnapshot::from(&test_profile())
+    TradingProfileSnapshot::from(&test_profile("mainnet"))
 }
 
 #[cfg(test)]
-fn test_profile() -> Profile {
+pub(crate) fn test_profile_validation_snapshot(
+    name: &str,
+    path: impl Into<PathBuf>,
+) -> ProfileValidationSnapshot {
+    let profile = test_profile(name);
+    ProfileValidationSnapshot::from_profile(&profile, path.into())
+}
+
+#[cfg(test)]
+pub(crate) fn test_profile(name: &str) -> Profile {
     use std::collections::BTreeMap;
 
     use agent_finance_core::{
@@ -117,7 +130,7 @@ fn test_profile() -> Profile {
     use rust_decimal::Decimal;
 
     Profile {
-        name: "mainnet".to_string(),
+        name: name.to_string(),
         provider: ProviderConfig {
             provider: Provider::Binance,
             environment: Environment::Live,
@@ -155,7 +168,7 @@ mod tests {
 
     #[test]
     fn profile_snapshot_keeps_risk_policy_typed_and_preserves_symbol_keys() {
-        let profile = test_profile();
+        let profile = test_profile("mainnet");
 
         let snapshot = TradingProfileSnapshot::from(&profile);
 
@@ -174,7 +187,7 @@ mod tests {
 
     #[test]
     fn profile_snapshot_reports_missing_permissions() {
-        let mut profile = test_profile();
+        let mut profile = test_profile("mainnet");
         profile.permissions.spot_trading = false;
 
         let snapshot = TradingProfileSnapshot::from(&profile);
@@ -187,7 +200,7 @@ mod tests {
 
     #[test]
     fn profile_validation_snapshot_summarizes_required_failures() {
-        let mut profile = test_profile();
+        let mut profile = test_profile("mainnet");
         profile.permissions.spot_trading = false;
         let snapshot =
             ProfileValidationSnapshot::from_profile(&profile, PathBuf::from("mainnet.toml"));

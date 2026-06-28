@@ -199,7 +199,7 @@ function smokeDumpState() {
   if (dump.workspace !== "market") {
     fail(`dump-state workspace mismatch: ${dump.workspace}`);
   }
-  if (dump.schema_version !== 15) {
+  if (dump.schema_version !== 16) {
     fail(`dump-state schema_version mismatch: ${dump.schema_version}`);
   }
   if (

@@ -26,9 +26,9 @@ expression: "render_to_text_grid(&state, 140, 40)"
 └────────────────────│  Toggle history - Show or hide the historical price chart                                      │▓                   │
 ┌Provider Health [par│  Set trading profile - Edit the default trading profile used by order, cancel, transfer, and fu│▓                   │
 │provi stat detail   │  Revalidate trading profile - Reload and validate the selected trading profile from disk       │▓                   │
-│auto  capa Default r│  Previous symbol - Move watchlist selection to the previous symbol                             │▓                   │
-│yahoo capa Broadest │  Stage selected cancel - Move the selected open order into intent review as a cancel           │▓                   │
-│sec-e capa Official │  Delete selected symbol - Remove the selected symbol from the persisted watchlist              │▓                   │
+│auto  capa Default r│  Stage profile live toggle - Review a risk.allow_live change for the selected trading profile  │▓                   │
+│yahoo capa Broadest │  Previous symbol - Move watchlist selection to the previous symbol                             │▓                   │
+│sec-e capa Official │  Stage selected cancel - Move the selected open order into intent review as a cancel           │▓                   │
 │stooq capa Delayed q└────────────────────────────────────────────────────────────────────────────────────────────────┘▓                   │
 │cnbc- capa pre/post e▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                   │
 │cnbc  capa CNBC quote payload -               ││                                                                                          │

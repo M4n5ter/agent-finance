@@ -78,6 +78,10 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.revalidate_trading_profile();
             }
+            ActionId::StageProfileLiveToggle => {
+                self.close_text_input_floatings();
+                self.stage_profile_live_toggle();
+            }
             ActionId::SaveConfig => {
                 self.close_text_input_floatings();
                 self.reduce(Action::RequestConfigSave);

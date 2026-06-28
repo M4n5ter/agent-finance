@@ -65,8 +65,7 @@ mod tests {
     use super::*;
     use crate::config::{TradingConfig, TuiConfig};
     use crate::profile_snapshot::ProfileValidationState;
-    use crate::{command::ActionId, profile_snapshot::ProfileValidationSnapshot};
-    use agent_finance_core::DiagnosticCheck;
+    use crate::{command::ActionId, profile_snapshot::test_profile_validation_snapshot};
     use std::path::PathBuf;
 
     #[test]
@@ -110,11 +109,10 @@ mod tests {
             .expect("first validation request");
         state.reduce(Action::ProfileValidationLoaded {
             generation: first.generation,
-            snapshot: ProfileValidationSnapshot {
-                profile: "mainnet".to_string(),
-                path: PathBuf::from("/tmp/mainnet.toml"),
-                checks: vec![DiagnosticCheck::new("env", true, true, "ok")],
-            },
+            snapshot: test_profile_validation_snapshot(
+                "mainnet",
+                PathBuf::from("/tmp/mainnet.toml"),
+            ),
         });
         assert!(state.has_current_profile_validation());
 

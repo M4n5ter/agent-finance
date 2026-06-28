@@ -16,7 +16,7 @@ use crate::state::{AppState, StagedChangeView, StagedSubmitRequest};
 use crate::theme::ThemeConfig;
 use crate::transfer_ticket::TransferTicketPreview;
 
-const TUI_DUMP_SCHEMA_VERSION: u32 = 15;
+const TUI_DUMP_SCHEMA_VERSION: u32 = 16;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
@@ -191,6 +191,7 @@ impl ProfileValidationDump {
                 profile,
                 path,
                 checks,
+                ..
             } => {
                 let required_failures = required_failures(checks);
                 Self {
@@ -230,7 +231,7 @@ mod tests {
     use crate::command::ActionId;
     use crate::config::{EquityProvider, ProviderConfig, TuiConfig, WorkspaceConfig};
     use crate::model::FloatingKind;
-    use crate::profile_snapshot::ProfileValidationSnapshot;
+    use crate::profile_snapshot::{ProfileValidationSnapshot, test_profile};
     use crate::state::{Action, StagedChangeEvent};
     use crate::theme::{ThemeColor, ThemeConfig};
     use agent_finance_core::{Environment, Provider, SignedReadSnapshot};
@@ -368,20 +369,14 @@ mod tests {
             generation: 1,
             profile: "mainnet".to_string(),
         });
+        let mut profile = test_profile("mainnet");
+        profile.permissions.spot_trading = false;
         state.reduce(Action::ProfileValidationLoaded {
             generation: 1,
-            snapshot: ProfileValidationSnapshot {
-                profile: "mainnet".to_string(),
-                path: PathBuf::from("mainnet.toml"),
-                checks: vec![
-                    DiagnosticCheck::optional("profile-parse", true, "parsed"),
-                    DiagnosticCheck::required(
-                        "profile-permission-spot-trading",
-                        false,
-                        "spot trading permission disabled",
-                    ),
-                ],
-            },
+            snapshot: ProfileValidationSnapshot::from_profile(
+                &profile,
+                PathBuf::from("mainnet.toml"),
+            ),
         });
 
         let value = serde_json::to_value(TuiDump::from_state(&state, false)).expect("serialize");
@@ -390,13 +385,19 @@ mod tests {
         assert_eq!(value["profile_validation"]["status"], "ready");
         assert_eq!(value["profile_validation"]["profile"], "mainnet");
         assert_eq!(value["profile_validation"]["required_failure_count"], 1);
+        assert!(
+            !value["profile_validation"]
+                .as_object()
+                .expect("profile_validation")
+                .contains_key("profile_config")
+        );
         assert_eq!(
             value["profile_validation"]["checks"][0]["name"],
             "profile-parse"
         );
         assert_eq!(
             value["profile_validation"]["checks"][1]["message"],
-            "spot trading permission disabled"
+            "permission is required by risk policy but not declared; risk.allowed_symbols includes spot markets"
         );
         assert_eq!(
             value["profile_validation"]["required_failures"][0]["name"],
@@ -408,6 +409,50 @@ mod tests {
                 .expect("errors")
                 .iter()
                 .any(|error| error == "mainnet profile validation has 1 required failure(s)")
+        );
+    }
+
+    #[test]
+    fn dump_exposes_profile_risk_review_without_profile_config_leak() {
+        let mut state = AppState::from_config(TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..TuiConfig::default()
+        });
+        state.reduce(Action::ProfileValidationStarted {
+            generation: 1,
+            profile: "mainnet".to_string(),
+        });
+        state.reduce(Action::ProfileValidationLoaded {
+            generation: 1,
+            snapshot: ProfileValidationSnapshot::from_profile(
+                &test_profile("mainnet"),
+                PathBuf::from("mainnet.toml"),
+            ),
+        });
+
+        state.reduce(Action::Execute(ActionId::StageProfileLiveToggle));
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, false)).expect("serialize");
+        let staged = &value["staged_changes"][0];
+
+        assert_eq!(staged["change_kind"], "profile-risk");
+        assert!(staged["intent_kind"].is_null());
+        assert_eq!(staged["subject"]["type"], "profile-risk");
+        assert_eq!(staged["subject"]["profile"], "mainnet");
+        assert_eq!(staged["subject"]["change"]["field"], "allow-live");
+        assert_eq!(staged["subject"]["change"]["before"], true);
+        assert_eq!(staged["subject"]["change"]["after"], false);
+        assert_eq!(
+            staged["subject"]["diff"][0],
+            "risk.allow_live: true -> false"
+        );
+        assert!(
+            !value["profile_validation"]
+                .as_object()
+                .expect("profile_validation")
+                .contains_key("profile_config")
         );
     }
 
@@ -491,6 +536,7 @@ mod tests {
         assert_eq!(value["default_submit_mode"], "live");
         assert_eq!(value["live_writes_enabled"], false);
         assert_eq!(value["effective_submit_mode"], "dry-run");
+        assert_eq!(value["staged_changes"][0]["change_kind"], "order");
         assert_eq!(value["staged_changes"][0]["intent_kind"], "order");
         assert_eq!(value["staged_changes"][0]["selected"], true);
         assert!(value["pending_staged_confirmation"].is_null());

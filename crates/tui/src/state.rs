@@ -35,11 +35,16 @@ mod workspace;
 use load::LoadSlot;
 pub use load::{SelectedDataState, SelectedSymbolLoad, SymbolSnapshot};
 #[cfg(test)]
+pub use staged_change::ProfileRiskChange;
+#[cfg(test)]
+pub use staged_change::StagedChangeKind;
+#[cfg(test)]
 pub use staged_change::StagedChangeStage;
 pub(crate) use staged_change::VISIBLE_REVIEW_LIMIT;
 pub use staged_change::{
-    CancelReview, FuturesStateReview, OrderTicketReview, StagedChangeEvent, StagedChangeRequest,
-    StagedChangeSubject, StagedChangeView, StagedSubmitRequest, TransferReview,
+    CancelReview, FuturesStateReview, OrderTicketReview, ProfileRiskReview, StagedChangeEvent,
+    StagedChangeRequest, StagedChangeSubject, StagedChangeView, StagedSubmitRequest,
+    StagedSubmitSubject, TransferReview,
 };
 use staged_change::{
     CloseStagedChangeResult, OpenStagedChangeResult, QueueSubmitResult, StagedChanges,

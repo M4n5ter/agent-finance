@@ -1,6 +1,10 @@
-use crate::model::FloatingKind;
+use agent_finance_core::submit::SubmitMode;
+
+use crate::model::{FloatingKind, Panel};
 use crate::profile_snapshot::ProfileValidationState;
-use crate::state::AppState;
+use crate::state::{
+    AppState, OpenStagedChangeResult, ProfileRiskReview, StagedChangeRequest, StagedChangeSubject,
+};
 use crate::task_failure::TaskFailureSource;
 
 impl AppState {
@@ -43,6 +47,51 @@ impl AppState {
             .info(format!("{profile} profile validation queued"));
     }
 
+    pub(super) fn stage_profile_live_toggle(&mut self) {
+        let Some(selected_profile) = self.trading_profile.as_deref() else {
+            self.task_log
+                .warning_event("no trading profile selected for profile risk change".to_string());
+            return;
+        };
+        let ProfileValidationState::Ready {
+            profile,
+            path,
+            profile_config,
+            ..
+        } = &self.profile_validation
+        else {
+            self.task_log.warning_event(format!(
+                "{selected_profile} profile must be validated before staging a risk change"
+            ));
+            return;
+        };
+        if profile != selected_profile {
+            self.task_log.warning_event(format!(
+                "{selected_profile} profile validation is not current"
+            ));
+            return;
+        }
+
+        let review = ProfileRiskReview::allow_live_toggle(profile, path.clone(), profile_config);
+        let request = StagedChangeRequest {
+            id: profile_risk_staged_change_id(profile, "allow-live", review.target_value()),
+            subject: StagedChangeSubject::ProfileRisk(review),
+        };
+        let change_id = request.id.clone();
+        self.focus_panel(Panel::IntentReview);
+        match self.staged_changes.open_ready(request, SubmitMode::DryRun) {
+            OpenStagedChangeResult::Opened => {
+                self.task_log
+                    .info(format!("staged profile risk change {change_id}"));
+            }
+            OpenStagedChangeResult::Rejected => {
+                self.task_log.warning_event(
+                    "profile risk change cannot replace an active staged change".to_string(),
+                );
+            }
+        }
+    }
+
     fn invalidate_account_snapshot_for_profile_change(&mut self) {
         if let Some(active) = self.account.cancel() {
             self.task_log.warning_event(format!(
@@ -61,4 +110,8 @@ impl AppState {
         self.selected_open_order = 0;
         self.task_failures.clear_source(TaskFailureSource::Account);
     }
+}
+
+fn profile_risk_staged_change_id(profile: &str, field: &str, value: bool) -> String {
+    format!("profile-risk-{profile}-{field}-{value}")
 }

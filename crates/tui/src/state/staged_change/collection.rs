@@ -243,5 +243,10 @@ fn submit_request_for(change: &StagedChange) -> QueueSubmitResult {
     change
         .subject
         .submit_request(change.id.clone(), change.state.mode(change.default_mode))
-        .map_or(QueueSubmitResult::Missing, QueueSubmitResult::Queued)
+        .map_or_else(
+            || QueueSubmitResult::Rejected {
+                current: format!("{} is not submit-capable", change.subject.kind_label()),
+            },
+            QueueSubmitResult::Queued,
+        )
 }

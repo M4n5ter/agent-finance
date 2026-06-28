@@ -107,6 +107,7 @@ pub enum ActionId {
     StageSelectedOpenOrderCancel,
     SubmitStagedChange,
     RevalidateTradingProfile,
+    StageProfileLiveToggle,
     SaveConfig,
     DeleteSelectedWatchlistSymbol,
     MoveSelectedWatchlistSymbol(isize),
@@ -166,7 +167,7 @@ macro_rules! action {
     };
 }
 
-pub const ACTION_REGISTRY: [ActionSpec; 56] = [
+pub const ACTION_REGISTRY: [ActionSpec; 57] = [
     action!(
         "select-next-symbol",
         ActionId::SelectSymbolBy(1),
@@ -298,6 +299,12 @@ pub const ACTION_REGISTRY: [ActionSpec; 56] = [
         ActionId::RevalidateTradingProfile,
         "Revalidate trading profile",
         "Reload and validate the selected trading profile from disk"
+    ),
+    action!(
+        "stage-profile-live-toggle",
+        ActionId::StageProfileLiveToggle,
+        "Stage profile live toggle",
+        "Review a risk.allow_live change for the selected trading profile"
     ),
     action!(
         "save-config",
@@ -550,6 +557,20 @@ mod tests {
         assert_eq!(
             palette.selected_action(),
             Some(ActionId::RevalidateTradingProfile)
+        );
+    }
+
+    #[test]
+    fn command_palette_can_stage_profile_live_toggle() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "profile live toggle".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::StageProfileLiveToggle)
         );
     }
 

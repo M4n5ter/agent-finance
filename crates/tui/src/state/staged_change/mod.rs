@@ -10,9 +10,11 @@ pub(crate) use collection::{
     TransitionResult, VISIBLE_REVIEW_LIMIT,
 };
 pub use subject::{
-    CancelReview, FuturesStateReview, OrderTicketReview, StagedChangeRequest, StagedChangeSubject,
-    StagedSubmitRequest, TransferReview,
+    CancelReview, FuturesStateReview, OrderTicketReview, ProfileRiskReview, StagedChangeRequest,
+    StagedChangeSubject, StagedSubmitRequest, StagedSubmitSubject, TransferReview,
 };
+#[cfg(test)]
+pub use subject::{ProfileRiskChange, StagedChangeKind};
 #[cfg(test)]
 pub use workflow::StagedChangeStage;
 pub use workflow::{StagedChangeEvent, StagedChangeView};

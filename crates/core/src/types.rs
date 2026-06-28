@@ -753,7 +753,7 @@ impl ProfilePermissionSet {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProfilePermissions {
     #[serde(default)]
     pub spot_trading: bool,

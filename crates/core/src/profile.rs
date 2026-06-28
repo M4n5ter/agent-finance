@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::paths::config_dir;
 use crate::types::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
     pub provider: ProviderConfig,

@@ -7,7 +7,7 @@ use std::fmt;
 
 #[cfg(test)]
 use super::subject::StagedChangeRequest;
-use super::subject::StagedChangeSubject;
+use super::subject::{StagedChangeKind, StagedChangeSubject};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StagedChange {
@@ -350,7 +350,8 @@ impl fmt::Display for StagedChangeStage {
 pub struct StagedChangeView {
     pub id: String,
     pub selected: bool,
-    pub intent_kind: SubmitIntentKind,
+    pub change_kind: StagedChangeKind,
+    pub intent_kind: Option<SubmitIntentKind>,
     pub stage: StagedChangeStage,
     pub mode: SubmitMode,
     pub intent_id: Option<String>,
@@ -370,7 +371,8 @@ impl StagedChangeView {
         Self {
             id: change.id.clone(),
             selected,
-            intent_kind: change.subject.intent_kind(),
+            change_kind: change.subject.kind(),
+            intent_kind: change.subject.submit_intent_kind(),
             stage: change.state.stage(),
             mode: change.state.mode(change.default_mode),
             intent_id: change.state.intent_id().map(ToString::to_string),

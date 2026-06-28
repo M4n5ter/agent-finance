@@ -10,7 +10,7 @@ use chrono::Utc;
 
 use crate::config::TuiLaunch;
 use crate::state::{
-    CancelReview, FuturesStateReview, StagedChangeEvent, StagedChangeSubject, StagedSubmitRequest,
+    CancelReview, FuturesStateReview, StagedChangeEvent, StagedSubmitRequest, StagedSubmitSubject,
     TransferReview,
 };
 
@@ -218,20 +218,20 @@ fn create_staged_intent(
     request: &StagedSubmitRequest,
 ) -> Result<(Profile, String)> {
     match &request.subject {
-        StagedChangeSubject::OrderTicket(review) => {
+        StagedSubmitSubject::OrderTicket(review) => {
             create_staged_order_intent(runtime, review, request.mode)
         }
-        StagedChangeSubject::Cancel(review) => {
+        StagedSubmitSubject::Cancel(review) => {
             create_staged_cancel_intent(runtime, review, request.mode)
         }
-        StagedChangeSubject::Transfer(review) => {
+        StagedSubmitSubject::Transfer(review) => {
             create_staged_transfer_intent(runtime, review, request.mode)
         }
-        StagedChangeSubject::FuturesState(review) => {
+        StagedSubmitSubject::FuturesState(review) => {
             create_staged_futures_state_intent(runtime, review, request.mode)
         }
         #[cfg(test)]
-        StagedChangeSubject::Text { .. } => unreachable!("text changes are never submitted"),
+        StagedSubmitSubject::Text { .. } => unreachable!("text changes are never submitted"),
     }
 }
 
@@ -353,7 +353,7 @@ async fn submit_staged_intent(
     profile: &Profile,
     intent_id: &str,
     mode: SubmitMode,
-    subject: &StagedChangeSubject,
+    subject: &StagedSubmitSubject,
 ) -> std::result::Result<agent_finance_core::SubmitSnapshot, agent_finance_trading::SubmitFailure> {
     runtime
         .submit_typed_intent_classified(profile, intent_id, subject.intent_kind(), mode)

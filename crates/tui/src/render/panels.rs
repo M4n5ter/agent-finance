@@ -201,12 +201,16 @@ fn format_staged_change_review(
     change: &crate::state::StagedChangeView,
 ) -> Line<'static> {
     let marker = if change.selected { ">" } else { " " };
+    let intent_kind = change
+        .intent_kind
+        .map(|kind| kind.to_string())
+        .unwrap_or_else(|| "-".to_string());
     let text = match &change.subject {
         StagedChangeSubject::OrderTicket(review) => format!(
             "{marker} {}  {}  {}  {} {} {} {} {} @ {} {}{} [{}]",
             change.stage,
             change.mode,
-            change.intent_kind,
+            intent_kind,
             review.side,
             review.quantity,
             review.symbol,
@@ -225,7 +229,7 @@ fn format_staged_change_review(
             "{marker} {}  {}  {}  cancel {} {} [{}] [{}]",
             change.stage,
             change.mode,
-            change.intent_kind,
+            intent_kind,
             review.market,
             review.symbol,
             review.identifier(),
@@ -235,7 +239,7 @@ fn format_staged_change_review(
             "{marker} {}  {}  {}  transfer {} {} {} [{}]",
             change.stage,
             change.mode,
-            change.intent_kind,
+            intent_kind,
             review.direction,
             review.amount,
             review.asset,
@@ -245,14 +249,24 @@ fn format_staged_change_review(
             "{marker} {}  {}  {}  futures-state {} [{}]",
             change.stage,
             change.mode,
-            change.intent_kind,
+            intent_kind,
             review.change.review_label(),
             review.profile
+        ),
+        StagedChangeSubject::ProfileRisk(review) => format!(
+            "{marker} {}  {}  {}  profile-risk {}  {}  checks:{} required-failures:{}",
+            change.stage,
+            change.mode,
+            intent_kind,
+            review.profile,
+            review.diff.join("; "),
+            review.checks.len(),
+            review.required_failure_count
         ),
         #[cfg(test)]
         StagedChangeSubject::Text { .. } => format!(
             "{marker} {}  {}  {}  {}",
-            change.stage, change.mode, change.intent_kind, change.summary
+            change.stage, change.mode, intent_kind, change.summary
         ),
     };
     if change.selected {

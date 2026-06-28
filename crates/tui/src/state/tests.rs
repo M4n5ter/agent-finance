@@ -3,15 +3,15 @@ use crate::account::ACCOUNT_READ_PLAN;
 use crate::command::ActionId;
 use crate::config::MAX_LEFT_MAIN_RATIO;
 use crate::model::InteractionMode;
-use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState};
+use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState, test_profile};
 use crate::task_failure::TaskFailureSource;
 use crate::task_log::TaskStatus;
 use crate::theme::ThemeColor;
 use agent_finance_core::intent::IntentStatus;
 use agent_finance_core::submit::{SubmitIntentKind, SubmitMode};
 use agent_finance_core::{
-    DiagnosticCheck, Environment, FuturesStateChange, Market, OrderSpec, Provider,
-    SignedReadRequest, SignedReadSnapshot,
+    Environment, FuturesStateChange, Market, OrderSpec, Provider, SignedReadRequest,
+    SignedReadSnapshot,
 };
 use agent_finance_market::args::CryptoProvider;
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
@@ -132,7 +132,8 @@ fn order_ticket_staging_requires_core_valid_preview_before_review_change() {
 
     let changes = state.staged_change_views();
     assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].intent_kind, SubmitIntentKind::Order);
+    assert_eq!(changes[0].change_kind, StagedChangeKind::Order);
+    assert_eq!(changes[0].intent_kind, Some(SubmitIntentKind::Order));
     assert_eq!(changes[0].stage, StagedChangeStage::Ready);
     assert_eq!(changes[0].mode, SubmitMode::DryRun);
     assert!(changes[0].intent_id.is_none());
@@ -166,7 +167,7 @@ fn submitting_ready_order_change_queues_submit_request() {
     state.reduce(Action::StageOrderTicket);
 
     let request = request_and_confirm_selected_staged_submit(&mut state);
-    let crate::state::StagedChangeSubject::OrderTicket(review) = &request.subject else {
+    let crate::state::StagedSubmitSubject::OrderTicket(review) = &request.subject else {
         panic!("expected order submit");
     };
     assert_eq!(review.symbol, "CRDO");
@@ -239,7 +240,7 @@ fn intent_review_submission_uses_selected_staged_change() {
     state.reduce(Action::MoveStagedChangeSelection(-1));
 
     let request = request_and_confirm_selected_staged_submit(&mut state);
-    let StagedChangeSubject::OrderTicket(review) = &request.subject else {
+    let StagedSubmitSubject::OrderTicket(review) = &request.subject else {
         panic!("expected order submit");
     };
     assert_eq!(review.price.as_deref(), Some("204"));
@@ -307,7 +308,8 @@ fn transfer_ticket_staging_creates_transfer_review_change() {
 
     let changes = state.staged_change_views();
     assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].intent_kind, SubmitIntentKind::Transfer);
+    assert_eq!(changes[0].change_kind, StagedChangeKind::Transfer);
+    assert_eq!(changes[0].intent_kind, Some(SubmitIntentKind::Transfer));
     assert_eq!(changes[0].stage, StagedChangeStage::Ready);
     assert_eq!(changes[0].mode, SubmitMode::DryRun);
     assert!(changes[0].summary.contains("spot-to-usds-futures"));
@@ -335,7 +337,7 @@ fn submitting_ready_transfer_change_queues_transfer_submit_request() {
     state.reduce(Action::StageTransferTicket);
 
     let request = request_and_confirm_selected_staged_submit(&mut state);
-    let StagedChangeSubject::Transfer(review) = &request.subject else {
+    let StagedSubmitSubject::Transfer(review) = &request.subject else {
         panic!("expected transfer submit");
     };
     assert_eq!(review.asset, "USDT");
@@ -367,7 +369,8 @@ fn futures_state_ticket_staging_requires_value_then_creates_review_change() {
 
     let changes = state.staged_change_views();
     assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].intent_kind, SubmitIntentKind::FuturesState);
+    assert_eq!(changes[0].change_kind, StagedChangeKind::FuturesState);
+    assert_eq!(changes[0].intent_kind, Some(SubmitIntentKind::FuturesState));
     assert_eq!(changes[0].stage, StagedChangeStage::Ready);
     assert_eq!(changes[0].mode, SubmitMode::DryRun);
     let StagedChangeSubject::FuturesState(review) = &changes[0].subject else {
@@ -461,7 +464,7 @@ fn submitting_ready_futures_state_change_queues_futures_state_submit_request() {
     state.reduce(Action::StageFuturesStateTicket);
 
     let request = request_and_confirm_selected_staged_submit(&mut state);
-    let StagedChangeSubject::FuturesState(review) = &request.subject else {
+    let StagedSubmitSubject::FuturesState(review) = &request.subject else {
         panic!("expected futures state submit");
     };
     assert_eq!(review.change.kind().to_string(), "leverage");
@@ -494,7 +497,7 @@ fn selected_open_order_can_be_staged_as_cancel_request() {
     state.reduce(Action::StageSelectedOpenOrderCancel);
 
     let request = request_and_confirm_selected_staged_submit(&mut state);
-    let crate::state::StagedChangeSubject::Cancel(review) = &request.subject else {
+    let crate::state::StagedSubmitSubject::Cancel(review) = &request.subject else {
         panic!("expected cancel submit");
     };
     assert_eq!(review.market, Market::UsdsFutures);
@@ -528,7 +531,7 @@ fn selected_open_order_cancel_preserves_exchange_order_id_target() {
     state.reduce(Action::StageSelectedOpenOrderCancel);
 
     let request = request_and_confirm_selected_staged_submit(&mut state);
-    let crate::state::StagedChangeSubject::Cancel(review) = &request.subject else {
+    let crate::state::StagedSubmitSubject::Cancel(review) = &request.subject else {
         panic!("expected cancel submit");
     };
     assert_eq!(
@@ -1895,11 +1898,10 @@ fn trading_profile_revalidation_clears_terminal_validation_without_persisted_con
     });
     state.reduce(Action::ProfileValidationLoaded {
         generation: 1,
-        snapshot: ProfileValidationSnapshot {
-            profile: "mainnet".to_string(),
-            path: PathBuf::from("/tmp/mainnet.toml"),
-            checks: vec![DiagnosticCheck::new("env", true, true, "ok")],
-        },
+        snapshot: ProfileValidationSnapshot::from_profile(
+            &test_profile("mainnet"),
+            PathBuf::from("/tmp/mainnet.toml"),
+        ),
     });
     assert!(state.has_current_profile_validation());
 
@@ -1935,6 +1937,78 @@ fn trading_profile_revalidation_requires_selected_profile() {
             .iter()
             .any(|entry| entry.message == "no trading profile selected for validation")
     );
+}
+
+#[test]
+fn profile_live_toggle_stages_validated_profile_risk_review_without_submit_request() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::ProfileValidationStarted {
+        generation: 1,
+        profile: "mainnet".to_string(),
+    });
+    state.reduce(Action::ProfileValidationLoaded {
+        generation: 1,
+        snapshot: ProfileValidationSnapshot::from_profile(
+            &test_profile("mainnet"),
+            PathBuf::from("/tmp/mainnet.toml"),
+        ),
+    });
+
+    state.reduce(Action::Execute(ActionId::StageProfileLiveToggle));
+
+    assert_eq!(state.panels.focused(), Panel::IntentReview);
+    let changes = state.staged_change_views();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].change_kind, StagedChangeKind::ProfileRisk);
+    assert_eq!(changes[0].intent_kind, None);
+    assert_eq!(changes[0].stage, StagedChangeStage::Ready);
+    let StagedChangeSubject::ProfileRisk(review) = &changes[0].subject else {
+        panic!("expected profile risk review");
+    };
+    assert_eq!(review.profile, "mainnet");
+    assert_eq!(
+        review.change,
+        ProfileRiskChange::AllowLive {
+            before: true,
+            after: false
+        }
+    );
+    assert_eq!(review.diff, vec!["risk.allow_live: true -> false"]);
+    assert_eq!(review.required_failure_count, 0);
+
+    state.reduce(Action::SubmitStagedChange);
+
+    assert!(state.take_pending_staged_submit().is_none());
+    assert!(
+        state
+            .task_log
+            .iter()
+            .any(|entry| entry.message.contains("profile-risk is not submit-capable"))
+    );
+}
+
+#[test]
+fn profile_live_toggle_requires_current_profile_validation() {
+    let mut state = AppState::from_config(TuiConfig {
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::Execute(ActionId::StageProfileLiveToggle));
+
+    assert!(state.staged_change_views().is_empty());
+    assert!(state.task_log.iter().any(|entry| {
+        entry
+            .message
+            .contains("profile must be validated before staging a risk change")
+    }));
 }
 
 #[test]
@@ -2347,22 +2421,12 @@ fn account_snapshot(profile: &str) -> crate::account::AccountSnapshot {
 }
 
 fn profile_validation_snapshot(profile: &str, passed: bool) -> ProfileValidationSnapshot {
-    ProfileValidationSnapshot {
-        profile: profile.to_string(),
-        path: PathBuf::from(format!("{profile}.toml")),
-        checks: vec![
-            DiagnosticCheck::optional("profile-parse", true, "parsed"),
-            DiagnosticCheck::required(
-                "profile-permission-spot-trading",
-                passed,
-                if passed {
-                    "spot trading permission enabled"
-                } else {
-                    "spot trading permission disabled"
-                },
-            ),
-        ],
-    }
+    let mut profile_config = test_profile(profile);
+    profile_config.permissions.spot_trading = passed;
+    ProfileValidationSnapshot::from_profile(
+        &profile_config,
+        PathBuf::from(format!("{profile}.toml")),
+    )
 }
 
 fn account_snapshot_with_open_orders(profile: &str) -> crate::account::AccountSnapshot {
