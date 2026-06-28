@@ -4,6 +4,7 @@ mod account_load;
 mod app;
 mod command;
 mod config;
+mod confirmation_dialog;
 mod dump;
 mod floating_input;
 mod futures_state_controls;

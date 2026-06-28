@@ -88,7 +88,7 @@ try {
   executePaletteCommand(
     "toggle live",
     ["toggle live", "Toggle live writes"],
-    ["Enable Live Writes", "Enter: enable live writes for this session"],
+    ["Enable Live Writes", "[Enable live writes]"],
     "live writes toggle",
   );
   runTmux(["send-keys", "-t", session, "Enter"]);

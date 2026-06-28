@@ -49,11 +49,6 @@ pub fn handle_mouse_event(
 ) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if crate::floating_input::live_writes_confirmation_is_top(state)
-                || crate::floating_input::staged_execution_confirmation_is_top(state)
-            {
-                return;
-            }
             let layout = layout::build(
                 terminal_area,
                 &state.layout,
@@ -61,6 +56,13 @@ pub fn handle_mouse_event(
                 &state.visible_panels(),
             );
             drag.target = None;
+            if let Some(action) = modal_mouse_action(state, &layout, mouse.column, mouse.row) {
+                state.reduce(action);
+                return;
+            }
+            if mouse_is_blocked_by_modal(state) {
+                return;
+            }
             match layout.hit_test(mouse.column, mouse.row) {
                 Some(LayoutHit::Panel(panel)) => {
                     state.reduce(Action::Focus(panel));
@@ -135,6 +137,27 @@ pub fn handle_mouse_event(
 fn mouse_is_blocked_by_modal(state: &AppState) -> bool {
     crate::floating_input::live_writes_confirmation_is_top(state)
         || crate::floating_input::staged_execution_confirmation_is_top(state)
+}
+
+fn modal_mouse_action(
+    state: &AppState,
+    layout: &layout::CockpitLayout,
+    column: u16,
+    row: u16,
+) -> Option<Action> {
+    let kind = state.floating.last()?.kind;
+    if !matches!(
+        kind,
+        FloatingKind::LiveWritesConfirmation | FloatingKind::StagedExecutionConfirmation
+    ) {
+        return None;
+    }
+    let floating = layout
+        .floating
+        .iter()
+        .rev()
+        .find(|floating| floating.kind == kind)?;
+    crate::floating_input::mouse_action(state, kind, floating.rect, column, row)
 }
 
 fn route_mouse_wheel(state: &mut AppState, direction: isize) {

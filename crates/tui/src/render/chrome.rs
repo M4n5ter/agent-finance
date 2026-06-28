@@ -6,9 +6,10 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, Wrap};
 
+use crate::confirmation_dialog::{self, ConfirmationRow};
 use crate::hints;
 use crate::model::{FloatingKind, WorkspaceKind};
-use crate::state::{AppState, StagedExecution};
+use crate::state::AppState;
 use crate::theme::ThemeConfig;
 use crate::workspace_tabs::{workspace_index, workspace_tabs_width};
 
@@ -111,16 +112,10 @@ pub(super) fn render_floating(
             Line::from("watchlist focus: a add, d delete, left/right reorder"),
             Line::from("q quit"),
         ],
-        FloatingKind::LiveWritesConfirmation => vec![
-            Line::from("Live writes are disabled by default for every TUI session."),
-            Line::from(""),
-            Line::from(
-                "Enabling live writes allows staged orders, cancels, transfers, and futures state changes to reach live providers after their own review and risk gates.",
-            ),
-            Line::from(""),
-            Line::from("Enter: enable live writes for this session"),
-            Line::from("Esc: keep live writes disabled"),
-        ],
+        FloatingKind::LiveWritesConfirmation => {
+            render_confirmation_dialog(frame, state, kind, area);
+            return;
+        }
         FloatingKind::ProviderDetails => state
             .provider_profiles
             .iter()
@@ -149,71 +144,46 @@ pub(super) fn render_floating(
 }
 
 fn render_staged_execution_confirmation(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
-    let Some(request) = state.pending_staged_confirmation() else {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from("No staged execution is waiting for confirmation."),
-                Line::from(""),
-                Line::from("Esc: close"),
-            ])
-            .block(floating_block(
-                FloatingKind::StagedExecutionConfirmation.title(),
-                &state.theme,
-            ))
-            .wrap(Wrap { trim: true }),
-            area,
-        );
-        return;
-    };
-
-    let mut lines = vec![
-        Line::from(Span::styled(
-            "Review the selected staged change before executing it.",
-            state.theme.accent_style().add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(format!("kind: {}", request.kind_label())),
-        Line::from(format!("id: {}", request.id)),
-        Line::from(format!("summary: {}", request.summary())),
-        Line::from(""),
-    ];
-    match &request.execution {
-        StagedExecution::Submit { mode, .. } => {
-            lines.push(Line::from(format!("mode: {mode}")));
-            lines.push(Line::from(""));
-            lines.push(Line::from(
-                "This creates an intent and runs the trading runtime gates.",
-            ));
-            lines.push(Line::from(
-                "Live mode still requires profile permissions, risk policy, intent claim lock, and audit logging.",
-            ));
-            lines.push(Line::from(""));
-            lines.push(Line::from("Enter: confirm submit"));
-        }
-        StagedExecution::LocalCommit { .. } => {
-            lines.push(Line::from(
-                "This writes the profile file through the core profile store.",
-            ));
-            lines.push(Line::from(
-                "A backup is created before replacing an existing profile.",
-            ));
-            lines.push(Line::from(
-                "The write fails if the profile changes before commit.",
-            ));
-            lines.push(Line::from(""));
-            lines.push(Line::from("Enter: confirm local write"));
-        }
-    }
-    lines.push(Line::from("Esc: cancel and return to ready"));
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(floating_block(
-                FloatingKind::StagedExecutionConfirmation.title(),
-                &state.theme,
-            ))
-            .wrap(Wrap { trim: true }),
+    render_confirmation_dialog(
+        frame,
+        state,
+        FloatingKind::StagedExecutionConfirmation,
         area,
     );
+}
+
+fn render_confirmation_dialog(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    kind: FloatingKind,
+    area: Rect,
+) {
+    let content_width = area.width.saturating_sub(2) as usize;
+    let lines =
+        confirmation_dialog::rows_for(kind, state.pending_staged_confirmation(), content_width)
+            .into_iter()
+            .enumerate()
+            .map(|(index, row)| confirmation_line(state, row, index == 0))
+            .map(ListItem::new);
+    frame.render_widget(
+        List::new(lines).block(floating_block(kind.title(), &state.theme)),
+        area,
+    );
+}
+
+fn confirmation_line(state: &AppState, row: ConfirmationRow, heading: bool) -> Line<'static> {
+    match row {
+        ConfirmationRow::Text(text) if heading => Line::from(Span::styled(
+            text,
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
+        )),
+        ConfirmationRow::Text(text) => Line::from(text),
+        ConfirmationRow::Blank => Line::from(""),
+        ConfirmationRow::Buttons(buttons) => Line::from(Span::styled(
+            confirmation_dialog::button_line(&buttons),
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
+        )),
+    }
 }
 
 fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {

@@ -106,8 +106,8 @@ mod tests {
         let text = render_to_text_grid(&state, 160, 44);
 
         assert!(text.contains("Enable Live Writes"));
-        assert!(text.contains("Enter: enable live writes for this session"));
-        assert!(text.contains("Esc: keep live writes disabled"));
+        assert!(text.contains("[Enable live writes]"));
+        assert!(text.contains("[Keep disabled]"));
     }
 
     #[test]
@@ -439,8 +439,8 @@ mod tests {
         assert!(text.contains("Review the selected staged change before executing it."));
         assert!(text.contains("mode: dry-run"));
         assert!(text.contains("summary: buy 0.05 CRDO spot limit-maker @ 204"));
-        assert!(text.contains("Enter: confirm submit"));
-        assert!(text.contains("Esc: cancel"));
+        assert!(text.contains("[Confirm submit]"));
+        assert!(text.contains("[Cancel]"));
     }
 
     #[test]
