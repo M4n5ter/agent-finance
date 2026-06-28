@@ -4,6 +4,7 @@ use crate::command::ActionId;
 use crate::config::MAX_LEFT_MAIN_RATIO;
 use crate::model::InteractionMode;
 use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState, test_profile};
+use crate::settings_editor::SettingRow;
 use crate::task_failure::TaskFailureSource;
 use crate::task_log::TaskStatus;
 use crate::theme::ThemeColor;
@@ -22,6 +23,16 @@ use std::path::PathBuf;
 
 fn toggle_panel_action(panel: Panel) -> ActionId {
     ActionId::TogglePanel(panel)
+}
+
+fn move_to_setting(state: &mut AppState, label: &str) {
+    let index = SettingRow::ALL
+        .iter()
+        .position(|row| row.label() == label)
+        .expect("setting row exists");
+    for _ in 0..index {
+        state.reduce(Action::MoveSettingsSelection(1));
+    }
 }
 
 fn request_and_confirm_selected_staged_submit(state: &mut AppState) -> StagedSubmitRequest {
@@ -2223,6 +2234,59 @@ fn settings_theme_edit_undo_restores_clean_config_without_provider_reload() {
     assert_eq!(state.theme.accent, initial_accent);
     assert!(state.config_changes.is_empty());
     assert!(state.take_pending_provider_preferences_update().is_none());
+}
+
+#[test]
+fn settings_keymap_edit_exports_runtime_binding_and_can_be_undone() {
+    let mut state = AppState::from_config(TuiConfig {
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        ..TuiConfig::default()
+    });
+
+    move_to_setting(&mut state, "key command palette");
+    state.reduce(Action::AdjustSelectedSetting(1));
+
+    assert_eq!(state.config_changes, ["keymap"]);
+    assert_eq!(
+        state.keymap.normal_action(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('p'),
+            crossterm::event::KeyModifiers::CONTROL,
+        )),
+        Some(ActionId::OpenFloating(FloatingKind::CommandPalette))
+    );
+    assert_eq!(state.keymap.overrides.len(), 1);
+    assert!(state.take_pending_provider_preferences_update().is_none());
+    let config = state.export_config(&TuiConfig::default());
+    assert_eq!(config.keymap.overrides.len(), 1);
+
+    state.reduce(Action::AdjustSelectedSetting(-1));
+    let config = state.export_config(&TuiConfig::default());
+    assert!(config.keymap.overrides.is_empty());
+    assert_eq!(
+        state.keymap.normal_action(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(':'),
+            crossterm::event::KeyModifiers::SHIFT,
+        )),
+        Some(ActionId::OpenFloating(FloatingKind::CommandPalette))
+    );
+
+    state.reduce(Action::UndoConfigChange);
+
+    assert_eq!(state.config_changes, ["keymap"]);
+    assert_eq!(
+        state.keymap.normal_action(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('p'),
+            crossterm::event::KeyModifiers::CONTROL,
+        )),
+        Some(ActionId::OpenFloating(FloatingKind::CommandPalette))
+    );
+
+    state.reduce(Action::UndoConfigChange);
+
+    assert!(state.config_changes.is_empty());
+    assert!(state.keymap.overrides.is_empty());
 }
 
 #[test]

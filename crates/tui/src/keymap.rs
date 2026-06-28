@@ -51,6 +51,25 @@ impl KeymapConfig {
             .find(|binding| binding.action == action)
             .map(|binding| binding.key)
     }
+
+    pub fn override_key_for(&self, action: ActionId) -> Option<KeyStroke> {
+        self.overrides
+            .iter()
+            .find(|binding| binding.action == action)
+            .map(|binding| binding.key)
+    }
+
+    pub fn set_action_override(&mut self, action: ActionId, key: KeyStroke) {
+        self.overrides
+            .retain(|binding| binding.action != action && binding.key != key);
+        self.overrides.push(KeyBinding { key, action });
+        self.normalize();
+    }
+
+    pub fn clear_action_override(&mut self, action: ActionId) {
+        self.overrides.retain(|binding| binding.action != action);
+        self.normalize();
+    }
 }
 
 impl Serialize for KeymapConfig {
@@ -455,6 +474,30 @@ mod tests {
         assert_eq!(
             config.normal_action(KeyEvent::from(KeyCode::Char('x'))),
             Some(ActionId::CloseFocusedPanel)
+        );
+    }
+
+    #[test]
+    fn action_override_replaces_previous_action_and_key_bindings() {
+        let mut keymap = KeymapConfig::default();
+
+        keymap.set_action_override(
+            ActionId::OpenFloating(FloatingKind::CommandPalette),
+            "ctrl-p".parse().expect("key"),
+        );
+        keymap.set_action_override(
+            ActionId::OpenFloating(FloatingKind::SymbolSearch),
+            "ctrl-p".parse().expect("key"),
+        );
+
+        assert_eq!(keymap.overrides.len(), 1);
+        assert_eq!(
+            keymap.normal_action(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            Some(ActionId::OpenFloating(FloatingKind::SymbolSearch))
+        );
+        assert_eq!(
+            keymap.override_key_for(ActionId::OpenFloating(FloatingKind::CommandPalette)),
+            None
         );
     }
 

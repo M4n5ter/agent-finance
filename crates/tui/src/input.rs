@@ -258,6 +258,9 @@ fn account_key_action(key: KeyEvent) -> Option<Action> {
 }
 
 fn settings_key_action(key: KeyEvent) -> Option<Action> {
+    if !key.modifiers.is_empty() {
+        return None;
+    }
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveSettingsSelection(-1)),
         KeyCode::Down | KeyCode::Char('j') => Some(Action::MoveSettingsSelection(1)),
@@ -334,7 +337,18 @@ mod tests {
     use super::*;
     use crate::command::ActionId;
     use crate::model::{Panel, WorkspaceKind};
+    use crate::settings_editor::SettingRow;
     use crossterm::event::KeyEvent;
+
+    fn move_to_setting(state: &mut AppState, label: &str) {
+        let index = SettingRow::ALL
+            .iter()
+            .position(|row| row.label() == label)
+            .expect("setting row exists");
+        for _ in 0..index {
+            state.reduce(Action::MoveSettingsSelection(1));
+        }
+    }
 
     #[test]
     fn normal_mode_routes_navigation_and_overlays_to_actions() {
@@ -922,6 +936,25 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('u'))),
             Some(Action::UndoConfigChange)
+        );
+    }
+
+    #[test]
+    fn settings_local_keys_do_not_shadow_modified_global_keymap() {
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Settings,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Settings)));
+        move_to_setting(&mut state, "key live writes");
+        state.reduce(Action::AdjustSelectedSetting(1));
+
+        assert_eq!(
+            key_action(
+                &state,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)
+            ),
+            Some(Action::Execute(ActionId::ToggleLiveWrites))
         );
     }
 }

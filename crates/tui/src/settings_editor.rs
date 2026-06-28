@@ -1,4 +1,7 @@
+use crate::command::ActionId;
 use crate::config::ProviderConfig;
+use crate::keymap::{KeyStroke, KeymapConfig};
+use crate::model::FloatingKind;
 use crate::theme::{ThemeColor, ThemeConfig};
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
@@ -26,12 +29,18 @@ pub struct SettingRow {
 }
 
 impl SettingRow {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 11] = [
         Self::provider("equity provider", ProviderSetting::Equity),
         Self::provider("crypto provider", ProviderSetting::Crypto),
         Self::theme("theme accent", ThemeSetting::Accent),
         Self::theme("selection background", ThemeSetting::SelectionBackground),
         Self::theme("selection foreground", ThemeSetting::SelectionForeground),
+        Self::keymap(KeymapSetting::CommandPalette),
+        Self::keymap(KeymapSetting::SymbolSearch),
+        Self::keymap(KeymapSetting::ProviderDetails),
+        Self::keymap(KeymapSetting::LiveWrites),
+        Self::keymap(KeymapSetting::SaveConfig),
+        Self::keymap(KeymapSetting::UndoConfig),
     ];
 
     const fn provider(label: &'static str, setting: ProviderSetting) -> Self {
@@ -48,21 +57,34 @@ impl SettingRow {
         }
     }
 
+    const fn keymap(setting: KeymapSetting) -> Self {
+        Self {
+            label: setting.spec().label,
+            target: SettingTarget::Keymap(setting),
+        }
+    }
+
     pub const fn label(self) -> &'static str {
         self.label
     }
 
-    pub fn value(self, providers: &ProviderConfig, theme: &ThemeConfig) -> String {
-        self.target.value(providers, theme)
+    pub fn value(
+        self,
+        providers: &ProviderConfig,
+        theme: &ThemeConfig,
+        keymap: &KeymapConfig,
+    ) -> String {
+        self.target.value(providers, theme, keymap)
     }
 
     pub fn adjust(
         self,
         providers: &mut ProviderConfig,
         theme: &mut ThemeConfig,
+        keymap: &mut KeymapConfig,
         direction: isize,
     ) -> Option<SettingChange> {
-        self.target.adjust(providers, theme, direction)
+        self.target.adjust(providers, theme, keymap, direction)
     }
 }
 
@@ -76,13 +98,20 @@ pub struct SettingChange {
 enum SettingTarget {
     Provider(ProviderSetting),
     Theme(ThemeSetting),
+    Keymap(KeymapSetting),
 }
 
 impl SettingTarget {
-    fn value(self, providers: &ProviderConfig, theme: &ThemeConfig) -> String {
+    fn value(
+        self,
+        providers: &ProviderConfig,
+        theme: &ThemeConfig,
+        keymap: &KeymapConfig,
+    ) -> String {
         match self {
             Self::Provider(setting) => setting.value(providers),
             Self::Theme(setting) => setting.value(theme),
+            Self::Keymap(setting) => setting.value(keymap),
         }
     }
 
@@ -90,11 +119,13 @@ impl SettingTarget {
         self,
         providers: &mut ProviderConfig,
         theme: &mut ThemeConfig,
+        keymap: &mut KeymapConfig,
         direction: isize,
     ) -> Option<SettingChange> {
         match self {
             Self::Provider(setting) => setting.adjust(providers, direction),
             Self::Theme(setting) => setting.adjust(theme, direction),
+            Self::Keymap(setting) => setting.adjust(keymap, direction),
         }
     }
 }
@@ -103,6 +134,152 @@ impl SettingTarget {
 enum ProviderSetting {
     Equity,
     Crypto,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum KeymapSetting {
+    CommandPalette,
+    SymbolSearch,
+    ProviderDetails,
+    LiveWrites,
+    SaveConfig,
+    UndoConfig,
+}
+
+impl KeymapSetting {
+    fn value(self, keymap: &KeymapConfig) -> String {
+        let spec = self.spec();
+        let action = spec.action;
+        let effective = keymap
+            .normal_key_for(action)
+            .map(|key| key.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        if let Some(override_key) = keymap.override_key_for(action) {
+            format!("{effective} override={override_key}")
+        } else {
+            format!("{effective} default")
+        }
+    }
+
+    fn adjust(self, keymap: &mut KeymapConfig, direction: isize) -> Option<SettingChange> {
+        let spec = self.spec();
+        let choices = spec.choices;
+        let current = keymap
+            .override_key_for(spec.action)
+            .or_else(|| keymap.normal_key_for(spec.action));
+        let next = match current.and_then(|key| choices.iter().position(|choice| choice == &key)) {
+            Some(current_index) => choices[shift_index(current_index, choices.len(), direction)],
+            None if direction < 0 => choices[choices.len() - 1],
+            None => choices[0],
+        };
+        if Some(next) == current {
+            return None;
+        }
+
+        if Some(next) == default_key_for(spec.action) {
+            keymap.clear_action_override(spec.action);
+        } else {
+            keymap.set_action_override(spec.action, next);
+        }
+        Some(SettingChange {
+            section: "keymap",
+            requires_provider_reload: false,
+        })
+    }
+
+    const fn spec(self) -> &'static KeymapSettingSpec {
+        match self {
+            Self::CommandPalette => &KEY_COMMAND_PALETTE,
+            Self::SymbolSearch => &KEY_SYMBOL_SEARCH,
+            Self::ProviderDetails => &KEY_PROVIDER_DETAILS,
+            Self::LiveWrites => &KEY_LIVE_WRITES,
+            Self::SaveConfig => &KEY_SAVE_CONFIG,
+            Self::UndoConfig => &KEY_UNDO_CONFIG,
+        }
+    }
+}
+
+struct KeymapSettingSpec {
+    label: &'static str,
+    action: ActionId,
+    choices: &'static [KeyStroke],
+}
+
+fn default_key_for(action: ActionId) -> Option<KeyStroke> {
+    KeymapConfig::default().normal_key_for(action)
+}
+
+const KEY_COMMAND_PALETTE_CHOICES: [KeyStroke; 3] = [
+    key(':'),
+    ctrl_key('p'),
+    KeyStroke::new(crate::keymap::KeyStrokeCode::F(2)),
+];
+const KEY_SYMBOL_SEARCH_CHOICES: [KeyStroke; 3] = [
+    key('/'),
+    ctrl_key('f'),
+    KeyStroke::new(crate::keymap::KeyStrokeCode::F(3)),
+];
+const KEY_PROVIDER_DETAILS_CHOICES: [KeyStroke; 3] = [
+    key('p'),
+    key('i'),
+    KeyStroke::new(crate::keymap::KeyStrokeCode::F(4)),
+];
+const KEY_LIVE_WRITES_CHOICES: [KeyStroke; 3] = [
+    ctrl_key('l'),
+    key('l'),
+    KeyStroke::new(crate::keymap::KeyStrokeCode::F(5)),
+];
+const KEY_SAVE_CONFIG_CHOICES: [KeyStroke; 3] = [
+    ctrl_key('s'),
+    key('s'),
+    KeyStroke::new(crate::keymap::KeyStrokeCode::F(6)),
+];
+const KEY_UNDO_CONFIG_CHOICES: [KeyStroke; 3] = [
+    key('u'),
+    ctrl_key('z'),
+    KeyStroke::new(crate::keymap::KeyStrokeCode::F(7)),
+];
+
+const KEY_COMMAND_PALETTE: KeymapSettingSpec = KeymapSettingSpec {
+    label: "key command palette",
+    action: ActionId::OpenFloating(FloatingKind::CommandPalette),
+    choices: &KEY_COMMAND_PALETTE_CHOICES,
+};
+const KEY_SYMBOL_SEARCH: KeymapSettingSpec = KeymapSettingSpec {
+    label: "key symbol search",
+    action: ActionId::OpenFloating(FloatingKind::SymbolSearch),
+    choices: &KEY_SYMBOL_SEARCH_CHOICES,
+};
+const KEY_PROVIDER_DETAILS: KeymapSettingSpec = KeymapSettingSpec {
+    label: "key provider details",
+    action: ActionId::OpenFloating(FloatingKind::ProviderDetails),
+    choices: &KEY_PROVIDER_DETAILS_CHOICES,
+};
+const KEY_LIVE_WRITES: KeymapSettingSpec = KeymapSettingSpec {
+    label: "key live writes",
+    action: ActionId::ToggleLiveWrites,
+    choices: &KEY_LIVE_WRITES_CHOICES,
+};
+const KEY_SAVE_CONFIG: KeymapSettingSpec = KeymapSettingSpec {
+    label: "key save config",
+    action: ActionId::SaveConfig,
+    choices: &KEY_SAVE_CONFIG_CHOICES,
+};
+const KEY_UNDO_CONFIG: KeymapSettingSpec = KeymapSettingSpec {
+    label: "key undo config",
+    action: ActionId::UndoConfigChange,
+    choices: &KEY_UNDO_CONFIG_CHOICES,
+};
+
+const fn key(character: char) -> KeyStroke {
+    KeyStroke::new(crate::keymap::KeyStrokeCode::Char(character))
+}
+
+const fn ctrl_key(character: char) -> KeyStroke {
+    KeyStroke::with_modifiers(
+        crate::keymap::KeyStrokeCode::Char(character),
+        crossterm::event::KeyModifiers::CONTROL,
+    )
 }
 
 impl ProviderSetting {
@@ -181,12 +358,51 @@ mod tests {
         let mut state = SettingsEditorState::default();
 
         state.move_selection(-1);
-        assert_eq!(state.selected().label(), "selection foreground");
+        assert_eq!(state.selected().label(), "key undo config");
 
         state.move_selection(1);
         assert_eq!(state.selected().label(), "equity provider");
 
         state.move_selection(2);
         assert_eq!(state.selected().label(), "theme accent");
+    }
+
+    #[test]
+    fn keymap_setting_uses_first_choice_when_action_has_no_default_key() {
+        let mut keymap = KeymapConfig::default();
+
+        let change = KeymapSetting::SaveConfig
+            .adjust(&mut keymap, 1)
+            .expect("setting change");
+
+        assert_eq!(change.section, "keymap");
+        assert_eq!(
+            keymap
+                .override_key_for(ActionId::SaveConfig)
+                .map(|key| key.to_string()),
+            Some("ctrl-s".to_string())
+        );
+    }
+
+    #[test]
+    fn keymap_setting_clears_override_when_cycle_returns_to_default_key() {
+        let mut keymap = KeymapConfig::default();
+
+        KeymapSetting::CommandPalette.adjust(&mut keymap, 1);
+        assert_eq!(
+            keymap
+                .override_key_for(ActionId::OpenFloating(FloatingKind::CommandPalette))
+                .map(|key| key.to_string()),
+            Some("ctrl-p".to_string())
+        );
+
+        KeymapSetting::CommandPalette.adjust(&mut keymap, -1);
+
+        assert!(
+            keymap
+                .override_key_for(ActionId::OpenFloating(FloatingKind::CommandPalette))
+                .is_none()
+        );
+        assert!(keymap.overrides.is_empty());
     }
 }

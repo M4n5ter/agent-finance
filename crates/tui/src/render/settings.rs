@@ -152,7 +152,7 @@ fn setting_rows(state: &AppState) -> Vec<Line<'static>> {
         .map(|row| {
             let selected = state.settings_editor.selected() == row;
             let marker = if selected { ">" } else { " " };
-            let value = row.value(&state.providers, &state.theme);
+            let value = row.value(&state.providers, &state.theme, &state.keymap);
             let text = format!("{marker} {}: {value}", row.label());
             if selected {
                 Line::from(Span::styled(

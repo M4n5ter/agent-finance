@@ -421,8 +421,13 @@ impl AppState {
     fn adjust_selected_setting(&mut self, direction: isize) {
         let row = self.settings_editor.selected();
         let Some(change) = self.edit_local_config(|state| {
-            row.adjust(&mut state.providers, &mut state.theme, direction)
-                .map(|change| LocalConfigEdit::new(change.section, change))
+            row.adjust(
+                &mut state.providers,
+                &mut state.theme,
+                &mut state.keymap,
+                direction,
+            )
+            .map(|change| LocalConfigEdit::new(change.section, change))
         }) else {
             return;
         };
@@ -433,7 +438,7 @@ impl AppState {
         self.task_log.info(format!(
             "setting updated: {}={}",
             row.label(),
-            row.value(&self.providers, &self.theme)
+            row.value(&self.providers, &self.theme, &self.keymap)
         ));
     }
 
