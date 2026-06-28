@@ -54,6 +54,20 @@ pub(crate) fn key_route(state: &AppState, key: KeyEvent) -> FloatingKeyRouting {
     FloatingKeyRouting::captured(action)
 }
 
+pub(crate) fn wheel_route(state: &AppState, direction: isize) -> Option<Option<Action>> {
+    let action = match top_floating_kind(state)? {
+        FloatingKind::CommandPalette => Some(Action::MoveCommandSelection(direction)),
+        FloatingKind::SymbolSearch => Some(Action::MoveSymbolSearchSelection(direction)),
+        FloatingKind::Help
+        | FloatingKind::WatchlistAdd
+        | FloatingKind::TradingProfile
+        | FloatingKind::LiveWritesConfirmation
+        | FloatingKind::StagedExecutionConfirmation
+        | FloatingKind::ProviderDetails => None,
+    };
+    Some(action)
+}
+
 pub(crate) fn live_writes_confirmation_is_top(state: &AppState) -> bool {
     top_floating_kind(state) == Some(FloatingKind::LiveWritesConfirmation)
 }

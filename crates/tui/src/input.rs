@@ -4,6 +4,7 @@ use ratatui::layout::Rect;
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::model::FloatingKind;
 use crate::state::{Action, AppState};
+use crate::workspace_tabs::workspace_tab_at;
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub struct MouseDrag {
@@ -70,7 +71,25 @@ pub fn handle_mouse_event(
                     drag.target = Some(MouseDragTarget::FloatingResize(kind));
                 }
                 Some(LayoutHit::Floating(kind)) => state.reduce(Action::FocusFloating(kind)),
-                Some(LayoutHit::Status) | None => {}
+                Some(LayoutHit::Status) => {
+                    if let Some(workspace) = workspace_tab_at(terminal_area, mouse.column) {
+                        state.reduce(Action::Execute(crate::command::ActionId::SetWorkspace(
+                            workspace,
+                        )));
+                        state.reduce(Action::Focus(workspace.default_panel()));
+                    }
+                }
+                None => {}
+            }
+        }
+        MouseEventKind::ScrollUp => {
+            if !mouse_is_blocked_by_modal(state) {
+                route_mouse_wheel(state, -1);
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            if !mouse_is_blocked_by_modal(state) {
+                route_mouse_wheel(state, 1);
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => match drag.target {
@@ -97,6 +116,24 @@ pub fn handle_mouse_event(
             drag.target = None;
         }
         _ => {}
+    }
+}
+
+fn mouse_is_blocked_by_modal(state: &AppState) -> bool {
+    crate::floating_input::live_writes_confirmation_is_top(state)
+        || crate::floating_input::staged_execution_confirmation_is_top(state)
+}
+
+fn route_mouse_wheel(state: &mut AppState, direction: isize) {
+    if let Some(action) = crate::floating_input::wheel_route(state, direction) {
+        if let Some(action) = action {
+            state.reduce(action);
+        }
+        return;
+    }
+
+    if let Some(action) = crate::panel_input::wheel_action(state, direction) {
+        state.reduce(action);
     }
 }
 
@@ -669,6 +706,57 @@ mod tests {
             mouse_event(MouseEventKind::Up(MouseButton::Left), drag_column, 2),
         );
         assert_eq!(drag, MouseDrag::default());
+    }
+
+    #[test]
+    fn mouse_click_on_status_workspace_tab_switches_workspace() {
+        let area = Rect::new(0, 0, 120, 32);
+        let mut state = AppState::from_config(crate::config::TuiConfig::default());
+        let mut drag = MouseDrag::default();
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(MouseEventKind::Down(MouseButton::Left), 20, 31),
+        );
+
+        assert_eq!(state.workspace, WorkspaceKind::Account);
+        assert_eq!(state.panels.focused(), Panel::Account);
+        assert_eq!(drag, MouseDrag::default());
+    }
+
+    #[test]
+    fn mouse_wheel_moves_focused_panel_and_search_selection() {
+        let area = Rect::new(0, 0, 120, 32);
+        let mut state = AppState::from_config(crate::config::TuiConfig {
+            watchlist: vec!["CRDO".to_string(), "BTCUSDT".to_string()],
+            ..crate::config::TuiConfig::default()
+        });
+        let mut drag = MouseDrag::default();
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(MouseEventKind::ScrollDown, 2, 2),
+        );
+
+        assert_eq!(state.selected_symbol(), Some("BTCUSDT"));
+
+        state.reduce(Action::Execute(ActionId::OpenFloating(
+            FloatingKind::CommandPalette,
+        )));
+        assert_eq!(state.command_palette.selected(), 0);
+
+        handle_mouse_event(
+            area,
+            &mut state,
+            &mut drag,
+            mouse_event(MouseEventKind::ScrollDown, 2, 2),
+        );
+
+        assert_eq!(state.command_palette.selected(), 1);
     }
 
     #[test]

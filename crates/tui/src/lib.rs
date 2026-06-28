@@ -35,6 +35,7 @@ mod theme;
 mod transfer_ticket;
 mod transfer_ticket_controls;
 mod watchlist_editor;
+mod workspace_tabs;
 
 pub use account::{AccountReadError, AccountSnapshot};
 pub use app::run;

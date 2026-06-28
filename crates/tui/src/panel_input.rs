@@ -26,6 +26,27 @@ pub(crate) fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     }
 }
 
+pub(crate) fn wheel_action(state: &AppState, direction: isize) -> Option<Action> {
+    match state.panels.focused() {
+        Panel::Watchlist => Some(Action::Execute(ActionId::SelectSymbolBy(direction))),
+        Panel::OrderTicket => Some(Action::MoveOrderTicketField(direction)),
+        Panel::OpenOrders | Panel::Account => Some(Action::MoveOpenOrderSelection(direction)),
+        Panel::IntentReview => Some(Action::MoveStagedChangeSelection(direction)),
+        Panel::TransferTicket => Some(Action::MoveTransferTicketField(direction)),
+        Panel::FuturesState => Some(Action::MoveFuturesStateTicketField(direction)),
+        Panel::Settings => Some(Action::MoveSettingsSelection(direction)),
+        Panel::ProfileRisk
+        | Panel::Quote
+        | Panel::History
+        | Panel::Evidence
+        | Panel::Polymarket
+        | Panel::Research
+        | Panel::RiskAudit
+        | Panel::ProviderHealth
+        | Panel::TaskLog => None,
+    }
+}
+
 fn watchlist_key_action(key: KeyEvent) -> Option<Action> {
     if key.modifiers.contains(KeyModifiers::CONTROL)
         || key.modifiers.contains(KeyModifiers::ALT)

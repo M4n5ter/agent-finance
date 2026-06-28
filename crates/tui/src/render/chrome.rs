@@ -10,6 +10,7 @@ use crate::hints;
 use crate::model::{FloatingKind, WorkspaceKind};
 use crate::state::{AppState, StagedExecution};
 use crate::theme::ThemeConfig;
+use crate::workspace_tabs::{workspace_index, workspace_tabs_width};
 
 pub(super) fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     if area.is_empty() {
@@ -582,23 +583,6 @@ fn config_changes_label(state: &AppState) -> Option<String> {
     (!state.config_changes.is_empty()).then(|| state.config_changes.join(","))
 }
 
-fn workspace_index(current: WorkspaceKind) -> usize {
-    WorkspaceKind::ALL
-        .iter()
-        .position(|workspace| *workspace == current)
-        .unwrap_or(0)
-}
-
-fn workspace_tabs_width() -> u16 {
-    let titles = WorkspaceKind::ALL
-        .iter()
-        .map(|workspace| workspace.title().len() as u16)
-        .sum::<u16>();
-    let padding = WorkspaceKind::ALL.len() as u16 * 2;
-    let dividers = WorkspaceKind::ALL.len().saturating_sub(1) as u16;
-    titles + padding + dividers
-}
-
 fn command_window(total: usize, selected: usize, capacity: usize) -> Range<usize> {
     if total == 0 || capacity == 0 {
         return 0..0;
@@ -661,16 +645,5 @@ mod tests {
         assert_eq!(command_window(11, 6, 7), 0..7);
         assert_eq!(command_window(11, 10, 7), 4..11);
         assert_eq!(command_window(11, 10, 0), 0..0);
-    }
-
-    #[test]
-    fn workspace_tabs_width_tracks_workspace_titles() {
-        let title_width = WorkspaceKind::ALL
-            .iter()
-            .map(|workspace| workspace.title().len() as u16)
-            .sum::<u16>();
-
-        assert!(workspace_tabs_width() > title_width);
-        assert!(workspace_tabs_width() < 80);
     }
 }
