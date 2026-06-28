@@ -49,7 +49,7 @@ pub fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
         return Some(action);
     }
     if state.panels.focused() == Panel::Account
-        && let Some(action) = account_key_action(key)
+        && let Some(action) = crate::account_controls::account_key_action(key)
     {
         return Some(action);
     }
@@ -240,23 +240,6 @@ fn order_ticket_key_action(key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn account_key_action(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Up => Some(Action::MoveOpenOrderSelection(-1)),
-        KeyCode::Down => Some(Action::MoveOpenOrderSelection(1)),
-        KeyCode::Char('[') => Some(Action::MoveTransferTicketField(-1)),
-        KeyCode::Char(']') => Some(Action::MoveTransferTicketField(1)),
-        KeyCode::Left => Some(Action::AdjustTransferTicketField(-1)),
-        KeyCode::Right | KeyCode::Enter => Some(Action::AdjustTransferTicketField(1)),
-        KeyCode::Char('u') => Some(Action::MoveFuturesStateTicketField(1)),
-        KeyCode::Char('i') => Some(Action::AdjustFuturesStateTicketField(1)),
-        KeyCode::Char('f') => Some(Action::StageFuturesStateTicket),
-        KeyCode::Char('t') => Some(Action::StageTransferTicket),
-        KeyCode::Char('c') => Some(Action::StageSelectedOpenOrderCancel),
-        _ => None,
-    }
-}
-
 fn intent_review_key_action(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => Some(Action::MoveStagedChangeSelection(-1)),
@@ -320,6 +303,7 @@ fn text_input_floating_is_top(state: &AppState) -> bool {
 mod tests {
     use super::*;
     use crate::command::ActionId;
+    use crate::keymap::{KeyBinding, KeymapConfig};
     use crate::model::{Panel, WorkspaceKind};
     use crate::settings_editor::SettingRow;
     use crossterm::event::KeyEvent;
@@ -578,6 +562,29 @@ mod tests {
         assert_eq!(
             key_action(&state, KeyEvent::from(KeyCode::Char('f'))),
             Some(Action::StageFuturesStateTicket)
+        );
+    }
+
+    #[test]
+    fn account_local_keys_do_not_shadow_modified_global_keymap() {
+        let mut state = AppState::from_config(crate::config::TuiConfig {
+            keymap: KeymapConfig::from_overrides(vec![KeyBinding {
+                key: "ctrl-t".parse().expect("key"),
+                action: ActionId::ToggleLiveWrites,
+            }]),
+            ..crate::config::TuiConfig::default()
+        });
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            WorkspaceKind::Account,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(Panel::Account)));
+
+        assert_eq!(
+            key_action(
+                &state,
+                KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)
+            ),
+            Some(Action::Execute(ActionId::ToggleLiveWrites))
         );
     }
 

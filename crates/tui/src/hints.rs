@@ -29,6 +29,9 @@ pub fn mode_key_hints(state: &AppState) -> Vec<String> {
         InteractionMode::Normal if state.panels.focused() == Panel::IntentReview => {
             intent_review_key_hints()
         }
+        InteractionMode::Normal if state.panels.focused() == Panel::Account => {
+            crate::account_controls::account_key_hints()
+        }
         InteractionMode::Normal if state.panels.focused() == Panel::Settings => {
             crate::settings_controls::settings_key_hints()
         }
@@ -278,6 +281,32 @@ mod tests {
                 "v validate",
                 "t risk",
                 "u undo",
+                "q quit",
+            ]
+        );
+    }
+
+    #[test]
+    fn account_focus_shows_write_operation_hints() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(Action::Execute(ActionId::SetWorkspace(
+            crate::model::WorkspaceKind::Account,
+        )));
+        state.reduce(Action::Execute(ActionId::FocusPanel(
+            crate::model::Panel::Account,
+        )));
+
+        assert_eq!(
+            mode_key_hints(&state),
+            vec![
+                "up/down open order",
+                "c stage cancel",
+                "[/] transfer field",
+                "left/right transfer",
+                "t stage transfer",
+                "u futures field",
+                "i futures adjust",
+                "f stage state",
                 "q quit",
             ]
         );

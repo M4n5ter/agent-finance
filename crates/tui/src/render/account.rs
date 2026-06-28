@@ -286,7 +286,10 @@ fn transfer_ticket_lines(state: &AppState) -> Vec<Line<'static>> {
         ]),
         Line::from(vec![
             readiness,
-            Span::raw("  [/] field  left/right adjust  t stage transfer  c cancel order"),
+            Span::raw(format!(
+                "  {}",
+                crate::account_controls::transfer_section_hint()
+            )),
         ]),
     ];
     lines
@@ -334,7 +337,10 @@ fn futures_state_ticket_lines(state: &AppState) -> Vec<Line<'static>> {
         ]),
         Line::from(vec![
             readiness,
-            Span::raw("  u field  i adjust  f stage state"),
+            Span::raw(format!(
+                "  {}",
+                crate::account_controls::futures_state_section_hint()
+            )),
         ]),
     ]
 }
