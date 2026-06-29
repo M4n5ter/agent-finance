@@ -2,11 +2,17 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 
 use crate::model::Panel;
+use crate::mouse_target::MouseTarget;
 use crate::state::AppState;
 
 use super::ticket_panel::{TicketField, TicketPanel, render_ticket_panel};
 
-pub(super) fn render_transfer_ticket(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+pub(super) fn render_transfer_ticket(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     let preview = state.transfer_ticket_preview();
     let selected = state.transfer_ticket.selected_field_label();
     render_ticket_panel(
@@ -33,5 +39,6 @@ pub(super) fn render_transfer_ticket(frame: &mut Frame<'_>, state: &AppState, ar
             blockers: preview.blockers,
             hint: crate::transfer_ticket_controls::transfer_ticket_section_hint(),
         },
+        mouse_target,
     );
 }

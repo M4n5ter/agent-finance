@@ -88,33 +88,7 @@ pub(crate) fn mouse_action(
     column: u16,
     row: u16,
 ) -> Option<Action> {
-    match kind {
-        FloatingKind::CommandPalette => search_result_index_at(
-            state.command_palette.len(),
-            state.command_palette.selected(),
-            area,
-            column,
-            row,
-        )
-        .and_then(|index| state.command_palette.command_at(index))
-        .map(|command| Action::Execute(command.action)),
-        FloatingKind::SymbolSearch => search_result_index_at(
-            state.symbol_search.len(),
-            state.symbol_search.selected(),
-            area,
-            column,
-            row,
-        )
-        .and_then(|index| state.symbol_search.symbol_index_at(index))
-        .map(Action::SelectSymbolSearchSymbol),
-        FloatingKind::LiveWritesConfirmation | FloatingKind::StagedExecutionConfirmation => {
-            confirmation_mouse_action(state, kind, area, column, row)
-        }
-        FloatingKind::Help
-        | FloatingKind::TradingProfile
-        | FloatingKind::ProviderDetails
-        | FloatingKind::WatchlistAdd => None,
-    }
+    floating_hit_at(state, kind, area, column, row).and_then(|hit| hit.action_for(state, kind))
 }
 
 pub(crate) fn hover_target(
@@ -124,6 +98,68 @@ pub(crate) fn hover_target(
     column: u16,
     row: u16,
 ) -> Option<MouseTarget> {
+    floating_hit_at(state, kind, area, column, row)
+        .map(|hit| MouseTarget::FloatingAction {
+            kind,
+            action: hit.mouse_action(),
+        })
+        .or(Some(MouseTarget::Floating(kind)))
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum FloatingHit {
+    CommandResult(usize),
+    SymbolResult(usize),
+    ConfirmationButton(ConfirmationButtonAction),
+}
+
+impl FloatingHit {
+    fn action_for(self, state: &AppState, kind: FloatingKind) -> Option<Action> {
+        match self {
+            Self::CommandResult(index) => state
+                .command_palette
+                .command_at(index)
+                .map(|command| Action::Execute(command.action)),
+            Self::SymbolResult(index) => state
+                .symbol_search
+                .symbol_index_at(index)
+                .map(Action::SelectSymbolSearchSymbol),
+            Self::ConfirmationButton(ConfirmationButtonAction::Primary) => match kind {
+                FloatingKind::LiveWritesConfirmation => Some(Action::SetLiveWritesEnabled(true)),
+                FloatingKind::StagedExecutionConfirmation => Some(Action::ConfirmStagedExecution),
+                _ => None,
+            },
+            Self::ConfirmationButton(ConfirmationButtonAction::Cancel) => match kind {
+                FloatingKind::LiveWritesConfirmation => Some(Action::CloseFocusedFloating),
+                FloatingKind::StagedExecutionConfirmation => {
+                    Some(Action::CancelStagedExecutionConfirmation)
+                }
+                _ => None,
+            },
+        }
+    }
+
+    const fn mouse_action(self) -> FloatingMouseAction {
+        match self {
+            Self::CommandResult(index) => FloatingMouseAction::ExecuteResult { index },
+            Self::SymbolResult(index) => FloatingMouseAction::SelectResult { index },
+            Self::ConfirmationButton(ConfirmationButtonAction::Primary) => {
+                FloatingMouseAction::Confirm
+            }
+            Self::ConfirmationButton(ConfirmationButtonAction::Cancel) => {
+                FloatingMouseAction::Cancel
+            }
+        }
+    }
+}
+
+fn floating_hit_at(
+    state: &AppState,
+    kind: FloatingKind,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<FloatingHit> {
     match kind {
         FloatingKind::CommandPalette => search_result_index_at(
             state.command_palette.len(),
@@ -132,12 +168,8 @@ pub(crate) fn hover_target(
             column,
             row,
         )
-        .and_then(|index| state.command_palette.command_at(index))
-        .map(|_| MouseTarget::FloatingAction {
-            kind,
-            action: FloatingMouseAction::ExecuteResult,
-        })
-        .or(Some(MouseTarget::Floating(kind))),
+        .filter(|index| state.command_palette.command_at(*index).is_some())
+        .map(FloatingHit::CommandResult),
         FloatingKind::SymbolSearch => search_result_index_at(
             state.symbol_search.len(),
             state.symbol_search.selected(),
@@ -145,20 +177,16 @@ pub(crate) fn hover_target(
             column,
             row,
         )
-        .and_then(|index| state.symbol_search.symbol_index_at(index))
-        .map(|_| MouseTarget::FloatingAction {
-            kind,
-            action: FloatingMouseAction::SelectResult,
-        })
-        .or(Some(MouseTarget::Floating(kind))),
+        .filter(|index| state.symbol_search.symbol_index_at(*index).is_some())
+        .map(FloatingHit::SymbolResult),
         FloatingKind::LiveWritesConfirmation | FloatingKind::StagedExecutionConfirmation => {
-            confirmation_hover_target(state, kind, area, column, row)
-                .or(Some(MouseTarget::Floating(kind)))
+            confirmation_button_at(state, kind, area, column, row)
+                .map(FloatingHit::ConfirmationButton)
         }
         FloatingKind::Help
         | FloatingKind::TradingProfile
         | FloatingKind::ProviderDetails
-        | FloatingKind::WatchlistAdd => Some(MouseTarget::Floating(kind)),
+        | FloatingKind::WatchlistAdd => None,
     }
 }
 
@@ -234,49 +262,18 @@ fn staged_execution_confirmation_key_action(key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn confirmation_mouse_action(
+fn confirmation_button_at(
     state: &AppState,
     kind: FloatingKind,
     area: Rect,
     column: u16,
     row: u16,
-) -> Option<Action> {
+) -> Option<ConfirmationButtonAction> {
     let (content_column, content_row) = floating_content_position(area, column, row)?;
     let content_width = area.width.saturating_sub(2) as usize;
     let rows =
         confirmation_dialog::rows_for(kind, state.pending_staged_confirmation(), content_width);
-    match confirmation_dialog::click_action_at(&rows, content_column, content_row)? {
-        ConfirmationButtonAction::Primary => match kind {
-            FloatingKind::LiveWritesConfirmation => Some(Action::SetLiveWritesEnabled(true)),
-            FloatingKind::StagedExecutionConfirmation => Some(Action::ConfirmStagedExecution),
-            _ => None,
-        },
-        ConfirmationButtonAction::Cancel => match kind {
-            FloatingKind::LiveWritesConfirmation => Some(Action::CloseFocusedFloating),
-            FloatingKind::StagedExecutionConfirmation => {
-                Some(Action::CancelStagedExecutionConfirmation)
-            }
-            _ => None,
-        },
-    }
-}
-
-fn confirmation_hover_target(
-    state: &AppState,
-    kind: FloatingKind,
-    area: Rect,
-    column: u16,
-    row: u16,
-) -> Option<MouseTarget> {
-    let (content_column, content_row) = floating_content_position(area, column, row)?;
-    let content_width = area.width.saturating_sub(2) as usize;
-    let rows =
-        confirmation_dialog::rows_for(kind, state.pending_staged_confirmation(), content_width);
-    let action = match confirmation_dialog::click_action_at(&rows, content_column, content_row)? {
-        ConfirmationButtonAction::Primary => FloatingMouseAction::Confirm,
-        ConfirmationButtonAction::Cancel => FloatingMouseAction::Cancel,
-    };
-    Some(MouseTarget::FloatingAction { kind, action })
+    confirmation_dialog::click_action_at(&rows, content_column, content_row)
 }
 
 fn search_result_index_at(

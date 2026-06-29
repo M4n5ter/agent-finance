@@ -1,3 +1,4 @@
+use crate::confirmation_dialog::ConfirmationButtonAction;
 use crate::layout::{CockpitLayout, LayoutHit};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
 use crate::state::AppState;
@@ -50,40 +51,102 @@ impl MouseTarget {
             Self::DockedSplit => "mouse: drag to resize docked panes".to_string(),
         }
     }
+
+    pub fn workspace_tab_hovered(self, workspace: WorkspaceKind) -> bool {
+        matches!(self, Self::WorkspaceTab(hit) if hit == workspace)
+    }
+
+    pub fn panel_row_hovered(self, panel: Panel, index: usize) -> bool {
+        matches!(
+            self,
+            Self::PanelAction {
+                panel: hover_panel,
+                action: PanelMouseAction::SelectRow { index: hover_index },
+            } if hover_panel == panel && hover_index == index
+        )
+    }
+
+    pub fn panel_field_hovered(self, panel: Panel, index: usize) -> bool {
+        matches!(
+            self,
+            Self::PanelAction {
+                panel: hover_panel,
+                action: PanelMouseAction::SelectField { index: hover_index },
+            } if hover_panel == panel && hover_index == index
+        )
+    }
+
+    pub fn panel_ready_action_hovered(self, panel: Panel) -> bool {
+        matches!(
+            self,
+            Self::PanelAction {
+                panel: hover_panel,
+                action: PanelMouseAction::StageReadyChange,
+            } if hover_panel == panel
+        )
+    }
+
+    pub fn floating_result_hovered(self, kind: FloatingKind, index: usize) -> bool {
+        matches!(
+            self,
+            Self::FloatingAction {
+                kind: hover_kind,
+                action: FloatingMouseAction::ExecuteResult { index: hover_index }
+                    | FloatingMouseAction::SelectResult { index: hover_index },
+            } if hover_kind == kind && hover_index == index
+        )
+    }
+
+    pub fn confirmation_button_hovered(
+        self,
+        kind: FloatingKind,
+    ) -> Option<ConfirmationButtonAction> {
+        match self {
+            Self::FloatingAction {
+                kind: hover_kind,
+                action: FloatingMouseAction::Confirm,
+            } if hover_kind == kind => Some(ConfirmationButtonAction::Primary),
+            Self::FloatingAction {
+                kind: hover_kind,
+                action: FloatingMouseAction::Cancel,
+            } if hover_kind == kind => Some(ConfirmationButtonAction::Cancel),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum PanelMouseAction {
-    SelectRow,
-    SelectField,
+    SelectRow { index: usize },
+    SelectField { index: usize },
     StageReadyChange,
 }
 
 impl PanelMouseAction {
-    const fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Self::SelectRow => "select row",
-            Self::SelectField => "edit field",
-            Self::StageReadyChange => "stage ready change",
+            Self::SelectRow { index } => format!("select row {}", index + 1),
+            Self::SelectField { index } => format!("edit field {}", index + 1),
+            Self::StageReadyChange => "stage ready change".to_string(),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FloatingMouseAction {
-    ExecuteResult,
-    SelectResult,
+    ExecuteResult { index: usize },
+    SelectResult { index: usize },
     Confirm,
     Cancel,
 }
 
 impl FloatingMouseAction {
-    const fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Self::ExecuteResult => "execute result",
-            Self::SelectResult => "select result",
-            Self::Confirm => "confirm",
-            Self::Cancel => "cancel",
+            Self::ExecuteResult { index } => format!("execute result {}", index + 1),
+            Self::SelectResult { index } => format!("select result {}", index + 1),
+            Self::Confirm => "confirm".to_string(),
+            Self::Cancel => "cancel".to_string(),
         }
     }
 }

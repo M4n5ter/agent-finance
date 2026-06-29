@@ -5,16 +5,23 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem};
 
 use crate::model::Panel;
+use crate::mouse_target::MouseTarget;
 use crate::open_order_view::OpenOrderRow;
 use crate::state::AppState;
 
+use super::panels::panel_row_hovered;
 use super::widgets::panel_block;
 
-pub(super) fn render_open_orders(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+pub(super) fn render_open_orders(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     let mut lines = Vec::new();
     match state.account_snapshot.as_ref() {
         Some(snapshot) => {
-            lines.extend(open_order_lines(state, snapshot));
+            lines.extend(open_order_lines(state, snapshot, mouse_target));
             if snapshot.open_orders().is_empty() {
                 lines.push(Line::from("No open orders."));
             } else {
@@ -41,6 +48,7 @@ pub(super) fn render_open_orders(frame: &mut Frame<'_>, state: &AppState, area: 
 pub(super) fn open_order_lines(
     state: &AppState,
     snapshot: &crate::AccountSnapshot,
+    mouse_target: Option<MouseTarget>,
 ) -> Vec<Line<'static>> {
     let open_orders = snapshot.open_orders();
     if open_orders.is_empty() {
@@ -52,11 +60,15 @@ pub(super) fn open_order_lines(
         .min(open_orders.len().saturating_sub(1));
     crate::open_order_view::open_order_rows(&open_orders, selected)
         .into_iter()
-        .map(|row| open_order_line(state, row))
+        .map(|row| open_order_line(state, row, mouse_target))
         .collect()
 }
 
-fn open_order_line(state: &AppState, row: OpenOrderRow<'_>) -> Line<'static> {
+fn open_order_line(
+    state: &AppState,
+    row: OpenOrderRow<'_>,
+    mouse_target: Option<MouseTarget>,
+) -> Line<'static> {
     match row {
         OpenOrderRow::Spacer => Line::from(""),
         OpenOrderRow::Header { total } => Line::from(Span::styled(
@@ -68,19 +80,30 @@ fn open_order_line(state: &AppState, row: OpenOrderRow<'_>) -> Line<'static> {
             state.theme.warning_style(),
         )),
         OpenOrderRow::Order { index, order } => {
+            let hovered = panel_row_hovered(mouse_target, Panel::OpenOrders, index);
             let marker = if index == state.selected_open_order {
                 ">"
             } else {
                 " "
             };
-            Line::from(format!(
-                "{marker} {} {} {} {} @ {} [{}]",
-                order.market,
-                order.side.as_deref().unwrap_or("-"),
-                order.remaining_quantity.as_deref().unwrap_or("-"),
-                order.symbol,
-                order.price.as_deref().unwrap_or("-"),
-                order.identifier()
+            let style = if hovered {
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
+            } else if index == state.selected_open_order {
+                state.theme.accent_style().add_modifier(Modifier::BOLD)
+            } else {
+                state.theme.text_style()
+            };
+            Line::from(Span::styled(
+                format!(
+                    "{marker} {} {} {} {} @ {} [{}]",
+                    order.market,
+                    order.side.as_deref().unwrap_or("-"),
+                    order.remaining_quantity.as_deref().unwrap_or("-"),
+                    order.symbol,
+                    order.price.as_deref().unwrap_or("-"),
+                    order.identifier()
+                ),
+                style,
             ))
         }
         OpenOrderRow::More { hidden } => Line::from(Span::styled(

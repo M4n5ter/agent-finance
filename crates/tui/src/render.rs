@@ -31,14 +31,14 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
         &state.floating,
         &state.visible_panels(),
     );
-    render_docked(frame, state, &layout);
     let mouse_target = state
         .mouse_position
         .and_then(|position| crate::mouse_target::target_at(state, &layout, position));
+    render_docked(frame, state, &layout, mouse_target);
     render_status(frame, state, layout.status, mouse_target);
     for floating in &layout.floating {
         frame.render_widget(Clear, floating.rect);
-        render_floating(frame, state, floating.kind, floating.rect);
+        render_floating(frame, state, floating.kind, floating.rect, mouse_target);
     }
 }
 
@@ -47,7 +47,7 @@ mod tests {
     use super::*;
     use crate::command::ActionId;
     use crate::config::{EquityProvider, ProviderConfig, TuiConfig};
-    use crate::model::{FloatingKind, WorkspaceKind};
+    use crate::model::{FloatingKind, Panel, WorkspaceKind};
     use crate::mouse_target::MousePosition;
     use crate::profile_snapshot::test_profile_validation_snapshot;
     use crate::task_log::TaskKey;
@@ -128,6 +128,29 @@ mod tests {
 
         assert!(!after_close.contains("confirm in Enable Live Writes"));
         assert!(after_close.contains("live:off"));
+    }
+
+    #[test]
+    fn mouse_hover_visually_highlights_watchlist_row() {
+        let area = ratatui::layout::Rect::new(0, 0, 120, 32);
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec!["AAA".to_string(), "BBB".to_string()],
+            ..TuiConfig::default()
+        });
+        let watchlist = layout::build(
+            area,
+            &state.layout,
+            &state.floating,
+            &state.visible_panels(),
+        )
+        .panel_rect(Panel::Watchlist)
+        .expect("watchlist is visible");
+        state.mouse_position = Some(MousePosition::new(watchlist.x + 3, watchlist.y + 2));
+
+        let buffer = render_to_buffer(&state, area.width, area.height);
+
+        assert_eq!(buffer[(watchlist.x + 3, watchlist.y + 2)].bg, Color::Cyan);
+        assert_eq!(buffer[(watchlist.x + 3, watchlist.y + 1)].bg, Color::Reset);
     }
 
     #[test]

@@ -15,40 +15,7 @@ pub(crate) fn click_action(
     _column: u16,
     row: u16,
 ) -> Option<Action> {
-    match panel {
-        Panel::Watchlist => watchlist_click_action(state, area, row),
-        Panel::OpenOrders => open_order_click_action(state, area, row),
-        Panel::IntentReview => staged_change_click_action(state, area, row),
-        Panel::OrderTicket => ticket_click_action(
-            content_row(area, row)?,
-            order_ticket_rows(state),
-            Action::SelectOrderTicketField,
-            Action::StageOrderTicket,
-        ),
-        Panel::TransferTicket => ticket_click_action(
-            content_row(area, row)?,
-            transfer_ticket_rows(state),
-            Action::SelectTransferTicketField,
-            Action::StageTransferTicket,
-        ),
-        Panel::FuturesState => ticket_click_action(
-            content_row(area, row)?,
-            futures_state_ticket_rows(state),
-            Action::SelectFuturesStateTicketField,
-            Action::StageFuturesStateTicket,
-        ),
-        Panel::Account
-        | Panel::Settings
-        | Panel::ProfileRisk
-        | Panel::Quote
-        | Panel::History
-        | Panel::Evidence
-        | Panel::Polymarket
-        | Panel::Research
-        | Panel::RiskAudit
-        | Panel::ProviderHealth
-        | Panel::TaskLog => None,
-    }
+    panel_hit_at(state, panel, area, row).and_then(|hit| hit.action_for(panel))
 }
 
 pub(crate) fn hover_target(
@@ -58,24 +25,78 @@ pub(crate) fn hover_target(
     _column: u16,
     row: u16,
 ) -> Option<MouseTarget> {
-    let action = match panel {
+    panel_hit_at(state, panel, area, row)
+        .map(|hit| MouseTarget::PanelAction {
+            panel,
+            action: hit.mouse_action(),
+        })
+        .or(Some(MouseTarget::Panel(panel)))
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum PanelHit {
+    Row(usize),
+    TicketField(usize),
+    TicketReadyAction,
+}
+
+impl PanelHit {
+    fn action_for(self, panel: Panel) -> Option<Action> {
+        match (panel, self) {
+            (Panel::Watchlist, Self::Row(index)) => Some(Action::SelectWatchlistSymbol(index)),
+            (Panel::OpenOrders, Self::Row(index)) => Some(Action::SelectOpenOrder(index)),
+            (Panel::IntentReview, Self::Row(index)) => Some(Action::SelectStagedChange(index)),
+            (Panel::OrderTicket, Self::TicketField(index)) => {
+                Some(Action::SelectOrderTicketField(index))
+            }
+            (Panel::OrderTicket, Self::TicketReadyAction) => Some(Action::StageOrderTicket),
+            (Panel::TransferTicket, Self::TicketField(index)) => {
+                Some(Action::SelectTransferTicketField(index))
+            }
+            (Panel::TransferTicket, Self::TicketReadyAction) => Some(Action::StageTransferTicket),
+            (Panel::FuturesState, Self::TicketField(index)) => {
+                Some(Action::SelectFuturesStateTicketField(index))
+            }
+            (Panel::FuturesState, Self::TicketReadyAction) => Some(Action::StageFuturesStateTicket),
+            _ => None,
+        }
+    }
+
+    const fn mouse_action(self) -> PanelMouseAction {
+        match self {
+            Self::Row(index) => PanelMouseAction::SelectRow { index },
+            Self::TicketField(index) => PanelMouseAction::SelectField { index },
+            Self::TicketReadyAction => PanelMouseAction::StageReadyChange,
+        }
+    }
+}
+
+fn panel_hit_at(state: &AppState, panel: Panel, area: Rect, row: u16) -> Option<PanelHit> {
+    match panel {
         Panel::Watchlist => {
-            watchlist_click_action(state, area, row).map(|_| PanelMouseAction::SelectRow)
+            let index = content_row(area, row)?;
+            (index < state.watchlist.len()).then_some(PanelHit::Row(index))
         }
         Panel::OpenOrders => {
-            open_order_click_action(state, area, row).map(|_| PanelMouseAction::SelectRow)
+            let open_orders = state.account_snapshot.as_ref()?.open_orders();
+            crate::open_order_view::open_order_index_at_content_row(
+                &open_orders,
+                state.selected_open_order,
+                content_row(area, row)?,
+            )
+            .map(PanelHit::Row)
         }
-        Panel::IntentReview => {
-            staged_change_click_action(state, area, row).map(|_| PanelMouseAction::SelectRow)
-        }
-        Panel::OrderTicket => {
-            ticket_hover_action(content_row(area, row)?, order_ticket_rows(state))
-        }
+        Panel::IntentReview => crate::intent_review_view::staged_change_index_at_content_row(
+            state.staged_change_review_views().len(),
+            content_row(area, row)?,
+        )
+        .map(PanelHit::Row),
+        Panel::OrderTicket => ticket_hit_at(content_row(area, row)?, order_ticket_rows(state)),
         Panel::TransferTicket => {
-            ticket_hover_action(content_row(area, row)?, transfer_ticket_rows(state))
+            ticket_hit_at(content_row(area, row)?, transfer_ticket_rows(state))
         }
         Panel::FuturesState => {
-            ticket_hover_action(content_row(area, row)?, futures_state_ticket_rows(state))
+            ticket_hit_at(content_row(area, row)?, futures_state_ticket_rows(state))
         }
         Panel::Account
         | Panel::Settings
@@ -88,52 +109,13 @@ pub(crate) fn hover_target(
         | Panel::RiskAudit
         | Panel::ProviderHealth
         | Panel::TaskLog => None,
-    };
-    action
-        .map(|action| MouseTarget::PanelAction { panel, action })
-        .or(Some(MouseTarget::Panel(panel)))
-}
-
-fn watchlist_click_action(state: &AppState, area: Rect, row: u16) -> Option<Action> {
-    let index = content_row(area, row)?;
-    (index < state.watchlist.len()).then_some(Action::SelectWatchlistSymbol(index))
-}
-
-fn open_order_click_action(state: &AppState, area: Rect, row: u16) -> Option<Action> {
-    let open_orders = state.account_snapshot.as_ref()?.open_orders();
-    let index = crate::open_order_view::open_order_index_at_content_row(
-        &open_orders,
-        state.selected_open_order,
-        content_row(area, row)?,
-    )?;
-    Some(Action::SelectOpenOrder(index))
-}
-
-fn staged_change_click_action(state: &AppState, area: Rect, row: u16) -> Option<Action> {
-    let visible_len = state.staged_change_review_views().len();
-    let index = crate::intent_review_view::staged_change_index_at_content_row(
-        visible_len,
-        content_row(area, row)?,
-    )?;
-    Some(Action::SelectStagedChange(index))
-}
-
-fn ticket_click_action(
-    content_row: usize,
-    rows: TicketPanelRows,
-    select_field: impl FnOnce(usize) -> Action,
-    stage: Action,
-) -> Option<Action> {
-    match rows.click_at(content_row)? {
-        TicketPanelClick::Field(index) => Some(select_field(index)),
-        TicketPanelClick::ReadyAction => Some(stage),
     }
 }
 
-fn ticket_hover_action(content_row: usize, rows: TicketPanelRows) -> Option<PanelMouseAction> {
+fn ticket_hit_at(content_row: usize, rows: TicketPanelRows) -> Option<PanelHit> {
     match rows.click_at(content_row)? {
-        TicketPanelClick::Field(_) => Some(PanelMouseAction::SelectField),
-        TicketPanelClick::ReadyAction => Some(PanelMouseAction::StageReadyChange),
+        TicketPanelClick::Field(index) => Some(PanelHit::TicketField(index)),
+        TicketPanelClick::ReadyAction => Some(PanelHit::TicketReadyAction),
     }
 }
 

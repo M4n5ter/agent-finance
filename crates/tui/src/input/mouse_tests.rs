@@ -582,7 +582,7 @@ fn mouse_movement_tracks_clickable_panel_row_hover() {
         current_mouse_target(area, &state),
         Some(MouseTarget::PanelAction {
             panel: Panel::Watchlist,
-            action: PanelMouseAction::SelectRow,
+            action: PanelMouseAction::SelectRow { index: 0 },
         })
     );
 }
@@ -853,12 +853,11 @@ fn confirmation_click(
             _ => None,
         })
         .expect("confirmation button row is present");
-    let column = match action {
-        ConfirmationButtonAction::Primary => 1,
-        ConfirmationButtonAction::Cancel => buttons.primary.as_ref().map_or(1, |primary| {
-            primary.chars().count().saturating_add(5) as u16
-        }),
-    };
+    let button = confirmation_dialog::button_segments(buttons)
+        .into_iter()
+        .find(|segment| segment.action == Some(action))
+        .expect("button action is present");
+    let column = button.start.saturating_add(1) as u16;
     floating_click(floating, column, row)
 }
 

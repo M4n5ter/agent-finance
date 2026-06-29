@@ -10,6 +10,7 @@ use ratatui::widgets::{Cell, List, ListItem, Paragraph, Row, Table, Wrap};
 
 use crate::layout::CockpitLayout;
 use crate::model::Panel;
+use crate::mouse_target::MouseTarget;
 use crate::provider_health::ProviderHealthReport;
 use crate::state::AppState;
 use crate::task_log::TaskStatus;
@@ -28,21 +29,26 @@ use super::settings::render_settings;
 use super::transfer_ticket::render_transfer_ticket;
 use super::widgets::{compact_text, format_price, format_volume, panel_block};
 
-pub(super) fn render_docked(frame: &mut Frame<'_>, state: &AppState, layout: &CockpitLayout) {
+pub(super) fn render_docked(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    layout: &CockpitLayout,
+    mouse_target: Option<MouseTarget>,
+) {
     for panel in Panel::ALL {
         let Some(area) = layout.panel_rect(panel) else {
             continue;
         };
         match panel {
-            Panel::Watchlist => render_watchlist(frame, state, area),
+            Panel::Watchlist => render_watchlist(frame, state, area, mouse_target),
             Panel::Quote => render_quote(frame, state, area),
-            Panel::OrderTicket => render_order_ticket(frame, state, area),
-            Panel::OpenOrders => render_open_orders(frame, state, area),
-            Panel::IntentReview => render_intent_review(frame, state, area),
+            Panel::OrderTicket => render_order_ticket(frame, state, area, mouse_target),
+            Panel::OpenOrders => render_open_orders(frame, state, area, mouse_target),
+            Panel::IntentReview => render_intent_review(frame, state, area, mouse_target),
             Panel::RiskAudit => render_risk_audit(frame, state, area),
             Panel::Account => render_account(frame, state, area),
-            Panel::TransferTicket => render_transfer_ticket(frame, state, area),
-            Panel::FuturesState => render_futures_state(frame, state, area),
+            Panel::TransferTicket => render_transfer_ticket(frame, state, area, mouse_target),
+            Panel::FuturesState => render_futures_state(frame, state, area, mouse_target),
             Panel::History => render_history(frame, state, area),
             Panel::Evidence => render_evidence(frame, state, area),
             Panel::Polymarket => render_polymarket(frame, state, area),
@@ -55,18 +61,26 @@ pub(super) fn render_docked(frame: &mut Frame<'_>, state: &AppState, layout: &Co
     }
 }
 
-fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+fn render_watchlist(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     let mut items = state
         .watchlist
         .iter()
         .enumerate()
         .map(|(index, symbol)| {
+            let hovered = panel_row_hovered(mouse_target, Panel::Watchlist, index);
             let marker = if index == state.selected_symbol {
                 ">"
             } else {
                 " "
             };
-            let style = if index == state.selected_symbol {
+            let style = if hovered {
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
+            } else if index == state.selected_symbol {
                 state.theme.accent_style().add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -107,6 +121,14 @@ fn render_watchlist(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         List::new(items).block(panel_block(Panel::Watchlist, state)),
         area,
     );
+}
+
+pub(super) fn panel_row_hovered(
+    mouse_target: Option<MouseTarget>,
+    panel: Panel,
+    index: usize,
+) -> bool {
+    mouse_target.is_some_and(|target| target.panel_row_hovered(panel, index))
 }
 
 fn render_quote(frame: &mut Frame<'_>, state: &AppState, area: Rect) {

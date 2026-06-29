@@ -3,11 +3,17 @@ use ratatui::layout::Rect;
 
 use crate::futures_state_ticket::FuturesStateTicketPreview;
 use crate::model::Panel;
+use crate::mouse_target::MouseTarget;
 use crate::state::AppState;
 
 use super::ticket_panel::{TicketField, TicketPanel, render_ticket_panel};
 
-pub(super) fn render_futures_state(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+pub(super) fn render_futures_state(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     let preview = state.futures_state_ticket_preview();
     let selected = state.futures_state_ticket.selected_field_label();
     render_ticket_panel(
@@ -30,6 +36,7 @@ pub(super) fn render_futures_state(frame: &mut Frame<'_>, state: &AppState, area
             blockers: preview.blockers,
             hint: crate::futures_state_controls::futures_state_section_hint(),
         },
+        mouse_target,
     );
 }
 

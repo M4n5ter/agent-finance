@@ -21,7 +21,7 @@ pub(super) fn render_account(frame: &mut Frame<'_>, state: &AppState, area: Rect
         Some(snapshot) => {
             lines.extend(profile_risk_lines(state, snapshot));
             lines.extend(account_read_lines(snapshot));
-            lines.extend(open_order_lines(state, snapshot));
+            lines.extend(open_order_lines(state, snapshot, None));
             lines.extend(transfer_history_lines(state, snapshot));
             lines.extend(warning_lines(state, snapshot));
         }

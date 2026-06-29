@@ -2,16 +2,16 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Offset, Rect};
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Wrap};
 
 use crate::confirmation_dialog::{self, ConfirmationRow};
 use crate::hints;
-use crate::model::{FloatingKind, WorkspaceKind};
+use crate::model::FloatingKind;
 use crate::mouse_target::MouseTarget;
 use crate::search_floating_view::SearchFloatingLayout;
 use crate::state::AppState;
 use crate::theme::ThemeConfig;
-use crate::workspace_tabs::{workspace_index, workspace_tabs_width};
+use crate::workspace_tabs::{workspace_tab_segments, workspace_tabs_width};
 
 pub(super) fn render_status(
     frame: &mut Frame<'_>,
@@ -26,24 +26,7 @@ pub(super) fn render_status(
     let tab_width = workspace_tabs_width().min(area.width);
     let [tabs_area, detail_area] =
         split_horizontal(area, [Constraint::Length(tab_width), Constraint::Min(0)]);
-    let tabs = Tabs::new(
-        WorkspaceKind::ALL
-            .iter()
-            .map(|workspace| workspace.title())
-            .collect::<Vec<_>>(),
-    )
-    .select(workspace_index(state.workspace))
-    .style(state.theme.chrome_style())
-    .highlight_style(
-        state
-            .theme
-            .chrome_style()
-            .fg(state.theme.accent.color())
-            .add_modifier(Modifier::BOLD),
-    )
-    .divider("|")
-    .padding(" ", " ");
-    frame.render_widget(tabs, tabs_area);
+    render_workspace_tabs(frame, state, tabs_area, mouse_target);
 
     if detail_area.is_empty() {
         return;
@@ -62,18 +45,60 @@ pub(super) fn render_status(
     );
 }
 
+fn render_workspace_tabs(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
+    if area.is_empty() {
+        return;
+    }
+
+    let spans = workspace_tab_segments(area)
+        .into_iter()
+        .flat_map(|segment| {
+            let hovered =
+                mouse_target.is_some_and(|target| target.workspace_tab_hovered(segment.workspace));
+            let selected = state.workspace == segment.workspace;
+            let style = if hovered {
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
+            } else if selected {
+                state
+                    .theme
+                    .chrome_style()
+                    .fg(state.theme.accent.color())
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                state.theme.chrome_style()
+            };
+            let mut spans = vec![Span::styled(segment.label, style)];
+            if segment.has_divider_after {
+                spans.push(Span::styled("|", state.theme.chrome_style()));
+            }
+            spans
+        })
+        .collect::<Vec<_>>();
+
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)).style(state.theme.chrome_style()),
+        area,
+    );
+}
+
 pub(super) fn render_floating(
     frame: &mut Frame<'_>,
     state: &AppState,
     kind: FloatingKind,
     area: Rect,
+    mouse_target: Option<MouseTarget>,
 ) {
     if kind == FloatingKind::CommandPalette {
-        render_command_palette(frame, state, area);
+        render_command_palette(frame, state, area, mouse_target);
         return;
     }
     if kind == FloatingKind::SymbolSearch {
-        render_symbol_search(frame, state, area);
+        render_symbol_search(frame, state, area, mouse_target);
         return;
     }
     if kind == FloatingKind::WatchlistAdd {
@@ -85,7 +110,7 @@ pub(super) fn render_floating(
         return;
     }
     if kind == FloatingKind::StagedExecutionConfirmation {
-        render_staged_execution_confirmation(frame, state, area);
+        render_staged_execution_confirmation(frame, state, area, mouse_target);
         return;
     }
 
@@ -118,7 +143,7 @@ pub(super) fn render_floating(
             Line::from("q quit"),
         ],
         FloatingKind::LiveWritesConfirmation => {
-            render_confirmation_dialog(frame, state, kind, area);
+            render_confirmation_dialog(frame, state, kind, area, mouse_target);
             return;
         }
         FloatingKind::ProviderDetails => state
@@ -148,12 +173,18 @@ pub(super) fn render_floating(
     );
 }
 
-fn render_staged_execution_confirmation(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+fn render_staged_execution_confirmation(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     render_confirmation_dialog(
         frame,
         state,
         FloatingKind::StagedExecutionConfirmation,
         area,
+        mouse_target,
     );
 }
 
@@ -162,13 +193,14 @@ fn render_confirmation_dialog(
     state: &AppState,
     kind: FloatingKind,
     area: Rect,
+    mouse_target: Option<MouseTarget>,
 ) {
     let content_width = area.width.saturating_sub(2) as usize;
     let lines =
         confirmation_dialog::rows_for(kind, state.pending_staged_confirmation(), content_width)
             .into_iter()
             .enumerate()
-            .map(|(index, row)| confirmation_line(state, row, index == 0))
+            .map(|(index, row)| confirmation_line(state, kind, row, index == 0, mouse_target))
             .map(ListItem::new);
     frame.render_widget(
         List::new(lines).block(floating_block(kind.title(), &state.theme)),
@@ -176,7 +208,13 @@ fn render_confirmation_dialog(
     );
 }
 
-fn confirmation_line(state: &AppState, row: ConfirmationRow, heading: bool) -> Line<'static> {
+fn confirmation_line(
+    state: &AppState,
+    kind: FloatingKind,
+    row: ConfirmationRow,
+    heading: bool,
+    mouse_target: Option<MouseTarget>,
+) -> Line<'static> {
     match row {
         ConfirmationRow::Text(text) if heading => Line::from(Span::styled(
             text,
@@ -184,14 +222,41 @@ fn confirmation_line(state: &AppState, row: ConfirmationRow, heading: bool) -> L
         )),
         ConfirmationRow::Text(text) => Line::from(text),
         ConfirmationRow::Blank => Line::from(""),
-        ConfirmationRow::Buttons(buttons) => Line::from(Span::styled(
-            confirmation_dialog::button_line(&buttons),
-            state.theme.accent_style().add_modifier(Modifier::BOLD),
-        )),
+        ConfirmationRow::Buttons(buttons) => {
+            let hovered = mouse_target.and_then(|target| target.confirmation_button_hovered(kind));
+            Line::from(
+                confirmation_dialog::button_segments(&buttons)
+                    .into_iter()
+                    .map(|segment| {
+                        let style = match (segment.action, hovered) {
+                            (Some(action), Some(hovered)) if action == hovered => {
+                                state.theme.selected_style().add_modifier(Modifier::BOLD)
+                            }
+                            (Some(_), _) => state.theme.accent_style().add_modifier(Modifier::BOLD),
+                            (None, _) => state.theme.text_style(),
+                        };
+                        Span::styled(segment.text, style)
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        }
     }
 }
 
-fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+fn floating_result_hovered(
+    mouse_target: Option<MouseTarget>,
+    kind: FloatingKind,
+    index: usize,
+) -> bool {
+    mouse_target.is_some_and(|target| target.floating_result_hovered(kind, index))
+}
+
+fn render_command_palette(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     render_search_floating(
         frame,
         area,
@@ -209,7 +274,9 @@ fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
         &state.theme,
         |index, is_selected| {
             let command = state.command_palette.command_at(index)?;
-            let style = if is_selected {
+            let hovered =
+                floating_result_hovered(mouse_target, FloatingKind::CommandPalette, index);
+            let style = if hovered || is_selected {
                 state.theme.selected_style().add_modifier(Modifier::BOLD)
             } else {
                 state.theme.text_style()
@@ -224,7 +291,12 @@ fn render_command_palette(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
     );
 }
 
-fn render_symbol_search(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+fn render_symbol_search(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     render_search_floating(
         frame,
         area,
@@ -244,7 +316,8 @@ fn render_symbol_search(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
             let symbol_index = state.symbol_search.symbol_index_at(index)?;
             let symbol = state.watchlist.get(symbol_index)?;
             let is_current = symbol_index == state.selected_symbol;
-            let style = if is_selected {
+            let hovered = floating_result_hovered(mouse_target, FloatingKind::SymbolSearch, index);
+            let style = if hovered || is_selected {
                 state.theme.selected_style().add_modifier(Modifier::BOLD)
             } else if is_current {
                 state.theme.accent_style().add_modifier(Modifier::BOLD)

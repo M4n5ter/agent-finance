@@ -20,6 +20,14 @@ pub(crate) struct ConfirmationButtons {
     pub cancel: String,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct ConfirmationButtonSegment {
+    pub text: String,
+    pub action: Option<ConfirmationButtonAction>,
+    pub start: usize,
+    pub end: usize,
+}
+
 pub(crate) fn rows_for(
     kind: FloatingKind,
     pending_staged_confirmation: Option<&StagedExecutionRequest>,
@@ -43,14 +51,47 @@ pub(crate) fn click_action_at(
     let ConfirmationRow::Buttons(buttons) = rows.get(content_row)? else {
         return None;
     };
-    hit_button(buttons, content_column)
+    button_segments(buttons)
+        .into_iter()
+        .find(|segment| (segment.start..segment.end).contains(&content_column))
+        .and_then(|segment| segment.action)
 }
 
-pub(crate) fn button_line(buttons: &ConfirmationButtons) -> String {
-    match buttons.primary.as_deref() {
-        Some(primary) => format!("[{primary}]  [{}]", buttons.cancel),
-        None => format!("[{}]", buttons.cancel),
+pub(crate) fn button_segments(buttons: &ConfirmationButtons) -> Vec<ConfirmationButtonSegment> {
+    let mut segments = Vec::new();
+    let mut cursor = 0;
+    if let Some(primary) = buttons.primary.as_deref() {
+        push_button_segment(
+            &mut segments,
+            &mut cursor,
+            format!("[{primary}]"),
+            Some(ConfirmationButtonAction::Primary),
+        );
+        push_button_segment(&mut segments, &mut cursor, "  ".to_string(), None);
     }
+    push_button_segment(
+        &mut segments,
+        &mut cursor,
+        format!("[{}]", buttons.cancel),
+        Some(ConfirmationButtonAction::Cancel),
+    );
+    segments
+}
+
+fn push_button_segment(
+    segments: &mut Vec<ConfirmationButtonSegment>,
+    cursor: &mut usize,
+    text: String,
+    action: Option<ConfirmationButtonAction>,
+) {
+    let start = *cursor;
+    *cursor += text.chars().count();
+    segments.push(ConfirmationButtonSegment {
+        text,
+        action,
+        start,
+        end: *cursor,
+    });
 }
 
 fn live_writes_rows() -> Vec<ConfirmationRow> {
@@ -122,28 +163,6 @@ fn staged_execution_rows(request: Option<&StagedExecutionRequest>) -> Vec<Confir
         }
     }
     rows
-}
-
-fn hit_button(
-    buttons: &ConfirmationButtons,
-    content_column: usize,
-) -> Option<ConfirmationButtonAction> {
-    if let Some(primary) = buttons.primary.as_deref() {
-        let primary_width = bracketed_width(primary);
-        if content_column < primary_width {
-            return Some(ConfirmationButtonAction::Primary);
-        }
-        let cancel_start = primary_width + 2;
-        return (cancel_start..cancel_start + bracketed_width(&buttons.cancel))
-            .contains(&content_column)
-            .then_some(ConfirmationButtonAction::Cancel);
-    }
-
-    (content_column < bracketed_width(&buttons.cancel)).then_some(ConfirmationButtonAction::Cancel)
-}
-
-fn bracketed_width(label: &str) -> usize {
-    label.chars().count() + 2
 }
 
 fn materialize_visual_rows(

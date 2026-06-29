@@ -8,11 +8,18 @@ use crate::model::Panel;
 use agent_finance_core::intent::IntentStatus;
 
 use crate::intent_review_view::INTENT_REVIEW_SUMMARY_ROWS;
+use crate::mouse_target::MouseTarget;
 use crate::state::{AppState, StagedChangeQueueStatus, StagedChangeView, VISIBLE_REVIEW_LIMIT};
 
+use super::panels::panel_row_hovered;
 use super::widgets::panel_block;
 
-pub(super) fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+pub(super) fn render_intent_review(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     let changes = state.staged_change_review_views();
     if changes.is_empty() {
         render_empty_intent_review(frame, state, area);
@@ -63,7 +70,10 @@ pub(super) fn render_intent_review(frame: &mut Frame<'_>, state: &AppState, area
     ];
     frame.render_widget(Paragraph::new(summary).wrap(Wrap { trim: true }), chunks[0]);
 
-    frame.render_widget(staged_changes_table(state, &changes), chunks[1]);
+    frame.render_widget(
+        staged_changes_table(state, &changes, mouse_target),
+        chunks[1],
+    );
 }
 
 fn render_empty_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
@@ -126,10 +136,15 @@ fn render_empty_intent_review(frame: &mut Frame<'_>, state: &AppState, area: Rec
     );
 }
 
-fn staged_changes_table<'a>(state: &'a AppState, changes: &'a [StagedChangeView]) -> Table<'a> {
+fn staged_changes_table<'a>(
+    state: &'a AppState,
+    changes: &'a [StagedChangeView],
+    mouse_target: Option<MouseTarget>,
+) -> Table<'a> {
     let rows = changes
         .iter()
-        .map(|change| staged_change_row(state, change));
+        .enumerate()
+        .map(|(index, change)| staged_change_row(state, change, mouse_target, index));
     Table::new(
         rows,
         [
@@ -148,9 +163,17 @@ fn staged_changes_table<'a>(state: &'a AppState, changes: &'a [StagedChangeView]
     )
 }
 
-fn staged_change_row<'a>(state: &'a AppState, change: &'a StagedChangeView) -> Row<'a> {
+fn staged_change_row<'a>(
+    state: &'a AppState,
+    change: &'a StagedChangeView,
+    mouse_target: Option<MouseTarget>,
+    index: usize,
+) -> Row<'a> {
     let marker = if change.selected { ">" } else { " " };
-    let row_style = if change.selected {
+    let hovered = panel_row_hovered(mouse_target, Panel::IntentReview, index);
+    let row_style = if hovered {
+        state.theme.selected_style().add_modifier(Modifier::BOLD)
+    } else if change.selected {
         state.theme.selected_style()
     } else {
         state.theme.text_style()
