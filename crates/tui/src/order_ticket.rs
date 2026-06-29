@@ -78,6 +78,11 @@ impl OrderTicket {
         }
     }
 
+    pub fn capture_reference_price(&mut self, price: f64) {
+        self.price = Some(format_reference_price(price));
+        self.selected_field = OrderTicketField::Price;
+    }
+
     pub fn adjust_selected_field(&mut self, direction: isize, reference_price: Option<f64>) {
         match self.selected_field {
             OrderTicketField::Market => {
@@ -408,6 +413,23 @@ mod tests {
         assert!(preview.ready);
         assert_eq!(preview.price.as_deref(), Some("123.46"));
         assert_eq!(ticket.price, None);
+    }
+
+    #[test]
+    fn capture_reference_price_fixes_price_and_focuses_price_field() {
+        let mut ticket = OrderTicket::default();
+
+        ticket.capture_reference_price(123.456);
+
+        let preview = ticket.preview(
+            Some("BTCUSDT"),
+            Some("mainnet"),
+            false,
+            SubmitMode::DryRun,
+            Some(999.0),
+        );
+        assert_eq!(preview.price.as_deref(), Some("123.46"));
+        assert_eq!(ticket.selected_field_label(), "price");
     }
 
     #[test]

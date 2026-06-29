@@ -176,6 +176,67 @@ fn order_ticket_staging_requires_core_valid_preview_before_review_change() {
 }
 
 #[test]
+fn capture_order_reference_price_fixes_quote_price_without_staging() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Market,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.market_snapshot = Some(snapshot(1, "CRDO"));
+
+    state.reduce(Action::Execute(ActionId::CaptureOrderReferencePrice));
+
+    let preview = state.order_ticket_preview();
+    assert_eq!(state.panels.focused(), Panel::OrderTicket);
+    assert_eq!(preview.symbol.as_deref(), Some("CRDO"));
+    assert_eq!(preview.price.as_deref(), Some("250.00"));
+    assert!(
+        preview
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "quantity is required")
+    );
+    assert_eq!(state.staged_change_count(), 0);
+    assert!(state.pending_staged_confirmation().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
+
+    state.market_snapshot = Some(snapshot_with_price("CRDO", 999.0));
+    assert_eq!(
+        state.order_ticket_preview().price.as_deref(),
+        Some("250.00")
+    );
+}
+
+#[test]
+fn capture_order_reference_price_without_quote_only_warns() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Market,
+        },
+        ..TuiConfig::default()
+    });
+    state.order_ticket.set_price_text(Some("204".to_string()));
+    state.reduce(Action::Focus(Panel::Quote));
+
+    state.reduce(Action::Execute(ActionId::CaptureOrderReferencePrice));
+
+    assert_eq!(state.panels.focused(), Panel::Quote);
+    assert_eq!(state.order_ticket_preview().price.as_deref(), Some("204"));
+    assert_eq!(state.staged_change_count(), 0);
+    assert!(state.pending_staged_confirmation().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
+    assert!(state.task_log.iter().any(|entry| {
+        entry.status == TaskStatus::Warning && entry.message == "no quote price available for CRDO"
+    }));
+}
+
+#[test]
 fn submitting_ready_order_change_queues_submit_request() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["CRDO".to_string()],
@@ -2683,11 +2744,15 @@ fn reducer_accepts_current_research_and_ignores_stale_research() {
 }
 
 fn snapshot(_generation: u64, symbol: &str) -> MarketSnapshot {
+    snapshot_with_price(symbol, 250.0)
+}
+
+fn snapshot_with_price(symbol: &str, price: f64) -> MarketSnapshot {
     MarketSnapshot {
         fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
         quotes: vec![QuoteSnapshot {
             symbol: symbol.to_string(),
-            price: Some(250.0),
+            price: Some(price),
             currency: Some("USD".to_string()),
             provider: "test".to_string(),
             session: Some("regular".to_string()),

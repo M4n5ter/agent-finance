@@ -104,6 +104,7 @@ pub enum ActionId {
     FocusPanel(Panel),
     TogglePanel(Panel),
     ToggleLiveWrites,
+    CaptureOrderReferencePrice,
     StageOrderTicket,
     StageTransferTicket,
     StageFuturesStateTicket,
@@ -259,6 +260,12 @@ pub static ACTION_REGISTRY: LazyLock<Vec<ActionSpec>> = LazyLock::new(|| {
             ActionId::ToggleLiveWrites,
             "Toggle live writes",
             "Enable live writes after confirmation or disable them for this session"
+        ),
+        action!(
+            "capture-order-reference-price",
+            ActionId::CaptureOrderReferencePrice,
+            "Capture order reference price",
+            "Copy the current selected quote price into the order ticket price field"
         ),
         action!(
             "stage-order-ticket",
@@ -480,6 +487,20 @@ mod tests {
         assert_eq!(
             palette.selected_action(),
             Some(ActionId::StageProfileLiveToggle)
+        );
+    }
+
+    #[test]
+    fn command_palette_can_capture_order_reference_price() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "capture order price".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::CaptureOrderReferencePrice)
         );
     }
 

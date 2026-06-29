@@ -360,6 +360,24 @@ impl AppState {
         }
     }
 
+    fn capture_order_reference_price(&mut self) {
+        let symbol = self.selected_symbol().map(ToString::to_string);
+        let Some(price) = self.selected_quote_price() else {
+            self.task_log.warning_event(format!(
+                "no quote price available for {}",
+                symbol.as_deref().unwrap_or("selected symbol")
+            ));
+            return;
+        };
+        self.order_ticket.capture_reference_price(price);
+        self.focus_panel(Panel::OrderTicket);
+        self.task_log.info(format!(
+            "captured order reference price {} for {}",
+            self.order_ticket_preview().price.as_deref().unwrap_or("-"),
+            symbol.as_deref().unwrap_or("selected symbol")
+        ));
+    }
+
     fn stage_transfer_ticket(&mut self) {
         let preview = self.transfer_ticket_preview();
         self.focus_panel(Panel::IntentReview);
@@ -754,6 +772,7 @@ impl AppState {
                 self.order_ticket
                     .adjust_selected_field(direction, self.selected_quote_price());
             }
+            Action::CaptureOrderReferencePrice => self.capture_order_reference_price(),
             Action::MoveTransferTicketField(direction) => {
                 self.transfer_ticket.move_field(direction);
             }
@@ -1250,6 +1269,7 @@ pub enum Action {
     MoveOrderTicketField(isize),
     SelectOrderTicketField(usize),
     AdjustOrderTicketField(isize),
+    CaptureOrderReferencePrice,
     MoveTransferTicketField(isize),
     SelectTransferTicketField(usize),
     AdjustTransferTicketField(isize),

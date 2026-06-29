@@ -54,6 +54,10 @@ impl AppState {
                     self.open_floating(FloatingKind::LiveWritesConfirmation);
                 }
             }
+            ActionId::CaptureOrderReferencePrice => {
+                self.close_text_input_floatings();
+                self.reduce(Action::CaptureOrderReferencePrice);
+            }
             ActionId::StageOrderTicket => {
                 self.close_text_input_floatings();
                 self.reduce(Action::StageOrderTicket);
