@@ -782,6 +782,13 @@ impl AppState {
                 self.futures_state_ticket
                     .adjust_selected_field(direction, symbol.as_deref());
             }
+            Action::ApplyFuturesStateTicketPreset(preset) => {
+                let symbol = preset.symbol.clone();
+                self.futures_state_ticket.apply_preset(preset);
+                self.focus_panel(Panel::FuturesState);
+                self.task_log
+                    .info(format!("prepared futures state ticket for {symbol}"));
+            }
             Action::MoveOpenOrderSelection(direction) => self.move_open_order_selection(direction),
             Action::SelectOpenOrder(index) => self.select_open_order(index),
             Action::MoveSettingsSelection(direction) => {
@@ -1250,6 +1257,7 @@ pub enum Action {
     MoveFuturesStateTicketField(isize),
     SelectFuturesStateTicketField(usize),
     AdjustFuturesStateTicketField(isize),
+    ApplyFuturesStateTicketPreset(crate::futures_state_ticket::FuturesStateTicketPreset),
     MoveOpenOrderSelection(isize),
     SelectOpenOrder(usize),
     MoveSettingsSelection(isize),

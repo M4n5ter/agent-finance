@@ -3,6 +3,7 @@ use ratatui::text::{Line, Span};
 
 use crate::account::ACCOUNT_READ_PLAN;
 use crate::command::ActionId;
+use crate::futures_state_ticket::FuturesStateTicketPreset;
 use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
 use crate::open_order_view::OpenOrderRow;
@@ -49,15 +50,15 @@ impl AccountPanelRow {
         }
     }
 
-    pub(crate) fn transfer_preset(
+    pub(crate) fn clickable_text(
         state: &AppState,
         text: impl Into<String>,
         content_row: usize,
-        preset: TransferTicketPreset,
+        hit: AccountPanelHit,
         mouse_target: Option<MouseTarget>,
     ) -> Self {
         let line = if mouse_target
-            .is_some_and(|target| target.panel_transfer_preset_hovered(Panel::Account, content_row))
+            .is_some_and(|target| target.panel_row_action_hovered(Panel::Account, content_row))
         {
             Line::from(Span::styled(
                 text.into(),
@@ -68,7 +69,7 @@ impl AccountPanelRow {
         };
         Self {
             line,
-            hit: Some(AccountPanelHit::TransferPreset(preset)),
+            hit: Some(hit),
             actions: Vec::new(),
         }
     }
@@ -85,7 +86,13 @@ impl AccountPanelRow {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum AccountPanelHit {
     OpenOrder(usize),
-    TransferPreset(TransferTicketPreset),
+    TicketPreset(AccountTicketPreset),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum AccountTicketPreset {
+    Transfer(TransferTicketPreset),
+    FuturesState(FuturesStateTicketPreset),
 }
 
 pub(crate) fn rows_for_width(
@@ -158,19 +165,15 @@ fn account_action_line(width: u16) -> PanelActionLine {
     line
 }
 
-pub(crate) fn open_order_index_at_content_row(
+pub(crate) fn hit_at_content_row(
     state: &AppState,
     width: u16,
     content_row: usize,
-) -> Option<usize> {
-    match rows_for_width(state, None, width)
+) -> Option<AccountPanelHit> {
+    rows_for_width(state, None, width)
         .get(content_row)?
         .hit
-        .as_ref()?
-    {
-        AccountPanelHit::OpenOrder(index) => Some(*index),
-        AccountPanelHit::TransferPreset(_) => None,
-    }
+        .clone()
 }
 
 pub(crate) fn action_at_content_cell(
@@ -185,21 +188,6 @@ pub(crate) fn action_at_content_cell(
         .iter()
         .copied()
         .find(|span| (span.start..span.end).contains(&content_column))
-}
-
-pub(crate) fn transfer_preset_at_content_row(
-    state: &AppState,
-    width: u16,
-    content_row: usize,
-) -> Option<TransferTicketPreset> {
-    match rows_for_width(state, None, width)
-        .get(content_row)?
-        .hit
-        .as_ref()?
-    {
-        AccountPanelHit::OpenOrder(_) => None,
-        AccountPanelHit::TransferPreset(preset) => Some(preset.clone()),
-    }
 }
 
 fn profile_rows(state: &AppState) -> Vec<AccountPanelRow> {
@@ -412,7 +400,7 @@ mod tests {
             .into_iter()
             .filter_map(|row| match row.hit {
                 Some(AccountPanelHit::OpenOrder(index)) => Some(index),
-                Some(AccountPanelHit::TransferPreset(_)) | None => None,
+                Some(AccountPanelHit::TicketPreset(_)) | None => None,
             })
             .collect::<Vec<_>>();
 
@@ -715,7 +703,8 @@ mod tests {
     fn transfer_preset(row: &AccountPanelRow) -> Option<&TransferTicketPreset> {
         match row.hit.as_ref()? {
             AccountPanelHit::OpenOrder(_) => None,
-            AccountPanelHit::TransferPreset(preset) => Some(preset),
+            AccountPanelHit::TicketPreset(AccountTicketPreset::FuturesState(_)) => None,
+            AccountPanelHit::TicketPreset(AccountTicketPreset::Transfer(preset)) => Some(preset),
         }
     }
 

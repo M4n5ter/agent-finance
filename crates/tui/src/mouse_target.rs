@@ -85,12 +85,12 @@ impl MouseTarget {
         )
     }
 
-    pub fn panel_transfer_preset_hovered(self, panel: Panel, content_row: usize) -> bool {
+    pub fn panel_row_action_hovered(self, panel: Panel, content_row: usize) -> bool {
         matches!(
             self,
             Self::PanelAction {
                 panel: hover_panel,
-                action: PanelMouseAction::TransferPreset { content_row: hover_content_row },
+                action: PanelMouseAction::RowAction { content_row: hover_content_row },
             } if hover_panel == panel && hover_content_row == content_row
         )
     }
@@ -167,7 +167,7 @@ pub enum PanelMouseAction {
         label: &'static str,
         action: ActionId,
     },
-    TransferPreset {
+    RowAction {
         content_row: usize,
     },
     IntentReviewAction {

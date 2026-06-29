@@ -2,7 +2,10 @@ use agent_finance_core::TransferDirection;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use crate::account_panel_view::{AccountPanelRow, push_hidden_row};
+use crate::account_panel_view::{
+    AccountPanelHit, AccountPanelRow, AccountTicketPreset, push_hidden_row,
+};
+use crate::futures_state_ticket::FuturesStateTicketPreset;
 use crate::mouse_target::MouseTarget;
 use crate::state::AppState;
 use crate::transfer_ticket::TransferTicketPreset;
@@ -79,16 +82,19 @@ pub(crate) fn rows(
                 .futures_positions
                 .iter()
                 .map(|position| {
-                    LimitedAccountRow::text(format!(
-                        "{} {} amt:{} notional:{} isoMargin:{} isoWallet:{} upnl:{}",
-                        position.symbol,
-                        position.position_side.as_deref().unwrap_or("-"),
-                        position.position_amount,
-                        position.notional.as_deref().unwrap_or("-"),
-                        position.isolated_margin.as_deref().unwrap_or("-"),
-                        position.isolated_wallet.as_deref().unwrap_or("-"),
-                        position.unrealized_profit.as_deref().unwrap_or("-")
-                    ))
+                    futures_state_row(
+                        format!(
+                            "{} {} amt:{} notional:{} isoMargin:{} isoWallet:{} upnl:{}",
+                            position.symbol,
+                            position.position_side.as_deref().unwrap_or("-"),
+                            position.position_amount,
+                            position.notional.as_deref().unwrap_or("-"),
+                            position.isolated_margin.as_deref().unwrap_or("-"),
+                            position.isolated_wallet.as_deref().unwrap_or("-"),
+                            position.unrealized_profit.as_deref().unwrap_or("-")
+                        ),
+                        &position.symbol,
+                    )
                 })
                 .collect(),
         ),
@@ -155,14 +161,10 @@ impl LimitedAccountSection {
         rows.extend(self.rows.into_iter().take(self.visible_limit).map(|row| {
             let content_row = *next_content_row;
             *next_content_row += 1;
-            match row.preset {
-                Some(preset) => AccountPanelRow::transfer_preset(
-                    state,
-                    row.text,
-                    content_row,
-                    preset,
-                    mouse_target,
-                ),
+            match row.hit {
+                Some(hit) => {
+                    AccountPanelRow::clickable_text(state, row.text, content_row, hit, mouse_target)
+                }
                 None => AccountPanelRow::text(row.text),
             }
         }));
@@ -181,21 +183,32 @@ impl LimitedAccountSection {
 
 struct LimitedAccountRow {
     text: String,
-    preset: Option<TransferTicketPreset>,
+    hit: Option<AccountPanelHit>,
 }
 
 impl LimitedAccountRow {
     fn text(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            preset: None,
+            hit: None,
         }
     }
 
     fn transfer_preset(text: impl Into<String>, preset: TransferTicketPreset) -> Self {
         Self {
             text: text.into(),
-            preset: Some(preset),
+            hit: Some(AccountPanelHit::TicketPreset(
+                AccountTicketPreset::Transfer(preset),
+            )),
+        }
+    }
+
+    fn futures_state_preset(text: impl Into<String>, preset: FuturesStateTicketPreset) -> Self {
+        Self {
+            text: text.into(),
+            hit: Some(AccountPanelHit::TicketPreset(
+                AccountTicketPreset::FuturesState(preset),
+            )),
         }
     }
 }
@@ -219,6 +232,15 @@ fn transfer_row(
     )
 }
 
+fn futures_state_row(text: String, symbol: &str) -> LimitedAccountRow {
+    LimitedAccountRow::futures_state_preset(
+        text,
+        FuturesStateTicketPreset {
+            symbol: symbol.to_string(),
+        },
+    )
+}
+
 fn is_positive_amount(value: &str) -> bool {
     value
         .parse::<rust_decimal::Decimal>()
@@ -228,7 +250,6 @@ fn is_positive_amount(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account_panel_view::AccountPanelHit;
     use agent_finance_core::{Environment, Provider, SignedReadRequest, SignedReadSnapshot};
 
     #[test]
@@ -257,6 +278,32 @@ mod tests {
                 direction: TransferDirection::SpotToUsdsFutures,
                 asset: "USDC".to_string(),
                 amount: "3.25".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn rows_mark_visible_futures_positions_as_futures_state_presets() {
+        let state = AppState::from_config(crate::config::TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..crate::config::TuiConfig::default()
+        });
+        let snapshot = account_snapshot_with_position("mainnet");
+
+        let rows = rows(&state, &snapshot, None, 0);
+        let text = rows_text(&rows);
+
+        assert!(text.contains("USD-M positions (1)"));
+        assert!(text.contains("ETHUSDT LONG amt:0.25"));
+        assert_eq!(
+            rows.iter()
+                .filter_map(futures_state_preset)
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![FuturesStateTicketPreset {
+                symbol: "ETHUSDT".to_string(),
             }]
         );
     }
@@ -306,6 +353,45 @@ mod tests {
         )
     }
 
+    fn account_snapshot_with_position(profile: &str) -> crate::AccountSnapshot {
+        crate::AccountSnapshot::new(
+            profile.to_string(),
+            Provider::Binance,
+            Environment::Live,
+            crate::profile_snapshot::test_trading_profile_snapshot(),
+            vec![SignedReadSnapshot::new(
+                profile.to_string(),
+                Provider::Binance,
+                Environment::Live,
+                SignedReadRequest::UsdsFuturesPositions,
+                serde_json::json!({
+                    "assets": [],
+                    "positions": [
+                        {
+                            "symbol": "ETHUSDT",
+                            "positionSide": "LONG",
+                            "positionAmt": "0.25",
+                            "notional": "1000",
+                            "isolatedMargin": "0",
+                            "isolatedWallet": "0",
+                            "unrealizedProfit": "12.5"
+                        },
+                        {
+                            "symbol": "BTCUSDT",
+                            "positionSide": "BOTH",
+                            "positionAmt": "0",
+                            "notional": "0",
+                            "isolatedMargin": "0",
+                            "isolatedWallet": "0",
+                            "unrealizedProfit": "0"
+                        }
+                    ]
+                }),
+            )],
+            Vec::new(),
+        )
+    }
+
     fn rows_text(rows: &[AccountPanelRow]) -> String {
         rows.iter()
             .map(|row| {
@@ -322,7 +408,18 @@ mod tests {
     fn transfer_preset(row: &AccountPanelRow) -> Option<&TransferTicketPreset> {
         match row.hit.as_ref()? {
             AccountPanelHit::OpenOrder(_) => None,
-            AccountPanelHit::TransferPreset(preset) => Some(preset),
+            AccountPanelHit::TicketPreset(AccountTicketPreset::FuturesState(_)) => None,
+            AccountPanelHit::TicketPreset(AccountTicketPreset::Transfer(preset)) => Some(preset),
+        }
+    }
+
+    fn futures_state_preset(row: &AccountPanelRow) -> Option<&FuturesStateTicketPreset> {
+        match row.hit.as_ref()? {
+            AccountPanelHit::OpenOrder(_) => None,
+            AccountPanelHit::TicketPreset(AccountTicketPreset::Transfer(_)) => None,
+            AccountPanelHit::TicketPreset(AccountTicketPreset::FuturesState(preset)) => {
+                Some(preset)
+            }
         }
     }
 }

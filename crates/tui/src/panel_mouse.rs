@@ -1,5 +1,6 @@
 use ratatui::layout::Rect;
 
+use crate::account_panel_view::{AccountPanelHit, AccountTicketPreset};
 use crate::futures_state_ticket::FuturesStateTicketField;
 use crate::intent_review_view::IntentReviewAction;
 use crate::model::Panel;
@@ -44,9 +45,9 @@ enum PanelHit {
         label: &'static str,
         action: crate::command::ActionId,
     },
-    TransferPreset {
+    AccountHit {
         content_row: usize,
-        preset: crate::transfer_ticket::TransferTicketPreset,
+        hit: AccountPanelHit,
     },
     IntentReviewAction(IntentReviewAction),
 }
@@ -58,11 +59,17 @@ impl PanelHit {
             (Panel::Account | Panel::OpenOrders, Self::Row(index)) => {
                 Some(Action::SelectOpenOrder(index))
             }
+            (Panel::Account, Self::AccountHit { hit, .. }) => match hit {
+                AccountPanelHit::OpenOrder(index) => Some(Action::SelectOpenOrder(index)),
+                AccountPanelHit::TicketPreset(AccountTicketPreset::Transfer(preset)) => {
+                    Some(Action::ApplyTransferTicketPreset(preset))
+                }
+                AccountPanelHit::TicketPreset(AccountTicketPreset::FuturesState(preset)) => {
+                    Some(Action::ApplyFuturesStateTicketPreset(preset))
+                }
+            },
             (Panel::Account | Panel::OpenOrders, Self::Action { action, .. }) => {
                 Some(Action::Execute(action))
-            }
-            (Panel::Account, Self::TransferPreset { preset, .. }) => {
-                Some(Action::ApplyTransferTicketPreset(preset))
             }
             (Panel::IntentReview, Self::Row(index)) => Some(Action::SelectStagedChange(index)),
             (Panel::IntentReview, Self::IntentReviewAction(action)) => match action {
@@ -94,9 +101,14 @@ impl PanelHit {
             Self::TicketField(index) => PanelMouseAction::SelectField { index },
             Self::TicketReadyAction => PanelMouseAction::StageReadyChange,
             Self::Action { label, action } => PanelMouseAction::ExecuteAction { label, action },
-            Self::TransferPreset { content_row, .. } => {
-                PanelMouseAction::TransferPreset { content_row }
-            }
+            Self::AccountHit {
+                hit: AccountPanelHit::OpenOrder(index),
+                ..
+            } => PanelMouseAction::SelectRow { index },
+            Self::AccountHit {
+                content_row,
+                hit: AccountPanelHit::TicketPreset(_),
+            } => PanelMouseAction::RowAction { content_row },
             Self::IntentReviewAction(action) => PanelMouseAction::IntentReviewAction { action },
         }
     }
@@ -152,22 +164,8 @@ fn panel_hit_at(
                     action: action.action,
                 });
             }
-            if let Some(preset) = crate::account_panel_view::transfer_preset_at_content_row(
-                state,
-                content_width,
-                content_row,
-            ) {
-                return Some(PanelHit::TransferPreset {
-                    content_row,
-                    preset,
-                });
-            }
-            crate::account_panel_view::open_order_index_at_content_row(
-                state,
-                content_width,
-                content_row,
-            )
-            .map(PanelHit::Row)
+            crate::account_panel_view::hit_at_content_row(state, content_width, content_row)
+                .map(|hit| PanelHit::AccountHit { content_row, hit })
         }
         Panel::IntentReview => intent_review_hit_at(state, area, column, row),
         Panel::OrderTicket => ticket_hit_at(content_row(area, row)?, order_ticket_rows(state)),

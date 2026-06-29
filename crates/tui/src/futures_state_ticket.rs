@@ -36,6 +36,14 @@ impl FuturesStateTicket {
         self.selected_field = self.selected_field.shift(self.kind, direction);
     }
 
+    pub(crate) fn apply_preset(&mut self, preset: FuturesStateTicketPreset) {
+        if self.kind == FuturesStateChangeKind::PositionMode {
+            self.kind = FuturesStateChangeKind::Leverage;
+        }
+        self.symbol = Some(preset.symbol);
+        self.selected_field = FuturesStateTicketField::Value;
+    }
+
     pub fn select_field(&mut self, index: usize) {
         if let Some(field) = FuturesStateTicketField::ALL.get(index)
             && field.active_for(self.kind)
@@ -173,6 +181,11 @@ impl FuturesStateTicket {
             FuturesStateChangeKind::PositionMode => None,
         }
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct FuturesStateTicketPreset {
+    pub symbol: String,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
@@ -348,6 +361,23 @@ mod tests {
                 leverage: 1,
             })
         );
+    }
+
+    #[test]
+    fn futures_state_ticket_preset_sets_symbol_scoped_value_focus() {
+        let mut ticket = FuturesStateTicket::default();
+        ticket.adjust_selected_field(2, None);
+
+        ticket.apply_preset(FuturesStateTicketPreset {
+            symbol: "ETHUSDT".to_string(),
+        });
+
+        let preview = ticket.preview(None, Some("mainnet"), false, SubmitMode::DryRun);
+        assert_eq!(preview.kind, FuturesStateChangeKind::Leverage);
+        assert_eq!(preview.symbol.as_deref(), Some("ETHUSDT"));
+        assert_eq!(ticket.selected_field_label(), "value");
+        assert!(!preview.ready);
+        assert_eq!(preview.blockers, vec!["leverage is required"]);
     }
 
     #[test]
