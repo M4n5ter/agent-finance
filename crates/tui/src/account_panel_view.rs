@@ -2,6 +2,7 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use crate::account::ACCOUNT_READ_PLAN;
+use crate::action_line_view::{ActionLine, ActionSpan, right_aligned_action_line};
 use crate::command::ActionId;
 use crate::futures_state_ticket::FuturesStateTicketPreset;
 use crate::model::Panel;
@@ -18,11 +19,18 @@ use crate::render::widgets::compact_text;
 const VISIBLE_TRANSFER_LIMIT: usize = 4;
 const ACCOUNT_TRANSFER_LABEL: &str = "[transfer]";
 const ACCOUNT_FUTURES_STATE_LABEL: &str = "[futures state]";
+const HOLDING_TRANSFER_LABEL: &str = "[transfer]";
+const HOLDING_FUTURES_STATE_LABEL: &str = "[state]";
+const HOLDING_ACTION_GAP: u16 = 2;
+
+pub(crate) type AccountPresetActionLine = ActionLine<AccountTicketPreset>;
+pub(crate) type AccountPresetActionSpan = ActionSpan<AccountTicketPreset>;
 
 pub(crate) struct AccountPanelRow {
     pub line: Line<'static>,
     pub hit: Option<AccountPanelHit>,
     pub actions: Vec<PanelActionSpan>,
+    pub preset_actions: Vec<AccountPresetActionSpan>,
 }
 
 impl AccountPanelRow {
@@ -31,6 +39,7 @@ impl AccountPanelRow {
             line: Line::from(text.into()),
             hit: None,
             actions: Vec::new(),
+            preset_actions: Vec::new(),
         }
     }
 
@@ -39,6 +48,7 @@ impl AccountPanelRow {
             line,
             hit: None,
             actions: Vec::new(),
+            preset_actions: Vec::new(),
         }
     }
 
@@ -47,30 +57,48 @@ impl AccountPanelRow {
             line,
             hit: Some(AccountPanelHit::OpenOrder(index)),
             actions: Vec::new(),
+            preset_actions: Vec::new(),
         }
     }
 
-    pub(crate) fn clickable_text(
+    pub(crate) fn preset_action_line(
         state: &AppState,
         text: impl Into<String>,
         content_row: usize,
-        hit: AccountPanelHit,
+        preset: AccountTicketPreset,
+        width: u16,
         mouse_target: Option<MouseTarget>,
     ) -> Self {
-        let line = if mouse_target
-            .is_some_and(|target| target.panel_row_action_hovered(Panel::Account, content_row))
-        {
-            Line::from(Span::styled(
-                text.into(),
-                state.theme.selected_style().add_modifier(Modifier::BOLD),
-            ))
-        } else {
-            Line::from(text.into())
-        };
+        let text = text.into();
+        let action_line = account_preset_action_line(width, &text, preset);
+        let mut spans = Vec::new();
+        let mut cursor = 0usize;
+        let hovered = mouse_target
+            .is_some_and(|target| target.panel_row_action_hovered(Panel::Account, content_row));
+        for action in &action_line.actions {
+            push_text_span(
+                &mut spans,
+                action_line.text_before(action.byte_start, cursor),
+                state.theme.text_style(),
+            );
+            let style = if hovered {
+                state.theme.selected_style().add_modifier(Modifier::BOLD)
+            } else {
+                state.theme.accent_style()
+            };
+            push_text_span(&mut spans, action_line.action_text(action), style);
+            cursor = action.byte_end;
+        }
+        push_text_span(
+            &mut spans,
+            action_line.text_after(cursor),
+            state.theme.text_style(),
+        );
         Self {
-            line,
-            hit: Some(hit),
+            line: Line::from(spans),
+            hit: None,
             actions: Vec::new(),
+            preset_actions: action_line.actions,
         }
     }
 
@@ -79,6 +107,7 @@ impl AccountPanelRow {
             line,
             hit: None,
             actions,
+            preset_actions: Vec::new(),
         }
     }
 }
@@ -119,6 +148,7 @@ pub(crate) fn rows_for_width(
                 state,
                 snapshot,
                 mouse_target,
+                content_width,
                 rows.len(),
             ));
         }
@@ -188,6 +218,20 @@ pub(crate) fn action_at_content_cell(
         .iter()
         .copied()
         .find(|span| (span.start..span.end).contains(&content_column))
+}
+
+pub(crate) fn preset_at_content_cell(
+    state: &AppState,
+    width: u16,
+    content_row: usize,
+    content_column: u16,
+) -> Option<AccountPresetActionSpan> {
+    rows_for_width(state, None, width)
+        .get(content_row)?
+        .preset_actions
+        .iter()
+        .find(|span| (span.start..span.end).contains(&content_column))
+        .cloned()
 }
 
 fn profile_rows(state: &AppState) -> Vec<AccountPanelRow> {
@@ -284,6 +328,24 @@ fn open_order_action_row(
         styled_panel_action_line(&action_line, &state.theme, Panel::Account, mouse_target),
         actions,
     )
+}
+
+fn account_preset_action_line(
+    width: u16,
+    text: &str,
+    preset: AccountTicketPreset,
+) -> AccountPresetActionLine {
+    let label = match &preset {
+        AccountTicketPreset::Transfer(_) => HOLDING_TRANSFER_LABEL,
+        AccountTicketPreset::FuturesState(_) => HOLDING_FUTURES_STATE_LABEL,
+    };
+    right_aligned_action_line(width, text, HOLDING_ACTION_GAP, &[(label, preset)])
+}
+
+fn push_text_span(spans: &mut Vec<Span<'static>>, text: &str, style: ratatui::style::Style) {
+    if !text.is_empty() {
+        spans.push(Span::styled(text.to_string(), style));
+    }
 }
 
 fn non_order_open_order_line(state: &AppState, row: OpenOrderRow<'_>) -> Line<'static> {
@@ -490,7 +552,7 @@ mod tests {
         let spot_transfer = rows
             .iter()
             .find(|row| line_text(&row.line).contains("USDT free:12.5"))
-            .and_then(transfer_preset)
+            .and_then(transfer_preset_action)
             .expect("spot balance transfer preset");
         assert_eq!(
             spot_transfer.direction,
@@ -501,7 +563,7 @@ mod tests {
         let futures_transfer = rows
             .iter()
             .find(|row| line_text(&row.line).contains("USDT wallet:7.25"))
-            .and_then(transfer_preset)
+            .and_then(transfer_preset_action)
             .expect("USD-M withdraw transfer preset");
         assert_eq!(
             futures_transfer.direction,
@@ -700,11 +762,10 @@ mod tests {
             .join("\n")
     }
 
-    fn transfer_preset(row: &AccountPanelRow) -> Option<&TransferTicketPreset> {
-        match row.hit.as_ref()? {
-            AccountPanelHit::OpenOrder(_) => None,
-            AccountPanelHit::TicketPreset(AccountTicketPreset::FuturesState(_)) => None,
-            AccountPanelHit::TicketPreset(AccountTicketPreset::Transfer(preset)) => Some(preset),
+    fn transfer_preset_action(row: &AccountPanelRow) -> Option<&TransferTicketPreset> {
+        match &row.preset_actions.first()?.action {
+            AccountTicketPreset::FuturesState(_) => None,
+            AccountTicketPreset::Transfer(preset) => Some(preset),
         }
     }
 

@@ -753,7 +753,7 @@ fn mouse_click_on_account_holding_prefills_transfer_ticket() {
     let panel = layout
         .panel_rect(Panel::Account)
         .expect("zoomed account panel is visible");
-    let click = clickable_account_row_text(&state, panel, "USDT wallet:7.25");
+    let click = clickable_account_row_action(&state, panel, "USDT wallet:7.25");
 
     handle_mouse_event(area, &mut state, &mut drag, click);
 
@@ -797,7 +797,7 @@ fn mouse_click_on_account_position_prefills_futures_state_ticket() {
     let panel = layout
         .panel_rect(Panel::Account)
         .expect("zoomed account panel is visible");
-    let click = clickable_account_row_text(&state, panel, "ETHUSDT LONG amt:0.25");
+    let click = clickable_account_row_action(&state, panel, "ETHUSDT LONG amt:0.25");
 
     handle_mouse_event(area, &mut state, &mut drag, click);
 
@@ -813,6 +813,42 @@ fn mouse_click_on_account_position_prefills_futures_state_ticket() {
     assert_eq!(state.staged_change_count(), 0);
     assert!(state.pending_staged_confirmation().is_none());
     assert!(state.take_pending_staged_execution().is_none());
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
+fn mouse_click_on_account_holding_text_does_not_prefill_transfer_ticket() {
+    let area = Rect::new(0, 0, 200, 80);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    state.account_snapshot = Some(account_snapshot_with_transferable_holdings("mainnet"));
+    state.reduce(Action::Focus(Panel::Account));
+    state.reduce(Action::ToggleFocusedZoom);
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Account)
+    .expect("zoomed account panel is visible");
+    let click = account_row_text_click(&state, panel, "USDT wallet:7.25");
+
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    let preview = state.transfer_ticket_preview();
+    assert_eq!(state.panels.focused(), Panel::Account);
+    assert_eq!(preview.asset, "USDT");
+    assert_eq!(preview.amount, None);
+    assert!(!preview.ready);
     assert_eq!(drag, MouseDrag::default());
 }
 
@@ -1948,7 +1984,7 @@ fn clickable_panel_row(
     panic!("clickable panel row was not found");
 }
 
-fn clickable_account_row_text(state: &AppState, panel: Rect, needle: &str) -> MouseEvent {
+fn account_row_text_click(state: &AppState, panel: Rect, needle: &str) -> MouseEvent {
     let content_width = panel.width.saturating_sub(2);
     let content_row = crate::account_panel_view::rows_for_width(state, None, content_width)
         .iter()
@@ -1957,6 +1993,26 @@ fn clickable_account_row_text(state: &AppState, panel: Rect, needle: &str) -> Mo
     mouse_event(
         MouseEventKind::Down(MouseButton::Left),
         panel.x + 2,
+        panel.y + content_row as u16 + 1,
+    )
+}
+
+fn clickable_account_row_action(state: &AppState, panel: Rect, needle: &str) -> MouseEvent {
+    let content_width = panel.width.saturating_sub(2);
+    let (content_row, action_start) =
+        crate::account_panel_view::rows_for_width(state, None, content_width)
+            .iter()
+            .enumerate()
+            .find_map(|(content_row, row)| {
+                if !line_text(&row.line).contains(needle) {
+                    return None;
+                }
+                Some((content_row, row.preset_actions.first()?.start))
+            })
+            .expect("account row action is visible");
+    mouse_event(
+        MouseEventKind::Down(MouseButton::Left),
+        panel.x + 1 + action_start,
         panel.y + content_row as u16 + 1,
     )
 }

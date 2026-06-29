@@ -1,6 +1,4 @@
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
-use crate::action_line_view::{ActionLine, ActionSpan};
+use crate::action_line_view::{ActionLine, ActionSpan, right_aligned_action_line};
 use crate::command::ActionId;
 use crate::panel_action_line_view::{PanelActionLine, PanelActionSpan};
 
@@ -122,52 +120,32 @@ pub(crate) fn field_action_line(
     text: &str,
     adjustable: bool,
 ) -> TicketFieldActionLine {
-    let prev_width = UnicodeWidthStr::width(FIELD_PREV_LABEL) as u16;
-    let next_width = UnicodeWidthStr::width(FIELD_NEXT_LABEL) as u16;
-    let total_width = prev_width
-        .saturating_add(FIELD_ACTION_GAP)
-        .saturating_add(next_width);
-    let mut line = TicketFieldActionLine::new("", width);
-    if !adjustable || width <= total_width {
+    if !adjustable {
+        let mut line = TicketFieldActionLine::new("", width);
         line.push_visible_text(text);
         return line;
     }
-
-    let text_width = width - total_width - FIELD_ACTION_GAP;
-    let visible_text = truncate_to_width(text, text_width);
-    let visible_width = UnicodeWidthStr::width(visible_text.as_str()) as u16;
-    line.push_visible_text(&visible_text);
-    line.push_visible_text(&" ".repeat((width - total_width - visible_width) as usize));
-    line.push_visible_action(
-        FIELD_PREV_LABEL,
-        TicketFieldAction {
-            index,
-            direction: -1,
-        },
-    );
-    line.push_visible_text(" ");
-    line.push_visible_action(
-        FIELD_NEXT_LABEL,
-        TicketFieldAction {
-            index,
-            direction: 1,
-        },
-    );
-    line
-}
-
-pub(crate) fn truncate_to_width(text: &str, width: u16) -> String {
-    let mut output = String::new();
-    let mut used = 0u16;
-    for character in text.chars() {
-        let character_width = character.width().unwrap_or(0) as u16;
-        if used.saturating_add(character_width) > width {
-            break;
-        }
-        output.push(character);
-        used = used.saturating_add(character_width);
-    }
-    output
+    right_aligned_action_line(
+        width,
+        text,
+        FIELD_ACTION_GAP,
+        &[
+            (
+                FIELD_PREV_LABEL,
+                TicketFieldAction {
+                    index,
+                    direction: -1,
+                },
+            ),
+            (
+                FIELD_NEXT_LABEL,
+                TicketFieldAction {
+                    index,
+                    direction: 1,
+                },
+            ),
+        ],
+    )
 }
 
 #[cfg(test)]

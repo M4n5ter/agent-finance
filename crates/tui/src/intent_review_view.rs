@@ -71,12 +71,12 @@ mod tests {
             .find(|span| span.action == IntentReviewAction::CloseSelected)
             .expect("close action");
 
-        assert_eq!(line.action_text(*execute), "[execute]");
+        assert_eq!(line.action_text(execute), "[execute]");
         assert_eq!(
             action_at_content_cell(3, 120, 1, execute.start),
             Some(IntentReviewAction::ExecuteSelected)
         );
-        assert_eq!(line.action_text(*close), "[close]");
+        assert_eq!(line.action_text(close), "[close]");
         assert_eq!(
             action_at_content_cell(3, 120, 1, close.end - 1),
             Some(IntentReviewAction::CloseSelected)

@@ -234,7 +234,7 @@ fn styled_setting_action_line(
         } else {
             state.theme.accent_style()
         };
-        push_text_span(&mut spans, action_line.action_text(*action), action_style);
+        push_text_span(&mut spans, action_line.action_text(action), action_style);
         cursor = action.byte_end;
     }
     push_text_span(&mut spans, action_line.text_after(cursor), text_style);

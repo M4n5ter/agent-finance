@@ -75,7 +75,7 @@ impl<A> ActionLine<A> {
         &self.text[cursor..byte_end]
     }
 
-    pub(crate) fn action_text(&self, span: ActionSpan<A>) -> &str {
+    pub(crate) fn action_text(&self, span: &ActionSpan<A>) -> &str {
         &self.text[span.byte_start..span.byte_end]
     }
 
@@ -95,6 +95,55 @@ impl<A: Copy> ActionLine<A> {
             .copied()
             .find(|span| (span.start..span.end).contains(&content_column))
     }
+}
+
+pub(crate) fn right_aligned_action_line<A: Clone>(
+    width: u16,
+    text: &str,
+    min_gap: u16,
+    actions: &[(&'static str, A)],
+) -> ActionLine<A> {
+    let action_width = actions_width(actions);
+    let mut line = ActionLine::new("", width);
+    if actions.is_empty() || width <= action_width {
+        line.push_visible_text(text);
+        return line;
+    }
+
+    let text_width = width.saturating_sub(action_width).saturating_sub(min_gap);
+    line.push_visible_text(&truncate_to_width(text, text_width));
+    line.push_visible_text(
+        &" ".repeat(width.saturating_sub(action_width + line.used_width) as usize),
+    );
+    for (index, (label, action)) in actions.iter().enumerate() {
+        if index > 0 {
+            line.push_visible_text(" ");
+        }
+        line.push_visible_action(label, action.clone());
+    }
+    line
+}
+
+fn actions_width<A>(actions: &[(&'static str, A)]) -> u16 {
+    let labels_width = actions
+        .iter()
+        .map(|(label, _)| UnicodeWidthStr::width(*label) as u16)
+        .fold(0u16, u16::saturating_add);
+    labels_width.saturating_add(actions.len().saturating_sub(1) as u16)
+}
+
+fn truncate_to_width(text: &str, width: u16) -> String {
+    let mut output = String::new();
+    let mut used = 0u16;
+    for character in text.chars() {
+        let character_width = character.width().unwrap_or(0) as u16;
+        if used.saturating_add(character_width) > width {
+            break;
+        }
+        output.push(character);
+        used = used.saturating_add(character_width);
+    }
+    output
 }
 
 #[cfg(test)]
@@ -117,7 +166,7 @@ mod tests {
         assert_eq!(line.text, "市场  [run]");
         assert_eq!(span.start, 6);
         assert_eq!(span.end, 11);
-        assert_eq!(line.action_text(span), "[run]");
+        assert_eq!(line.action_text(&span), "[run]");
         assert_eq!(line.action_at(5), None);
     }
 
@@ -129,5 +178,27 @@ mod tests {
         assert_eq!(line.text, "市场");
         assert_eq!(UnicodeWidthStr::width(line.text.as_str()), 4);
         assert!(line.actions.is_empty());
+    }
+
+    #[test]
+    fn right_aligned_actions_reserve_visible_action_width() {
+        let line =
+            right_aligned_action_line(20, "BTCUSDT position", 2, &[("[state]", TestAction::Run)]);
+
+        let action = line.action_at(13).expect("right aligned action");
+
+        assert_eq!(line.text, "BTCUSDT pos  [state]");
+        assert_eq!(action.start, 13);
+        assert_eq!(action.end, 20);
+        assert_eq!(line.action_at(12), None);
+    }
+
+    #[test]
+    fn right_aligned_actions_are_hidden_when_narrow() {
+        let line = right_aligned_action_line(7, "BTCUSDT", 2, &[("[state]", TestAction::Run)]);
+
+        assert_eq!(line.text, "BTCUSDT");
+        assert!(line.actions.is_empty());
+        assert_eq!(line.action_at(0), None);
     }
 }

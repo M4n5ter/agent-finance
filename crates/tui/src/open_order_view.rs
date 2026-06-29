@@ -229,7 +229,7 @@ mod tests {
             .iter()
             .find(|span| span.action == ActionId::StageSelectedOpenOrderCancel)
             .expect("cancel action");
-        assert_eq!(line.action_text(*span), STAGE_CANCEL_LABEL);
+        assert_eq!(line.action_text(span), STAGE_CANCEL_LABEL);
 
         let open_orders = ["BTCUSDT", "ETHUSDT"]
             .into_iter()

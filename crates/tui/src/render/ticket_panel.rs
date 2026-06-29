@@ -185,7 +185,7 @@ fn ticket_field_line(
         } else {
             state.theme.accent_style()
         };
-        push_ticket_field_text_span(&mut spans, action_line.action_text(*action), action_style);
+        push_ticket_field_text_span(&mut spans, action_line.action_text(action), action_style);
         cursor = action.byte_end;
     }
     push_ticket_field_text_span(&mut spans, action_line.text_after(cursor), style);

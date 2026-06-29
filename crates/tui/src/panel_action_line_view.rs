@@ -32,7 +32,7 @@ pub(crate) fn styled_panel_action_line(
         } else {
             theme.accent_style()
         };
-        push_text_span(&mut spans, action_line.action_text(*action), style);
+        push_text_span(&mut spans, action_line.action_text(action), style);
         cursor = action.byte_end;
     }
 

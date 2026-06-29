@@ -187,6 +187,17 @@ fn panel_hit_at(
                     action: action.action,
                 });
             }
+            if let Some(action) = crate::account_panel_view::preset_at_content_cell(
+                state,
+                content_width,
+                content_row,
+                content_column,
+            ) {
+                return Some(PanelHit::AccountHit {
+                    content_row,
+                    hit: AccountPanelHit::TicketPreset(action.action),
+                });
+            }
             crate::account_panel_view::hit_at_content_row(state, content_width, content_row)
                 .map(|hit| PanelHit::AccountHit { content_row, hit })
         }

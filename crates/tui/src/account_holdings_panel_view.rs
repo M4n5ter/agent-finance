@@ -2,9 +2,7 @@ use agent_finance_core::TransferDirection;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use crate::account_panel_view::{
-    AccountPanelHit, AccountPanelRow, AccountTicketPreset, push_hidden_row,
-};
+use crate::account_panel_view::{AccountPanelRow, AccountTicketPreset, push_hidden_row};
 use crate::futures_state_ticket::FuturesStateTicketPreset;
 use crate::mouse_target::MouseTarget;
 use crate::state::AppState;
@@ -17,6 +15,7 @@ pub(crate) fn rows(
     state: &AppState,
     snapshot: &crate::AccountSnapshot,
     mouse_target: Option<MouseTarget>,
+    content_width: u16,
     first_content_row: usize,
 ) -> Vec<AccountPanelRow> {
     let holdings = snapshot.holdings();
@@ -107,6 +106,7 @@ pub(crate) fn rows(
             state,
             include_spacer,
             mouse_target,
+            content_width,
             &mut next_content_row,
         ));
         rows
@@ -140,6 +140,7 @@ impl LimitedAccountSection {
         state: &AppState,
         include_spacer: bool,
         mouse_target: Option<MouseTarget>,
+        content_width: u16,
         next_content_row: &mut usize,
     ) -> Vec<AccountPanelRow> {
         if self.rows.is_empty() {
@@ -161,10 +162,15 @@ impl LimitedAccountSection {
         rows.extend(self.rows.into_iter().take(self.visible_limit).map(|row| {
             let content_row = *next_content_row;
             *next_content_row += 1;
-            match row.hit {
-                Some(hit) => {
-                    AccountPanelRow::clickable_text(state, row.text, content_row, hit, mouse_target)
-                }
+            match row.preset {
+                Some(preset) => AccountPanelRow::preset_action_line(
+                    state,
+                    row.text,
+                    content_row,
+                    preset,
+                    content_width,
+                    mouse_target,
+                ),
                 None => AccountPanelRow::text(row.text),
             }
         }));
@@ -183,32 +189,28 @@ impl LimitedAccountSection {
 
 struct LimitedAccountRow {
     text: String,
-    hit: Option<AccountPanelHit>,
+    preset: Option<AccountTicketPreset>,
 }
 
 impl LimitedAccountRow {
     fn text(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            hit: None,
+            preset: None,
         }
     }
 
     fn transfer_preset(text: impl Into<String>, preset: TransferTicketPreset) -> Self {
         Self {
             text: text.into(),
-            hit: Some(AccountPanelHit::TicketPreset(
-                AccountTicketPreset::Transfer(preset),
-            )),
+            preset: Some(AccountTicketPreset::Transfer(preset)),
         }
     }
 
     fn futures_state_preset(text: impl Into<String>, preset: FuturesStateTicketPreset) -> Self {
         Self {
             text: text.into(),
-            hit: Some(AccountPanelHit::TicketPreset(
-                AccountTicketPreset::FuturesState(preset),
-            )),
+            preset: Some(AccountTicketPreset::FuturesState(preset)),
         }
     }
 }
@@ -263,17 +265,14 @@ mod tests {
         let snapshot = account_snapshot_with_non_transferable_holdings("mainnet");
         state.account_snapshot = Some(snapshot.clone());
 
-        let rows = rows(&state, &snapshot, None, 0);
+        let rows = rows(&state, &snapshot, None, 120, 0);
         let text = rows_text(&rows);
 
         assert!(text.contains("LOCKED free:0 locked:9"));
         assert!(text.contains("BAD free:not-a-decimal locked:1"));
         assert!(text.contains("USDT wallet:7.25 availableUsd:5 margin:6.75 withdraw:0 upnl:0"));
         assert_eq!(
-            rows.iter()
-                .filter_map(transfer_preset)
-                .cloned()
-                .collect::<Vec<_>>(),
+            rows.iter().filter_map(transfer_preset).collect::<Vec<_>>(),
             vec![TransferTicketPreset {
                 direction: TransferDirection::SpotToUsdsFutures,
                 asset: "USDC".to_string(),
@@ -292,7 +291,7 @@ mod tests {
         });
         let snapshot = account_snapshot_with_position("mainnet");
 
-        let rows = rows(&state, &snapshot, None, 0);
+        let rows = rows(&state, &snapshot, None, 120, 0);
         let text = rows_text(&rows);
 
         assert!(text.contains("USD-M positions (1)"));
@@ -300,7 +299,6 @@ mod tests {
         assert_eq!(
             rows.iter()
                 .filter_map(futures_state_preset)
-                .cloned()
                 .collect::<Vec<_>>(),
             vec![FuturesStateTicketPreset {
                 symbol: "ETHUSDT".to_string(),
@@ -405,21 +403,17 @@ mod tests {
             .join("\n")
     }
 
-    fn transfer_preset(row: &AccountPanelRow) -> Option<&TransferTicketPreset> {
-        match row.hit.as_ref()? {
-            AccountPanelHit::OpenOrder(_) => None,
-            AccountPanelHit::TicketPreset(AccountTicketPreset::FuturesState(_)) => None,
-            AccountPanelHit::TicketPreset(AccountTicketPreset::Transfer(preset)) => Some(preset),
+    fn transfer_preset(row: &AccountPanelRow) -> Option<TransferTicketPreset> {
+        match &row.preset_actions.first()?.action {
+            AccountTicketPreset::FuturesState(_) => None,
+            AccountTicketPreset::Transfer(preset) => Some(preset.clone()),
         }
     }
 
-    fn futures_state_preset(row: &AccountPanelRow) -> Option<&FuturesStateTicketPreset> {
-        match row.hit.as_ref()? {
-            AccountPanelHit::OpenOrder(_) => None,
-            AccountPanelHit::TicketPreset(AccountTicketPreset::Transfer(_)) => None,
-            AccountPanelHit::TicketPreset(AccountTicketPreset::FuturesState(preset)) => {
-                Some(preset)
-            }
+    fn futures_state_preset(row: &AccountPanelRow) -> Option<FuturesStateTicketPreset> {
+        match &row.preset_actions.first()?.action {
+            AccountTicketPreset::Transfer(_) => None,
+            AccountTicketPreset::FuturesState(preset) => Some(preset.clone()),
         }
     }
 }
