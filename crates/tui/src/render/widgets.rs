@@ -5,7 +5,7 @@ use crate::model::Panel;
 use crate::pane_status::{TuiPaneStatus, pane_health};
 use crate::state::AppState;
 
-pub(super) fn compact_text(value: &str, max_chars: usize) -> String {
+pub(crate) fn compact_text(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();
     let mut output = chars.by_ref().take(max_chars).collect::<String>();
     if chars.next().is_some() {

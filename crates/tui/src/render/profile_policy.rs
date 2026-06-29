@@ -10,12 +10,12 @@ use crate::theme::ThemeConfig;
 
 use super::widgets::compact_text;
 
-pub(super) enum ProfilePolicyFormat {
+pub(crate) enum ProfilePolicyFormat {
     Account,
     ProfileRisk,
 }
 
-pub(super) fn profile_policy_lines(
+pub(crate) fn profile_policy_lines(
     theme: &ThemeConfig,
     profile: &TradingProfileSnapshot,
     format: ProfilePolicyFormat,

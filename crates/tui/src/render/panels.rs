@@ -46,7 +46,7 @@ pub(super) fn render_docked(
             Panel::OpenOrders => render_open_orders(frame, state, area, mouse_target),
             Panel::IntentReview => render_intent_review(frame, state, area, mouse_target),
             Panel::RiskAudit => render_risk_audit(frame, state, area),
-            Panel::Account => render_account(frame, state, area),
+            Panel::Account => render_account(frame, state, area, mouse_target),
             Panel::TransferTicket => render_transfer_ticket(frame, state, area, mouse_target),
             Panel::FuturesState => render_futures_state(frame, state, area, mouse_target),
             Panel::History => render_history(frame, state, area),
@@ -55,7 +55,7 @@ pub(super) fn render_docked(
             Panel::Research => render_research(frame, state, area),
             Panel::ProviderHealth => render_provider_health(frame, state, area),
             Panel::TaskLog => render_task_log(frame, state, area),
-            Panel::Settings => render_settings(frame, state, area),
+            Panel::Settings => render_settings(frame, state, area, mouse_target),
             Panel::ProfileRisk => render_profile_risk(frame, state, area),
         }
     }

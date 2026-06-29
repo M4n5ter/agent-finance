@@ -44,8 +44,11 @@ impl PanelHit {
     fn action_for(self, panel: Panel) -> Option<Action> {
         match (panel, self) {
             (Panel::Watchlist, Self::Row(index)) => Some(Action::SelectWatchlistSymbol(index)),
-            (Panel::OpenOrders, Self::Row(index)) => Some(Action::SelectOpenOrder(index)),
+            (Panel::Account | Panel::OpenOrders, Self::Row(index)) => {
+                Some(Action::SelectOpenOrder(index))
+            }
             (Panel::IntentReview, Self::Row(index)) => Some(Action::SelectStagedChange(index)),
+            (Panel::Settings, Self::Row(index)) => Some(Action::SelectSettingRow(index)),
             (Panel::OrderTicket, Self::TicketField(index)) => {
                 Some(Action::SelectOrderTicketField(index))
             }
@@ -86,6 +89,11 @@ fn panel_hit_at(state: &AppState, panel: Panel, area: Rect, row: u16) -> Option<
             )
             .map(PanelHit::Row)
         }
+        Panel::Account => crate::account_panel_view::open_order_index_at_content_row(
+            state,
+            content_row(area, row)?,
+        )
+        .map(PanelHit::Row),
         Panel::IntentReview => crate::intent_review_view::staged_change_index_at_content_row(
             state.staged_change_review_views().len(),
             content_row(area, row)?,
@@ -98,9 +106,11 @@ fn panel_hit_at(state: &AppState, panel: Panel, area: Rect, row: u16) -> Option<
         Panel::FuturesState => {
             ticket_hit_at(content_row(area, row)?, futures_state_ticket_rows(state))
         }
-        Panel::Account
-        | Panel::Settings
-        | Panel::ProfileRisk
+        Panel::Settings => {
+            crate::settings_panel_view::setting_index_at_content_row(state, content_row(area, row)?)
+                .map(PanelHit::Row)
+        }
+        Panel::ProfileRisk
         | Panel::Quote
         | Panel::History
         | Panel::Evidence

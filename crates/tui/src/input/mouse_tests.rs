@@ -346,7 +346,7 @@ fn mouse_click_on_open_order_row_selects_order() {
 }
 
 #[test]
-fn mouse_click_on_account_panel_does_not_guess_open_order_rows() {
+fn mouse_click_on_account_open_order_row_selects_order() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {
         workspace: crate::config::WorkspaceConfig {
@@ -366,19 +366,37 @@ fn mouse_click_on_account_panel_does_not_guess_open_order_rows() {
     .panel_rect(Panel::Account)
     .expect("account panel is visible");
 
-    handle_mouse_event(
-        area,
-        &mut state,
-        &mut drag,
-        mouse_event(
-            MouseEventKind::Down(MouseButton::Left),
-            panel.x + 2,
-            panel.y + 4,
-        ),
-    );
+    let click = clickable_panel_row(&mut state, area, panel, Panel::Account, 0);
+    handle_mouse_event(area, &mut state, &mut drag, click);
 
-    assert_eq!(state.selected_open_order, 1);
+    assert_eq!(state.selected_open_order, 0);
     assert_eq!(state.panels.focused(), Panel::Account);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
+fn mouse_click_on_settings_row_selects_setting() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Settings)
+    .expect("settings panel is visible");
+
+    handle_mouse_event(area, &mut state, &mut drag, panel_click(panel, 14));
+
+    assert_eq!(state.settings_editor.selected().label(), "theme accent");
+    assert_eq!(state.panels.focused(), Panel::Settings);
     assert_eq!(drag, MouseDrag::default());
 }
 
@@ -808,6 +826,37 @@ fn panel_click(panel: Rect, content_row: u16) -> MouseEvent {
         panel.x + 2,
         panel.y + content_row + 1,
     )
+}
+
+fn clickable_panel_row(
+    state: &mut AppState,
+    area: Rect,
+    panel: Rect,
+    target_panel: Panel,
+    target_index: usize,
+) -> MouseEvent {
+    let mut drag = MouseDrag::default();
+    for content_row in 0..panel.height.saturating_sub(2) {
+        let column = panel.x + 2;
+        let row = panel.y + content_row + 1;
+        handle_mouse_event(
+            area,
+            state,
+            &mut drag,
+            mouse_event(MouseEventKind::Moved, column, row),
+        );
+        if current_mouse_target(area, state)
+            == Some(MouseTarget::PanelAction {
+                panel: target_panel,
+                action: PanelMouseAction::SelectRow {
+                    index: target_index,
+                },
+            })
+        {
+            return mouse_event(MouseEventKind::Down(MouseButton::Left), column, row);
+        }
+    }
+    panic!("clickable panel row was not found");
 }
 
 fn floating_click(floating: Rect, content_column: u16, content_row: u16) -> MouseEvent {

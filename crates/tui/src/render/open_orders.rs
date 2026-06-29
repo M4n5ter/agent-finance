@@ -4,6 +4,7 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem};
 
+use crate::account::OpenOrderSummary;
 use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
 use crate::open_order_view::OpenOrderRow;
@@ -21,7 +22,12 @@ pub(super) fn render_open_orders(
     let mut lines = Vec::new();
     match state.account_snapshot.as_ref() {
         Some(snapshot) => {
-            lines.extend(open_order_lines(state, snapshot, mouse_target));
+            lines.extend(open_order_lines(
+                state,
+                snapshot,
+                Panel::OpenOrders,
+                mouse_target,
+            ));
             if snapshot.open_orders().is_empty() {
                 lines.push(Line::from("No open orders."));
             } else {
@@ -48,6 +54,7 @@ pub(super) fn render_open_orders(
 pub(super) fn open_order_lines(
     state: &AppState,
     snapshot: &crate::AccountSnapshot,
+    panel: Panel,
     mouse_target: Option<MouseTarget>,
 ) -> Vec<Line<'static>> {
     let open_orders = snapshot.open_orders();
@@ -60,13 +67,14 @@ pub(super) fn open_order_lines(
         .min(open_orders.len().saturating_sub(1));
     crate::open_order_view::open_order_rows(&open_orders, selected)
         .into_iter()
-        .map(|row| open_order_line(state, row, mouse_target))
+        .map(|row| open_order_row_line(state, row, panel, mouse_target))
         .collect()
 }
 
-fn open_order_line(
+fn open_order_row_line(
     state: &AppState,
     row: OpenOrderRow<'_>,
+    panel: Panel,
     mouse_target: Option<MouseTarget>,
 ) -> Line<'static> {
     match row {
@@ -80,35 +88,45 @@ fn open_order_line(
             state.theme.warning_style(),
         )),
         OpenOrderRow::Order { index, order } => {
-            let hovered = panel_row_hovered(mouse_target, Panel::OpenOrders, index);
-            let marker = if index == state.selected_open_order {
-                ">"
-            } else {
-                " "
-            };
-            let style = if hovered {
-                state.theme.selected_style().add_modifier(Modifier::BOLD)
-            } else if index == state.selected_open_order {
-                state.theme.accent_style().add_modifier(Modifier::BOLD)
-            } else {
-                state.theme.text_style()
-            };
-            Line::from(Span::styled(
-                format!(
-                    "{marker} {} {} {} {} @ {} [{}]",
-                    order.market,
-                    order.side.as_deref().unwrap_or("-"),
-                    order.remaining_quantity.as_deref().unwrap_or("-"),
-                    order.symbol,
-                    order.price.as_deref().unwrap_or("-"),
-                    order.identifier()
-                ),
-                style,
-            ))
+            open_order_line(state, panel, index, order, mouse_target)
         }
         OpenOrderRow::More { hidden } => Line::from(Span::styled(
             format!("+{hidden} more open orders"),
             state.theme.warning_style(),
         )),
     }
+}
+
+pub(crate) fn open_order_line(
+    state: &AppState,
+    panel: Panel,
+    index: usize,
+    order: &OpenOrderSummary,
+    mouse_target: Option<MouseTarget>,
+) -> Line<'static> {
+    let hovered = panel_row_hovered(mouse_target, panel, index);
+    let marker = if index == state.selected_open_order {
+        ">"
+    } else {
+        " "
+    };
+    let style = if hovered {
+        state.theme.selected_style().add_modifier(Modifier::BOLD)
+    } else if index == state.selected_open_order {
+        state.theme.accent_style().add_modifier(Modifier::BOLD)
+    } else {
+        state.theme.text_style()
+    };
+    Line::from(Span::styled(
+        format!(
+            "{marker} {} {} {} {} @ {} [{}]",
+            order.market,
+            order.side.as_deref().unwrap_or("-"),
+            order.remaining_quantity.as_deref().unwrap_or("-"),
+            order.symbol,
+            order.price.as_deref().unwrap_or("-"),
+            order.identifier()
+        ),
+        style,
+    ))
 }

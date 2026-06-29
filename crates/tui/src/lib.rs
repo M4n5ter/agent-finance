@@ -1,6 +1,7 @@
 mod account;
 mod account_controls;
 mod account_load;
+mod account_panel_view;
 mod app;
 mod command;
 mod config;
@@ -34,6 +35,7 @@ mod search;
 mod search_floating_view;
 mod settings_controls;
 mod settings_editor;
+mod settings_panel_view;
 mod state;
 mod task_failure;
 mod task_log;

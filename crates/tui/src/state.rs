@@ -749,6 +749,7 @@ impl AppState {
             Action::MoveSettingsSelection(direction) => {
                 self.settings_editor.move_selection(direction);
             }
+            Action::SelectSettingRow(index) => self.settings_editor.select(index),
             Action::AdjustSelectedSetting(direction) => self.adjust_selected_setting(direction),
             Action::StageOrderTicket => self.stage_order_ticket(),
             Action::StageTransferTicket => self.stage_transfer_ticket(),
@@ -1193,6 +1194,7 @@ pub enum Action {
     MoveOpenOrderSelection(isize),
     SelectOpenOrder(usize),
     MoveSettingsSelection(isize),
+    SelectSettingRow(usize),
     AdjustSelectedSetting(isize),
     StageOrderTicket,
     StageTransferTicket,

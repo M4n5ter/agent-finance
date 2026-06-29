@@ -20,6 +20,10 @@ impl SettingsEditorState {
     pub fn move_selection(&mut self, direction: isize) {
         self.selected = shift_index(self.selected, SettingRow::ALL.len(), direction);
     }
+
+    pub fn select(&mut self, index: usize) {
+        self.selected = index.min(SettingRow::ALL.len().saturating_sub(1));
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
