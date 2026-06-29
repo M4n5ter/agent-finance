@@ -7,12 +7,18 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Tabs, 
 use crate::confirmation_dialog::{self, ConfirmationRow};
 use crate::hints;
 use crate::model::{FloatingKind, WorkspaceKind};
+use crate::mouse_target::MouseTarget;
 use crate::search_floating_view::SearchFloatingLayout;
 use crate::state::AppState;
 use crate::theme::ThemeConfig;
 use crate::workspace_tabs::{workspace_index, workspace_tabs_width};
 
-pub(super) fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+pub(super) fn render_status(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
     if area.is_empty() {
         return;
     }
@@ -49,7 +55,7 @@ pub(super) fn render_status(frame: &mut Frame<'_>, state: &AppState, area: Rect)
         .as_ref()
         .map(|snapshot| snapshot.errors.len())
         .unwrap_or(0);
-    let text = status_detail(state, symbol, errors, detail_area.width);
+    let text = status_detail(state, symbol, errors, detail_area.width, mouse_target);
     frame.render_widget(
         Paragraph::new(text).style(state.theme.chrome_style().fg(state.theme.text.color())),
         detail_area,
@@ -407,7 +413,13 @@ fn render_search_floating(
     );
 }
 
-fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> String {
+fn status_detail(
+    state: &AppState,
+    symbol: &str,
+    errors: usize,
+    width: u16,
+    mouse_target: Option<MouseTarget>,
+) -> String {
     let runtime = if state.scheduler_error.is_some() {
         "scheduler error"
     } else if state.refresh_loading() {
@@ -494,18 +506,27 @@ fn status_detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> S
         state.workspace.panels().len(),
     );
     let hint_budget = width.saturating_sub(prefix.len() as u16 + 1) as usize;
-    let long = format!("{}{} ", prefix, hints::status_key_hints(state, hint_budget));
+    let key_hints = hints::status_key_hints(state, hint_budget);
+    let long = match mouse_target {
+        Some(target) if !key_hints.is_empty() => {
+            format!("{}{} | {} ", prefix, target.status_hint(), key_hints)
+        }
+        Some(target) => format!("{}{} ", prefix, target.status_hint()),
+        None => format!("{prefix}{key_hints} "),
+    };
+    let hover_only = mouse_target.map(|target| format!(" {symbol} | {} ", target.status_hint()));
     fit_status_detail(
         width,
-        [
-            long,
-            medium,
-            medium_without_errors,
-            semantic_short,
-            compact,
-            compact_without_errors,
-            terse,
-        ],
+        std::iter::once(long)
+            .chain([
+                medium,
+                medium_without_errors,
+                semantic_short,
+                compact,
+                compact_without_errors,
+            ])
+            .chain(hover_only)
+            .chain([terse]),
     )
 }
 

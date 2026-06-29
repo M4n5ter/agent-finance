@@ -3,6 +3,7 @@ use crate::command::ActionId;
 use crate::confirmation_dialog::{self, ConfirmationButtonAction, ConfirmationRow};
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
+use crate::mouse_target::{self, MousePosition, MouseTarget, PanelMouseAction};
 use crate::search_floating_view::SearchFloatingLayout;
 use agent_finance_core::{Environment, Market, Provider, SignedReadRequest, SignedReadSnapshot};
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -530,6 +531,63 @@ fn mouse_wheel_moves_focused_panel_and_search_selection() {
 }
 
 #[test]
+fn mouse_movement_tracks_workspace_tab_hover() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::Moved, 0, area.bottom() - 1),
+    );
+
+    assert_eq!(
+        state.mouse_position,
+        Some(MousePosition::new(0, area.bottom() - 1))
+    );
+    assert_eq!(
+        current_mouse_target(area, &state),
+        Some(MouseTarget::WorkspaceTab(WorkspaceKind::Market))
+    );
+}
+
+#[test]
+fn mouse_movement_tracks_clickable_panel_row_hover() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Watchlist)
+    .expect("watchlist is visible");
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::Moved, panel.x + 2, panel.y + 1),
+    );
+
+    assert_eq!(
+        state.mouse_position,
+        Some(MousePosition::new(panel.x + 2, panel.y + 1))
+    );
+    assert_eq!(
+        current_mouse_target(area, &state),
+        Some(MouseTarget::PanelAction {
+            panel: Panel::Watchlist,
+            action: PanelMouseAction::SelectRow,
+        })
+    );
+}
+
+#[test]
 fn mouse_clicking_command_palette_result_executes_that_command() {
     let area = Rect::new(0, 0, 120, 32);
     let mut state = AppState::from_config(crate::config::TuiConfig::default());
@@ -816,4 +874,16 @@ fn floating_rect(area: Rect, state: &AppState, kind: FloatingKind) -> Rect {
     .find(|pane| pane.kind == kind)
     .expect("floating is visible")
     .rect
+}
+
+fn current_mouse_target(area: Rect, state: &AppState) -> Option<MouseTarget> {
+    let layout = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    );
+    state
+        .mouse_position
+        .and_then(|position| mouse_target::target_at(state, &layout, position))
 }

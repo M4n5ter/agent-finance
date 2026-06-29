@@ -3,6 +3,7 @@ use ratatui::layout::Rect;
 
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::model::FloatingKind;
+use crate::mouse_target::MousePosition;
 use crate::state::{Action, AppState};
 use crate::workspace_tabs::workspace_tab_at;
 
@@ -55,6 +56,10 @@ pub fn handle_mouse_event(
                 &state.floating,
                 &state.visible_panels(),
             );
+            state.reduce(Action::TrackMousePosition(Some(MousePosition::new(
+                mouse.column,
+                mouse.row,
+            ))));
             drag.target = None;
             if let Some(action) = modal_mouse_action(state, &layout, mouse.column, mouse.row) {
                 state.reduce(action);
@@ -121,26 +126,38 @@ pub fn handle_mouse_event(
                 route_mouse_wheel(state, 1);
             }
         }
-        MouseEventKind::Drag(MouseButton::Left) => match drag.target {
-            Some(MouseDragTarget::DockedSplit(split)) => {
-                let next = layout::resize_docked_columns(
-                    terminal_area,
-                    split,
-                    mouse.column,
-                    &state.layout,
-                    &state.visible_panels(),
-                );
-                state.reduce(Action::ResizeDockedColumns {
-                    left_ratio: next.left_ratio,
-                    main_ratio: next.main_ratio,
-                });
+        MouseEventKind::Moved => {
+            state.reduce(Action::TrackMousePosition(Some(MousePosition::new(
+                mouse.column,
+                mouse.row,
+            ))));
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            state.reduce(Action::TrackMousePosition(Some(MousePosition::new(
+                mouse.column,
+                mouse.row,
+            ))));
+            match drag.target {
+                Some(MouseDragTarget::DockedSplit(split)) => {
+                    let next = layout::resize_docked_columns(
+                        terminal_area,
+                        split,
+                        mouse.column,
+                        &state.layout,
+                        &state.visible_panels(),
+                    );
+                    state.reduce(Action::ResizeDockedColumns {
+                        left_ratio: next.left_ratio,
+                        main_ratio: next.main_ratio,
+                    });
+                }
+                Some(MouseDragTarget::FloatingResize(kind)) => {
+                    let size = layout::resize_floating(terminal_area, mouse.column, mouse.row);
+                    state.reduce(Action::ResizeFloating { kind, size });
+                }
+                None => {}
             }
-            Some(MouseDragTarget::FloatingResize(kind)) => {
-                let size = layout::resize_floating(terminal_area, mouse.column, mouse.row);
-                state.reduce(Action::ResizeFloating { kind, size });
-            }
-            None => {}
-        },
+        }
         MouseEventKind::Up(MouseButton::Left) => {
             drag.target = None;
         }

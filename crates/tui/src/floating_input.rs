@@ -5,6 +5,7 @@ use ratatui::layout::Rect;
 
 use crate::confirmation_dialog::{self, ConfirmationButtonAction};
 use crate::model::FloatingKind;
+use crate::mouse_target::{FloatingMouseAction, MouseTarget};
 use crate::search_floating_view::SearchFloatingLayout;
 use crate::state::{Action, AppState};
 
@@ -116,6 +117,51 @@ pub(crate) fn mouse_action(
     }
 }
 
+pub(crate) fn hover_target(
+    state: &AppState,
+    kind: FloatingKind,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<MouseTarget> {
+    match kind {
+        FloatingKind::CommandPalette => search_result_index_at(
+            state.command_palette.len(),
+            state.command_palette.selected(),
+            area,
+            column,
+            row,
+        )
+        .and_then(|index| state.command_palette.command_at(index))
+        .map(|_| MouseTarget::FloatingAction {
+            kind,
+            action: FloatingMouseAction::ExecuteResult,
+        })
+        .or(Some(MouseTarget::Floating(kind))),
+        FloatingKind::SymbolSearch => search_result_index_at(
+            state.symbol_search.len(),
+            state.symbol_search.selected(),
+            area,
+            column,
+            row,
+        )
+        .and_then(|index| state.symbol_search.symbol_index_at(index))
+        .map(|_| MouseTarget::FloatingAction {
+            kind,
+            action: FloatingMouseAction::SelectResult,
+        })
+        .or(Some(MouseTarget::Floating(kind))),
+        FloatingKind::LiveWritesConfirmation | FloatingKind::StagedExecutionConfirmation => {
+            confirmation_hover_target(state, kind, area, column, row)
+                .or(Some(MouseTarget::Floating(kind)))
+        }
+        FloatingKind::Help
+        | FloatingKind::TradingProfile
+        | FloatingKind::ProviderDetails
+        | FloatingKind::WatchlistAdd => Some(MouseTarget::Floating(kind)),
+    }
+}
+
 pub(crate) fn text_input_floating_is_top(state: &AppState) -> bool {
     top_floating_kind(state).is_some_and(FloatingKind::text_input)
 }
@@ -213,6 +259,24 @@ fn confirmation_mouse_action(
             _ => None,
         },
     }
+}
+
+fn confirmation_hover_target(
+    state: &AppState,
+    kind: FloatingKind,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<MouseTarget> {
+    let (content_column, content_row) = floating_content_position(area, column, row)?;
+    let content_width = area.width.saturating_sub(2) as usize;
+    let rows =
+        confirmation_dialog::rows_for(kind, state.pending_staged_confirmation(), content_width);
+    let action = match confirmation_dialog::click_action_at(&rows, content_column, content_row)? {
+        ConfirmationButtonAction::Primary => FloatingMouseAction::Confirm,
+        ConfirmationButtonAction::Cancel => FloatingMouseAction::Cancel,
+    };
+    Some(MouseTarget::FloatingAction { kind, action })
 }
 
 fn search_result_index_at(

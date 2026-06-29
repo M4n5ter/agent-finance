@@ -32,7 +32,10 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
         &state.visible_panels(),
     );
     render_docked(frame, state, &layout);
-    render_status(frame, state, layout.status);
+    let mouse_target = state
+        .mouse_position
+        .and_then(|position| crate::mouse_target::target_at(state, &layout, position));
+    render_status(frame, state, layout.status, mouse_target);
     for floating in &layout.floating {
         frame.render_widget(Clear, floating.rect);
         render_floating(frame, state, floating.kind, floating.rect);
@@ -45,6 +48,7 @@ mod tests {
     use crate::command::ActionId;
     use crate::config::{EquityProvider, ProviderConfig, TuiConfig};
     use crate::model::{FloatingKind, WorkspaceKind};
+    use crate::mouse_target::MousePosition;
     use crate::profile_snapshot::test_profile_validation_snapshot;
     use crate::task_log::TaskKey;
     use crate::theme::{ThemeColor, ThemeConfig};
@@ -96,6 +100,34 @@ mod tests {
 
         assert!(text.contains("profile: mainnet"));
         assert!(text.contains("dry-run"));
+    }
+
+    #[test]
+    fn status_bar_keeps_safety_summary_while_showing_mouse_hint() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.mouse_position = Some(MousePosition::new(0, 31));
+
+        let text = render_to_text(&state, 120, 32);
+
+        assert!(text.contains("live:off"));
+        assert!(text.contains("dry-run"));
+        assert!(text.contains("ready"));
+    }
+
+    #[test]
+    fn mouse_hint_recomputes_after_floating_closes() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state.reduce(crate::state::Action::Execute(ActionId::ToggleLiveWrites));
+        state.mouse_position = Some(MousePosition::new(62, 24));
+
+        let with_modal = render_to_text(&state, 160, 44);
+        assert!(with_modal.contains("Enable Live Writes"));
+
+        state.reduce(crate::state::Action::CloseFocusedFloating);
+        let after_close = render_to_text(&state, 160, 44);
+
+        assert!(!after_close.contains("confirm in Enable Live Writes"));
+        assert!(after_close.contains("live:off"));
     }
 
     #[test]

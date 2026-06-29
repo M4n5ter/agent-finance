@@ -13,6 +13,7 @@ use crate::config::{
 };
 use crate::futures_state_ticket::{FuturesStateTicket, FuturesStateTicketPreview};
 use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, WorkspaceKind};
+use crate::mouse_target::MousePosition;
 use crate::order_ticket::{OrderTicket, OrderTicketPreview};
 use crate::profile_editor::ProfileEditorState;
 use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState};
@@ -94,6 +95,7 @@ pub struct AppState {
     pub order_ticket: OrderTicket,
     pub transfer_ticket: TransferTicket,
     pub futures_state_ticket: FuturesStateTicket,
+    pub mouse_position: Option<MousePosition>,
     staged_changes: StagedChanges,
     pending_staged_confirmation: Option<StagedExecutionRequest>,
     pending_staged_execution: Option<StagedExecutionRequest>,
@@ -149,6 +151,7 @@ impl AppState {
             order_ticket: OrderTicket::default(),
             transfer_ticket: TransferTicket::default(),
             futures_state_ticket: FuturesStateTicket::default(),
+            mouse_position: None,
             staged_changes: StagedChanges::default(),
             pending_staged_confirmation: None,
             pending_staged_execution: None,
@@ -681,6 +684,9 @@ impl AppState {
             Action::Focus(panel) => {
                 self.focus_panel(panel);
             }
+            Action::TrackMousePosition(position) => {
+                self.mouse_position = position;
+            }
             Action::MoveCommandSelection(direction) => {
                 self.command_palette.shift(direction);
             }
@@ -1161,6 +1167,7 @@ fn sanitize_staged_change_id(value: &str) -> String {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Focus(Panel),
+    TrackMousePosition(Option<MousePosition>),
     MoveCommandSelection(isize),
     EditCommandQuery(tui_input::InputRequest),
     MoveSymbolSearchSelection(isize),

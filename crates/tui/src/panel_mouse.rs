@@ -2,6 +2,7 @@ use ratatui::layout::Rect;
 
 use crate::futures_state_ticket::FuturesStateTicketField;
 use crate::model::Panel;
+use crate::mouse_target::{MouseTarget, PanelMouseAction};
 use crate::order_ticket::OrderTicketField;
 use crate::state::{Action, AppState};
 use crate::ticket_panel_view::{TicketPanelClick, TicketPanelRows};
@@ -50,6 +51,49 @@ pub(crate) fn click_action(
     }
 }
 
+pub(crate) fn hover_target(
+    state: &AppState,
+    panel: Panel,
+    area: Rect,
+    _column: u16,
+    row: u16,
+) -> Option<MouseTarget> {
+    let action = match panel {
+        Panel::Watchlist => {
+            watchlist_click_action(state, area, row).map(|_| PanelMouseAction::SelectRow)
+        }
+        Panel::OpenOrders => {
+            open_order_click_action(state, area, row).map(|_| PanelMouseAction::SelectRow)
+        }
+        Panel::IntentReview => {
+            staged_change_click_action(state, area, row).map(|_| PanelMouseAction::SelectRow)
+        }
+        Panel::OrderTicket => {
+            ticket_hover_action(content_row(area, row)?, order_ticket_rows(state))
+        }
+        Panel::TransferTicket => {
+            ticket_hover_action(content_row(area, row)?, transfer_ticket_rows(state))
+        }
+        Panel::FuturesState => {
+            ticket_hover_action(content_row(area, row)?, futures_state_ticket_rows(state))
+        }
+        Panel::Account
+        | Panel::Settings
+        | Panel::ProfileRisk
+        | Panel::Quote
+        | Panel::History
+        | Panel::Evidence
+        | Panel::Polymarket
+        | Panel::Research
+        | Panel::RiskAudit
+        | Panel::ProviderHealth
+        | Panel::TaskLog => None,
+    };
+    action
+        .map(|action| MouseTarget::PanelAction { panel, action })
+        .or(Some(MouseTarget::Panel(panel)))
+}
+
 fn watchlist_click_action(state: &AppState, area: Rect, row: u16) -> Option<Action> {
     let index = content_row(area, row)?;
     (index < state.watchlist.len()).then_some(Action::SelectWatchlistSymbol(index))
@@ -83,6 +127,13 @@ fn ticket_click_action(
     match rows.click_at(content_row)? {
         TicketPanelClick::Field(index) => Some(select_field(index)),
         TicketPanelClick::ReadyAction => Some(stage),
+    }
+}
+
+fn ticket_hover_action(content_row: usize, rows: TicketPanelRows) -> Option<PanelMouseAction> {
+    match rows.click_at(content_row)? {
+        TicketPanelClick::Field(_) => Some(PanelMouseAction::SelectField),
+        TicketPanelClick::ReadyAction => Some(PanelMouseAction::StageReadyChange),
     }
 }
 

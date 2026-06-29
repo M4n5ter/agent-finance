@@ -15,6 +15,7 @@ mod intent_review_view;
 mod keymap;
 mod layout;
 mod model;
+mod mouse_target;
 mod open_order_controls;
 mod open_order_view;
 mod order_ticket;
