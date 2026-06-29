@@ -2,69 +2,85 @@ use crate::command::ActionId;
 use crate::model::{FloatingKind, InteractionMode, Panel};
 use crate::state::AppState;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct StatusHint {
+    pub text: String,
+    pub action: Option<StatusHintAction>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct StatusHintAction {
+    pub action: ActionId,
+    pub mouse_label: &'static str,
+}
+
 pub fn mode_key_hints(state: &AppState) -> Vec<String> {
+    mode_status_hints(state)
+        .into_iter()
+        .map(|hint| hint.text)
+        .collect()
+}
+
+fn mode_status_hints(state: &AppState) -> Vec<StatusHint> {
     if state
         .floating
         .last()
         .is_some_and(|pane| pane.kind == FloatingKind::LiveWritesConfirmation)
     {
-        return vec![
-            "enter enable live writes".to_string(),
-            "esc close".to_string(),
-        ];
+        return text_only_hints(["enter enable live writes", "esc close"]);
     }
     if state
         .floating
         .last()
         .is_some_and(|pane| pane.kind == FloatingKind::StagedExecutionConfirmation)
     {
-        return vec!["enter confirm".to_string(), "esc cancel".to_string()];
+        return text_only_hints(["enter confirm", "esc cancel"]);
     }
 
     if let Some(spec) = active_input_mode_spec(state) {
-        return spec.hints();
+        return text_only_hints(spec.hints.iter().copied());
     }
 
     match state.interaction_mode() {
         InteractionMode::Normal if state.panels.focused() == Panel::IntentReview => {
-            intent_review_key_hints()
+            text_only_hints(intent_review_control_hints())
         }
         InteractionMode::Normal if state.panels.focused() == Panel::OrderTicket => {
-            crate::order_ticket_controls::order_ticket_key_hints()
+            text_only_hints(crate::order_ticket_controls::order_ticket_key_hints())
         }
         InteractionMode::Normal if state.panels.focused() == Panel::OpenOrders => {
-            crate::open_order_controls::open_order_key_hints()
+            text_only_hints(crate::open_order_controls::open_order_key_hints())
         }
         InteractionMode::Normal if state.panels.focused() == Panel::Account => {
-            crate::account_controls::account_key_hints()
+            text_only_hints(crate::account_controls::account_key_hints())
         }
         InteractionMode::Normal if state.panels.focused() == Panel::TransferTicket => {
-            crate::transfer_ticket_controls::transfer_ticket_key_hints()
+            text_only_hints(crate::transfer_ticket_controls::transfer_ticket_key_hints())
         }
         InteractionMode::Normal if state.panels.focused() == Panel::FuturesState => {
-            crate::futures_state_controls::futures_state_key_hints()
+            text_only_hints(crate::futures_state_controls::futures_state_key_hints())
         }
         InteractionMode::Normal if state.panels.focused() == Panel::ProfileRisk => {
-            crate::profile_risk_controls::profile_risk_key_hints()
+            text_only_hints(crate::profile_risk_controls::profile_risk_key_hints())
         }
         InteractionMode::Normal if state.panels.focused() == Panel::Settings => {
-            crate::settings_controls::settings_key_hints()
+            text_only_hints(crate::settings_controls::settings_key_hints())
         }
-        InteractionMode::Normal => normal_key_hints(state),
+        InteractionMode::Normal => normal_status_hints(state),
         InteractionMode::Command | InteractionMode::Search => Vec::new(),
-        InteractionMode::Help | InteractionMode::Inspect => vec![
-            hint_for(state, ActionId::CloseFocusedFloating, "close")
-                .unwrap_or_else(|| "esc close".to_string()),
-            "q quit".to_string(),
-        ],
+        InteractionMode::Help | InteractionMode::Inspect => [
+            hint_for(
+                state,
+                ActionId::CloseFocusedFloating,
+                "close floating",
+                "close",
+            )
+            .unwrap_or_else(|| StatusHint::text("esc close")),
+            StatusHint::text("q quit"),
+        ]
+        .into_iter()
+        .collect(),
     }
-}
-
-fn intent_review_key_hints() -> Vec<String> {
-    intent_review_control_hints()
-        .iter()
-        .map(|hint| (*hint).to_string())
-        .collect()
 }
 
 pub fn intent_review_panel_hint() -> String {
@@ -94,20 +110,42 @@ fn active_input_mode_spec(state: &AppState) -> Option<InputModeSpec> {
         .and_then(|pane| input_mode_spec_for_kind(pane.kind))
 }
 
-pub fn status_key_hints(state: &AppState, max_width: usize) -> String {
-    let mut hints = mode_key_hints(state);
+pub(crate) fn status_key_hint_specs(state: &AppState, max_width: usize) -> Vec<StatusHint> {
+    let mut hints = mode_status_hints(state);
     while !hints.is_empty() {
-        let text = hints.join("  ");
+        let text = hints
+            .iter()
+            .map(|hint| hint.text.as_str())
+            .collect::<Vec<_>>()
+            .join("  ");
         if text.len() <= max_width {
-            return text;
+            return hints;
         }
         hints.pop();
     }
-    String::new()
+    Vec::new()
 }
 
-fn normal_key_hints(state: &AppState) -> Vec<String> {
+fn normal_status_hints(state: &AppState) -> Vec<StatusHint> {
     [
+        hint_for(
+            state,
+            ActionId::OpenFloating(FloatingKind::CommandPalette),
+            "open command palette",
+            "command",
+        ),
+        hint_for(
+            state,
+            ActionId::OpenFloating(FloatingKind::SymbolSearch),
+            "open symbol search",
+            "search",
+        ),
+        hint_for(
+            state,
+            ActionId::OpenFloating(FloatingKind::Help),
+            "open help",
+            "help",
+        ),
         pair_hint(
             state,
             ActionId::ShiftWorkspace(-1),
@@ -120,32 +158,42 @@ fn normal_key_hints(state: &AppState) -> Vec<String> {
             ActionId::FocusPanelBy(1),
             "pane",
         ),
-        hint_for(state, ActionId::ToggleFocusedZoom, "zoom"),
-        hint_for(
-            state,
-            ActionId::OpenFloating(FloatingKind::CommandPalette),
-            "command",
-        ),
-        hint_for(
-            state,
-            ActionId::OpenFloating(FloatingKind::SymbolSearch),
-            "search",
-        ),
-        hint_for(state, ActionId::OpenFloating(FloatingKind::Help), "help"),
-        hint_for(state, ActionId::CloseFocusedPanel, "close"),
-        hint_for(state, ActionId::RestorePanels, "restore"),
-        Some("q quit".to_string()),
+        hint_for(state, ActionId::ToggleFocusedZoom, "toggle zoom", "zoom"),
+        hint_for(state, ActionId::CloseFocusedPanel, "close panel", "close"),
+        hint_for(state, ActionId::RestorePanels, "restore panels", "restore"),
+        Some(StatusHint::text("q quit")),
     ]
     .into_iter()
     .flatten()
     .collect()
 }
 
-fn hint_for(state: &AppState, action: ActionId, label: &'static str) -> Option<String> {
-    state
-        .keymap
-        .normal_key_for(action)
-        .map(|key| format!("{key} {label}"))
+fn hint_for(
+    state: &AppState,
+    action: ActionId,
+    mouse_label: &'static str,
+    visible_label: &'static str,
+) -> Option<StatusHint> {
+    state.keymap.normal_key_for(action).map(|key| StatusHint {
+        text: format!("{key} {visible_label}"),
+        action: Some(StatusHintAction {
+            action,
+            mouse_label,
+        }),
+    })
+}
+
+fn text_only_hints(hints: impl IntoIterator<Item = impl Into<String>>) -> Vec<StatusHint> {
+    hints.into_iter().map(StatusHint::text).collect()
+}
+
+impl StatusHint {
+    fn text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            action: None,
+        }
+    }
 }
 
 fn pair_hint(
@@ -153,14 +201,16 @@ fn pair_hint(
     previous: ActionId,
     next: ActionId,
     label: &'static str,
-) -> Option<String> {
+) -> Option<StatusHint> {
     match (
         state.keymap.normal_key_for(previous),
         state.keymap.normal_key_for(next),
     ) {
-        (Some(previous), Some(next)) => Some(format!("{previous}/{next} {label}")),
-        (None, Some(next)) => Some(format!("{next} {label}")),
-        (Some(previous), None) => Some(format!("{previous} {label}")),
+        (Some(previous), Some(next)) => {
+            Some(StatusHint::text(format!("{previous}/{next} {label}")))
+        }
+        (None, Some(next)) => Some(StatusHint::text(format!("{next} {label}"))),
+        (Some(previous), None) => Some(StatusHint::text(format!("{previous} {label}"))),
         (None, None) => None,
     }
 }
@@ -273,10 +323,14 @@ mod tests {
     fn status_hints_fit_width_by_dropping_low_priority_items() {
         let state = AppState::from_config(TuiConfig::default());
 
-        let hints = status_key_hints(&state, 20);
+        let hints = status_key_hint_specs(&state, 20)
+            .into_iter()
+            .map(|hint| hint.text)
+            .collect::<Vec<_>>()
+            .join("  ");
 
         assert!(hints.len() <= 20);
-        assert!(hints.contains("workspace"));
+        assert!(hints.contains("command"));
     }
 
     #[test]

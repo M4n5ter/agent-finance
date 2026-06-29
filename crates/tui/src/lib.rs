@@ -39,6 +39,7 @@ mod settings_controls;
 mod settings_editor;
 mod settings_panel_view;
 mod state;
+mod status_bar;
 mod task_failure;
 mod task_log;
 mod theme;

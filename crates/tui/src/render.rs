@@ -127,7 +127,8 @@ mod tests {
         let after_close = render_to_text(&state, 160, 44);
 
         assert!(!after_close.contains("confirm in Enable Live Writes"));
-        assert!(after_close.contains("live:off"));
+        assert!(after_close.contains("live: off") || after_close.contains("live:off"));
+        assert!(after_close.contains("dry-run"));
     }
 
     #[test]

@@ -1,0 +1,365 @@
+use ratatui::layout::Rect;
+
+use crate::command::ActionId;
+use crate::hints::{self, StatusHint};
+use crate::state::AppState;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct StatusAreas {
+    pub tabs: Rect,
+    pub detail: Rect,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct StatusDetail {
+    pub text: String,
+    pub actions: Vec<StatusActionSpan>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct StatusActionSpan {
+    pub start: u16,
+    pub end: u16,
+    pub action: StatusAction,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct StatusAction {
+    pub label: &'static str,
+    pub action: ActionId,
+}
+
+pub(crate) fn detail(state: &AppState, symbol: &str, errors: usize, width: u16) -> StatusDetail {
+    let runtime = runtime_label(state);
+    let compact = format!(
+        " {symbol} {} live:{}{} {runtime} e:{errors} ",
+        state.interaction_mode().label(),
+        live_label(state),
+        compact_config_segment(state),
+    );
+    let compact_without_errors = format!(
+        " {symbol} {} live:{}{} {runtime} ",
+        state.interaction_mode().label(),
+        live_label(state),
+        compact_config_segment(state),
+    );
+    let terse = format!(" {symbol} {runtime} ");
+    let (medium, medium_without_errors, semantic_short) =
+        if let Some(profile) = state.trading_profile.as_deref() {
+            (
+                format!(
+                    " {symbol} | profile: {profile} | live:{}{} | {} | {runtime} | e:{errors} ",
+                    live_label(state),
+                    config_segment(state),
+                    state.effective_submit_mode()
+                ),
+                format!(
+                    " {symbol} | profile: {profile} | live:{}{} | {} | {runtime} ",
+                    live_label(state),
+                    config_segment(state),
+                    state.effective_submit_mode()
+                ),
+                format!(
+                    " {symbol} profile: {profile} live:{}{} {} {runtime} ",
+                    live_label(state),
+                    compact_config_segment(state),
+                    state.effective_submit_mode()
+                ),
+            )
+        } else {
+            (
+                format!(
+                    " {symbol} | mode: {} | live:{}{} | {} | focus: {} | {runtime} | e:{errors} ",
+                    state.interaction_mode().label(),
+                    live_label(state),
+                    config_segment(state),
+                    state.effective_submit_mode(),
+                    state.panels.focused().title(),
+                ),
+                format!(
+                    " {symbol} | mode: {} | live:{}{} | {} | {runtime} ",
+                    state.interaction_mode().label(),
+                    live_label(state),
+                    config_segment(state),
+                    state.effective_submit_mode(),
+                ),
+                format!(
+                    " {symbol} mode: {} live:{}{} {} {runtime} ",
+                    state.interaction_mode().label(),
+                    live_label(state),
+                    compact_config_segment(state),
+                    state.effective_submit_mode(),
+                ),
+            )
+        };
+
+    let long = long_detail(state, symbol, errors, runtime, width);
+    fit_status_detail(
+        width,
+        std::iter::once(long)
+            .chain([
+                StatusDetail::plain(medium),
+                StatusDetail::plain(medium_without_errors),
+                StatusDetail::plain(semantic_short),
+                StatusDetail::plain(compact),
+                StatusDetail::plain(compact_without_errors),
+            ])
+            .chain([StatusDetail::plain(terse)]),
+    )
+}
+
+pub(crate) fn action_at(
+    state: &AppState,
+    symbol: &str,
+    errors: usize,
+    area: Rect,
+    column: u16,
+) -> Option<StatusAction> {
+    if !(area.x..area.right()).contains(&column) {
+        return None;
+    }
+    let detail = detail(state, symbol, errors, area.width);
+    let relative_column = column.saturating_sub(area.x);
+    detail
+        .actions
+        .into_iter()
+        .find(|span| (span.start..span.end).contains(&relative_column))
+        .map(|span| span.action)
+}
+
+fn long_detail(
+    state: &AppState,
+    symbol: &str,
+    errors: usize,
+    runtime: &'static str,
+    width: u16,
+) -> StatusDetail {
+    let profile = state
+        .trading_profile
+        .as_deref()
+        .map(|profile| format!(" | profile: {profile}"))
+        .unwrap_or_default();
+    let prefix = format!(
+        " {symbol} | mode: {}{profile}{} | {} | focus: {} | visible: {}/{} | {runtime} | errors: {errors} | ",
+        state.interaction_mode().label(),
+        config_segment(state),
+        write_label(state),
+        state.panels.focused().title(),
+        state.visible_panels().len(),
+        state.workspace.panels().len(),
+    );
+    let hint_budget = width.saturating_sub(prefix.len() as u16 + 1) as usize;
+    let key_hints = hints::status_key_hint_specs(state, hint_budget);
+    detail_with_hints(prefix, key_hints, " ")
+}
+
+fn detail_with_hints(prefix: String, hints: Vec<StatusHint>, suffix: &'static str) -> StatusDetail {
+    let mut text = prefix;
+    let mut actions = Vec::new();
+    for (index, hint) in hints.into_iter().enumerate() {
+        if index > 0 {
+            text.push_str("  ");
+        }
+        let start = text.len() as u16;
+        text.push_str(&hint.text);
+        let end = text.len() as u16;
+        if let Some(action) = hint.action {
+            actions.push(StatusActionSpan {
+                start,
+                end,
+                action: StatusAction {
+                    label: action.mouse_label,
+                    action: action.action,
+                },
+            });
+        }
+    }
+    text.push_str(suffix);
+    StatusDetail { text, actions }
+}
+
+fn fit_status_detail(
+    width: u16,
+    candidates: impl IntoIterator<Item = StatusDetail>,
+) -> StatusDetail {
+    let width = width as usize;
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.text.len() <= width)
+        .unwrap_or_else(|| StatusDetail::plain(String::new()))
+}
+
+fn runtime_label(state: &AppState) -> &'static str {
+    if state.scheduler_error.is_some() {
+        "scheduler error"
+    } else if state.refresh_loading() {
+        "refreshing"
+    } else {
+        "ready"
+    }
+}
+
+fn write_label(state: &AppState) -> String {
+    format!(
+        "live: {} / write: {}",
+        live_label(state),
+        state.effective_submit_mode()
+    )
+}
+
+fn live_label(state: &AppState) -> &'static str {
+    if state.live_writes_enabled {
+        "on"
+    } else {
+        "off"
+    }
+}
+
+fn compact_config_segment(state: &AppState) -> String {
+    config_changes_label(state)
+        .map(|label| format!(" cfg:{label}"))
+        .unwrap_or_default()
+}
+
+fn config_segment(state: &AppState) -> String {
+    config_changes_label(state)
+        .map(|label| format!(" | cfg:{label}"))
+        .unwrap_or_default()
+}
+
+fn config_changes_label(state: &AppState) -> Option<String> {
+    (!state.config_changes.is_empty()).then(|| state.config_changes.join(","))
+}
+
+impl StatusDetail {
+    fn plain(text: String) -> Self {
+        Self {
+            text,
+            actions: Vec::new(),
+        }
+    }
+}
+
+pub(crate) fn status_symbol_and_errors(state: &AppState) -> (&str, usize) {
+    let symbol = state.selected_symbol().unwrap_or("N/A");
+    let errors = state
+        .market_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.errors.len())
+        .unwrap_or(0);
+    (symbol, errors)
+}
+
+pub(crate) fn areas(area: Rect) -> StatusAreas {
+    let tab_width = crate::workspace_tabs::workspace_tabs_width().min(area.width);
+    StatusAreas {
+        tabs: Rect {
+            x: area.x,
+            y: area.y,
+            width: tab_width,
+            height: area.height,
+        },
+        detail: Rect {
+            x: area.x.saturating_add(tab_width),
+            y: area.y,
+            width: area.width.saturating_sub(tab_width),
+            height: area.height,
+        },
+    }
+}
+
+pub(crate) fn visible_action_at(state: &AppState, area: Rect, column: u16) -> Option<StatusAction> {
+    let (symbol, errors) = status_symbol_and_errors(state);
+    action_at(state, symbol, errors, area, column)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::ActionId;
+    use crate::config::TuiConfig;
+    use crate::model::FloatingKind;
+
+    #[test]
+    fn action_spans_match_visible_status_text() {
+        let state = AppState::from_config(TuiConfig::default());
+        let area = Rect::new(32, 20, 150, 1);
+        let detail = detail(&state, "CRDO", 0, area.width);
+        let expected = [
+            (
+                ActionId::OpenFloating(FloatingKind::CommandPalette),
+                ": command",
+            ),
+            (
+                ActionId::OpenFloating(FloatingKind::SymbolSearch),
+                "/ search",
+            ),
+            (ActionId::OpenFloating(FloatingKind::Help), "h help"),
+        ];
+
+        assert_action_spans(&state, area, &detail, expected);
+    }
+
+    #[test]
+    fn wide_action_spans_include_lower_priority_status_commands() {
+        let state = AppState::from_config(TuiConfig::default());
+        let area = Rect::new(32, 20, 240, 1);
+        let detail = detail(&state, "CRDO", 0, area.width);
+        let expected = [
+            (ActionId::ToggleFocusedZoom, "z zoom"),
+            (ActionId::CloseFocusedPanel, "x close"),
+            (ActionId::RestorePanels, "0 restore"),
+        ];
+
+        assert_action_spans(&state, area, &detail, expected);
+    }
+
+    #[test]
+    fn hidden_actions_are_not_clickable_after_width_fallback() {
+        let state = AppState::from_config(TuiConfig::default());
+        let area = Rect::new(80, 20, 28, 1);
+        let detail = detail(&state, "CRDO", 0, area.width);
+
+        assert!(detail.actions.is_empty());
+        for column in area.x..area.right() {
+            assert_eq!(action_at(&state, "CRDO", 0, area, column), None);
+        }
+    }
+
+    #[test]
+    fn status_areas_share_layout_between_render_and_hit_test() {
+        let area = Rect::new(4, 10, 120, 1);
+        let areas = areas(area);
+
+        assert_eq!(areas.tabs.x, area.x);
+        assert_eq!(areas.detail.x, areas.tabs.right());
+        assert_eq!(areas.tabs.width + areas.detail.width, area.width);
+    }
+
+    fn assert_action_spans<const N: usize>(
+        state: &AppState,
+        area: Rect,
+        detail: &StatusDetail,
+        expected: [(ActionId, &str); N],
+    ) {
+        for (action, visible_text) in expected {
+            let span = detail
+                .actions
+                .iter()
+                .find(|span| span.action.action == action)
+                .expect("status action is visible at representative width");
+            assert_eq!(
+                &detail.text[span.start as usize..span.end as usize],
+                visible_text
+            );
+            assert_eq!(
+                action_at(state, "CRDO", 0, area, area.x + span.start),
+                Some(span.action)
+            );
+            assert_eq!(
+                action_at(state, "CRDO", 0, area, area.x + span.end - 1),
+                Some(span.action)
+            );
+        }
+    }
+}

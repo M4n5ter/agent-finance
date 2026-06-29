@@ -1,6 +1,6 @@
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Offset, Rect};
-use ratatui::style::Modifier;
+use ratatui::layout::{Offset, Rect};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Shadow, Wrap};
 
@@ -10,8 +10,9 @@ use crate::model::FloatingKind;
 use crate::mouse_target::MouseTarget;
 use crate::search_floating_view::SearchFloatingLayout;
 use crate::state::AppState;
+use crate::status_bar::{StatusDetail, status_symbol_and_errors};
 use crate::theme::ThemeConfig;
-use crate::workspace_tabs::{workspace_tab_segments, workspace_tabs_width};
+use crate::workspace_tabs::workspace_tab_segments;
 
 pub(super) fn render_status(
     frame: &mut Frame<'_>,
@@ -23,26 +24,71 @@ pub(super) fn render_status(
         return;
     }
 
-    let tab_width = workspace_tabs_width().min(area.width);
-    let [tabs_area, detail_area] =
-        split_horizontal(area, [Constraint::Length(tab_width), Constraint::Min(0)]);
-    render_workspace_tabs(frame, state, tabs_area, mouse_target);
+    let areas = crate::status_bar::areas(area);
+    render_workspace_tabs(frame, state, areas.tabs, mouse_target);
 
-    if detail_area.is_empty() {
+    if areas.detail.is_empty() {
         return;
     }
 
-    let symbol = state.selected_symbol().unwrap_or("N/A");
-    let errors = state
-        .market_snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.errors.len())
-        .unwrap_or(0);
-    let text = status_detail(state, symbol, errors, detail_area.width, mouse_target);
+    let (symbol, errors) = status_symbol_and_errors(state);
+    let text = crate::status_bar::detail(state, symbol, errors, areas.detail.width);
     frame.render_widget(
-        Paragraph::new(text).style(state.theme.chrome_style().fg(state.theme.text.color())),
-        detail_area,
+        Paragraph::new(status_detail_line(&state.theme, text, mouse_target))
+            .style(state.theme.chrome_style().fg(state.theme.text.color())),
+        areas.detail,
     );
+}
+
+fn status_detail_line(
+    theme: &ThemeConfig,
+    detail: StatusDetail,
+    mouse_target: Option<MouseTarget>,
+) -> Line<'static> {
+    if detail.actions.is_empty() {
+        return Line::from(detail.text);
+    }
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+    for action in detail.actions {
+        let start = action.start as usize;
+        let end = action.end as usize;
+        push_status_span(
+            &mut spans,
+            &detail.text,
+            cursor,
+            start,
+            theme.chrome_style(),
+        );
+        let style =
+            if mouse_target.is_some_and(|target| target.status_action_hovered(action.action)) {
+                theme.selected_style().add_modifier(Modifier::BOLD)
+            } else {
+                theme.accent_style().add_modifier(Modifier::BOLD)
+            };
+        push_status_span(&mut spans, &detail.text, start, end, style);
+        cursor = end;
+    }
+    push_status_span(
+        &mut spans,
+        &detail.text,
+        cursor,
+        detail.text.len(),
+        theme.chrome_style(),
+    );
+    Line::from(spans)
+}
+
+fn push_status_span(
+    spans: &mut Vec<Span<'static>>,
+    text: &str,
+    start: usize,
+    end: usize,
+    style: Style,
+) {
+    if start < end {
+        spans.push(Span::styled(text[start..end].to_string(), style));
+    }
 }
 
 fn render_workspace_tabs(
@@ -486,163 +532,6 @@ fn render_search_floating(
     );
 }
 
-fn status_detail(
-    state: &AppState,
-    symbol: &str,
-    errors: usize,
-    width: u16,
-    mouse_target: Option<MouseTarget>,
-) -> String {
-    let runtime = if state.scheduler_error.is_some() {
-        "scheduler error"
-    } else if state.refresh_loading() {
-        "refreshing"
-    } else {
-        "ready"
-    };
-
-    let compact = format!(
-        " {symbol} {} live:{}{} {runtime} e:{errors} ",
-        state.interaction_mode().label(),
-        live_label(state),
-        compact_config_segment(state),
-    );
-    let compact_without_errors = format!(
-        " {symbol} {} live:{}{} {runtime} ",
-        state.interaction_mode().label(),
-        live_label(state),
-        compact_config_segment(state),
-    );
-    let terse = format!(" {symbol} {runtime} ");
-
-    let (medium, medium_without_errors, semantic_short) =
-        if let Some(profile) = state.trading_profile.as_deref() {
-            (
-                format!(
-                    " {symbol} | profile: {profile} | live:{}{} | {} | {runtime} | e:{errors} ",
-                    live_label(state),
-                    config_segment(state),
-                    state.effective_submit_mode()
-                ),
-                format!(
-                    " {symbol} | profile: {profile} | live:{}{} | {} | {runtime} ",
-                    live_label(state),
-                    config_segment(state),
-                    state.effective_submit_mode()
-                ),
-                format!(
-                    " {symbol} profile: {profile} live:{}{} {} {runtime} ",
-                    live_label(state),
-                    compact_config_segment(state),
-                    state.effective_submit_mode()
-                ),
-            )
-        } else {
-            (
-                format!(
-                    " {symbol} | mode: {} | live:{}{} | {} | focus: {} | {runtime} | e:{errors} ",
-                    state.interaction_mode().label(),
-                    live_label(state),
-                    config_segment(state),
-                    state.effective_submit_mode(),
-                    state.panels.focused().title(),
-                ),
-                format!(
-                    " {symbol} | mode: {} | live:{}{} | {} | {runtime} ",
-                    state.interaction_mode().label(),
-                    live_label(state),
-                    config_segment(state),
-                    state.effective_submit_mode(),
-                ),
-                format!(
-                    " {symbol} mode: {} live:{}{} {} {runtime} ",
-                    state.interaction_mode().label(),
-                    live_label(state),
-                    compact_config_segment(state),
-                    state.effective_submit_mode(),
-                ),
-            )
-        };
-
-    let profile = state
-        .trading_profile
-        .as_deref()
-        .map(|profile| format!(" | profile: {profile}"))
-        .unwrap_or_default();
-    let prefix = format!(
-        " {symbol} | mode: {}{profile}{} | {} | focus: {} | visible: {}/{} | {runtime} | errors: {errors} | ",
-        state.interaction_mode().label(),
-        config_segment(state),
-        write_label(state),
-        state.panels.focused().title(),
-        state.visible_panels().len(),
-        state.workspace.panels().len(),
-    );
-    let hint_budget = width.saturating_sub(prefix.len() as u16 + 1) as usize;
-    let key_hints = hints::status_key_hints(state, hint_budget);
-    let long = match mouse_target {
-        Some(target) if !key_hints.is_empty() => {
-            format!("{}{} | {} ", prefix, target.status_hint(), key_hints)
-        }
-        Some(target) => format!("{}{} ", prefix, target.status_hint()),
-        None => format!("{prefix}{key_hints} "),
-    };
-    let hover_only = mouse_target.map(|target| format!(" {symbol} | {} ", target.status_hint()));
-    fit_status_detail(
-        width,
-        std::iter::once(long)
-            .chain([
-                medium,
-                medium_without_errors,
-                semantic_short,
-                compact,
-                compact_without_errors,
-            ])
-            .chain(hover_only)
-            .chain([terse]),
-    )
-}
-
-fn fit_status_detail(width: u16, candidates: impl IntoIterator<Item = String>) -> String {
-    let width = width as usize;
-    candidates
-        .into_iter()
-        .find(|candidate| candidate.len() <= width)
-        .unwrap_or_default()
-}
-
-fn write_label(state: &AppState) -> String {
-    format!(
-        "live: {} / write: {}",
-        live_label(state),
-        state.effective_submit_mode()
-    )
-}
-
-fn live_label(state: &AppState) -> &'static str {
-    if state.live_writes_enabled {
-        "on"
-    } else {
-        "off"
-    }
-}
-
-fn compact_config_segment(state: &AppState) -> String {
-    config_changes_label(state)
-        .map(|label| format!(" cfg:{label}"))
-        .unwrap_or_default()
-}
-
-fn config_segment(state: &AppState) -> String {
-    config_changes_label(state)
-        .map(|label| format!(" | cfg:{label}"))
-        .unwrap_or_default()
-}
-
-fn config_changes_label(state: &AppState) -> Option<String> {
-    (!state.config_changes.is_empty()).then(|| state.config_changes.join(","))
-}
-
 fn floating_block(title: &'static str, theme: &ThemeConfig) -> Block<'static> {
     shadowed_block(simple_block(title), theme)
 }
@@ -661,14 +550,4 @@ fn shadowed_block(block: Block<'static>, theme: &ThemeConfig) -> Block<'static> 
 
 fn simple_block(title: &'static str) -> Block<'static> {
     Block::default().title(title).borders(Borders::ALL)
-}
-
-fn split_horizontal<const N: usize>(area: Rect, constraints: [Constraint; N]) -> [Rect; N] {
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(constraints)
-        .split(area)
-        .as_ref()
-        .try_into()
-        .unwrap_or([Rect::default(); N])
 }

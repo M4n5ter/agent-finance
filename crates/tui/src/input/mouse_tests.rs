@@ -5,6 +5,7 @@ use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
 use crate::mouse_target::{self, MousePosition, MouseTarget, PanelMouseAction};
 use crate::search_floating_view::SearchFloatingLayout;
+use crate::status_bar::StatusAction;
 use agent_finance_core::{Environment, Market, Provider, SignedReadRequest, SignedReadSnapshot};
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -666,6 +667,62 @@ fn mouse_movement_tracks_workspace_tab_hover() {
 }
 
 #[test]
+fn mouse_movement_tracks_visible_status_action_hover() {
+    let area = Rect::new(0, 0, 180, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let mut drag = MouseDrag::default();
+    let column = visible_status_action_column(
+        area,
+        &state,
+        ActionId::OpenFloating(FloatingKind::CommandPalette),
+    );
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::Moved, column, area.bottom() - 1),
+    );
+
+    assert_eq!(
+        current_mouse_target(area, &state),
+        Some(MouseTarget::StatusAction(StatusAction {
+            label: "open command palette",
+            action: ActionId::OpenFloating(FloatingKind::CommandPalette),
+        }))
+    );
+}
+
+#[test]
+fn mouse_click_on_visible_status_action_executes_it() {
+    let area = Rect::new(0, 0, 180, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let mut drag = MouseDrag::default();
+    let column = visible_status_action_column(
+        area,
+        &state,
+        ActionId::OpenFloating(FloatingKind::CommandPalette),
+    );
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(
+            MouseEventKind::Down(MouseButton::Left),
+            column,
+            area.bottom() - 1,
+        ),
+    );
+
+    assert_eq!(
+        state.floating.last().map(|pane| pane.kind),
+        Some(FloatingKind::CommandPalette)
+    );
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_movement_tracks_read_only_panel_row_hover() {
     let area = Rect::new(0, 0, 120, 32);
     let mut state = AppState::from_config(crate::config::TuiConfig::default());
@@ -1112,4 +1169,28 @@ fn current_mouse_target(area: Rect, state: &AppState) -> Option<MouseTarget> {
     state
         .mouse_position
         .and_then(|position| mouse_target::target_at(state, &layout, position))
+}
+
+fn visible_status_action_column(area: Rect, state: &AppState, action: ActionId) -> u16 {
+    let layout = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    );
+    let detail = crate::status_bar::areas(layout.status).detail;
+    (detail.x..detail.right())
+        .find(|column| {
+            mouse_target::target_at(state, &layout, MousePosition::new(*column, detail.y))
+                .is_some_and(|target| {
+                    matches!(
+                        target,
+                        MouseTarget::StatusAction(StatusAction {
+                            action: target_action,
+                            ..
+                        }) if target_action == action
+                    )
+                })
+        })
+        .expect("status action is visible")
 }

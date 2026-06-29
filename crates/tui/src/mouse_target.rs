@@ -3,6 +3,7 @@ use crate::confirmation_dialog::ConfirmationButtonAction;
 use crate::layout::{CockpitLayout, LayoutHit};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
 use crate::state::AppState;
+use crate::status_bar::StatusAction;
 use crate::workspace_tabs::workspace_tab_at;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -31,26 +32,11 @@ pub enum MouseTarget {
         action: FloatingMouseAction,
     },
     FloatingResize(FloatingKind),
+    StatusAction(StatusAction),
     DockedSplit,
 }
 
 impl MouseTarget {
-    pub fn status_hint(self) -> String {
-        match self {
-            Self::WorkspaceTab(workspace) => {
-                format!("mouse: click to open {} workspace", workspace.label())
-            }
-            Self::Panel(panel) => format!("mouse: click to focus {}", panel.title()),
-            Self::PanelAction { panel, action } => action.status_hint(panel),
-            Self::Floating(kind) => format!("mouse: click to focus {}", kind.title()),
-            Self::FloatingAction { kind, action } => {
-                format!("mouse: click to {} in {}", action.label(), kind.title())
-            }
-            Self::FloatingResize(kind) => format!("mouse: drag to resize {}", kind.title()),
-            Self::DockedSplit => "mouse: drag to resize docked panes".to_string(),
-        }
-    }
-
     pub fn workspace_tab_hovered(self, workspace: WorkspaceKind) -> bool {
         matches!(self, Self::WorkspaceTab(hit) if hit == workspace)
     }
@@ -135,6 +121,10 @@ impl MouseTarget {
             _ => None,
         }
     }
+
+    pub fn status_action_hovered(self, action: StatusAction) -> bool {
+        matches!(self, Self::StatusAction(hover_action) if hover_action == action)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -155,44 +145,12 @@ pub enum PanelMouseAction {
     },
 }
 
-impl PanelMouseAction {
-    fn status_hint(self, panel: Panel) -> String {
-        match self {
-            Self::InspectRow { index } => {
-                format!("mouse: reading row {} in {}", index + 1, panel.title())
-            }
-            action => format!("mouse: click to {} in {}", action.label(), panel.title()),
-        }
-    }
-
-    fn label(self) -> String {
-        match self {
-            Self::SelectRow { index } => format!("select row {}", index + 1),
-            Self::SelectField { index } => format!("edit field {}", index + 1),
-            Self::StageReadyChange => "stage ready change".to_string(),
-            Self::ExecuteAction { label, .. } => label.to_string(),
-            Self::InspectRow { index } => format!("inspect row {}", index + 1),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FloatingMouseAction {
     ExecuteResult { index: usize },
     SelectResult { index: usize },
     Confirm,
     Cancel,
-}
-
-impl FloatingMouseAction {
-    fn label(self) -> String {
-        match self {
-            Self::ExecuteResult { index } => format!("execute result {}", index + 1),
-            Self::SelectResult { index } => format!("select result {}", index + 1),
-            Self::Confirm => "confirm".to_string(),
-            Self::Cancel => "cancel".to_string(),
-        }
-    }
 }
 
 pub(crate) fn target_at(
@@ -225,9 +183,16 @@ pub(crate) fn target_at(
                 )
             })
             .or(Some(MouseTarget::Floating(kind))),
-        LayoutHit::Status => {
-            workspace_tab_at(layout.status, position.column).map(MouseTarget::WorkspaceTab)
-        }
+        LayoutHit::Status => workspace_tab_at(layout.status, position.column)
+            .map(MouseTarget::WorkspaceTab)
+            .or_else(|| {
+                crate::status_bar::visible_action_at(
+                    state,
+                    crate::status_bar::areas(layout.status).detail,
+                    position.column,
+                )
+                .map(MouseTarget::StatusAction)
+            }),
     }
 }
 

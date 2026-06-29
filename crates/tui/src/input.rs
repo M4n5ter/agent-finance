@@ -111,6 +111,12 @@ pub fn handle_mouse_event(
                             workspace,
                         )));
                         state.reduce(Action::Focus(workspace.default_panel()));
+                    } else if let Some(action) = crate::status_bar::visible_action_at(
+                        state,
+                        crate::status_bar::areas(layout.status).detail,
+                        mouse.column,
+                    ) {
+                        state.reduce(Action::Execute(action.action));
                     }
                 }
                 None => {}
