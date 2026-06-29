@@ -21,6 +21,7 @@ nucleo-matcher.workspace = true
 tui-input.workspace = true
 chrono.workspace = true
 rust_decimal.workspace = true
+unicode-width = "0.2"
 
 [dev-dependencies]
 insta = "1.48"

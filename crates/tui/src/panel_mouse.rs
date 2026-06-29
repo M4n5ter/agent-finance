@@ -116,8 +116,8 @@ fn panel_hit_at(
                 content_column,
             ) {
                 return Some(PanelHit::Action {
-                    label: "stage cancel",
-                    action,
+                    label: action.label,
+                    action: action.action,
                 });
             }
             crate::open_order_view::open_order_index_at_content_row(
@@ -138,8 +138,8 @@ fn panel_hit_at(
                 content_column,
             ) {
                 return Some(PanelHit::Action {
-                    label: "stage cancel",
-                    action,
+                    label: action.label,
+                    action: action.action,
                 });
             }
             crate::account_panel_view::open_order_index_at_content_row(

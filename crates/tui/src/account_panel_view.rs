@@ -5,7 +5,8 @@ use crate::account::ACCOUNT_READ_PLAN;
 use crate::command::ActionId;
 use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
-use crate::open_order_view::{OpenOrderActionSpan, OpenOrderRow};
+use crate::open_order_view::OpenOrderRow;
+use crate::panel_action_line_view::{PanelActionLine, PanelActionSpan, styled_panel_action_line};
 use crate::profile_snapshot::TradingProfileSnapshot;
 use crate::state::AppState;
 
@@ -13,11 +14,13 @@ use crate::render::profile_policy::{ProfilePolicyFormat, profile_policy_lines};
 use crate::render::widgets::compact_text;
 
 const VISIBLE_TRANSFER_LIMIT: usize = 4;
+const ACCOUNT_TRANSFER_LABEL: &str = "[transfer]";
+const ACCOUNT_FUTURES_STATE_LABEL: &str = "[futures state]";
 
 pub(crate) struct AccountPanelRow {
     pub line: Line<'static>,
     pub open_order_index: Option<usize>,
-    pub actions: Vec<OpenOrderActionSpan>,
+    pub actions: Vec<PanelActionSpan>,
 }
 
 impl AccountPanelRow {
@@ -45,7 +48,7 @@ impl AccountPanelRow {
         }
     }
 
-    fn action_line(line: Line<'static>, actions: Vec<OpenOrderActionSpan>) -> Self {
+    fn action_line(line: Line<'static>, actions: Vec<PanelActionSpan>) -> Self {
         Self {
             line,
             open_order_index: None,
@@ -60,6 +63,7 @@ pub(crate) fn rows_for_width(
     content_width: u16,
 ) -> Vec<AccountPanelRow> {
     let mut rows = profile_rows(state);
+    rows.extend(account_action_rows(state, mouse_target, content_width));
 
     match state.account_snapshot.as_ref() {
         Some(snapshot) => {
@@ -85,6 +89,38 @@ pub(crate) fn rows_for_width(
     rows
 }
 
+fn account_action_rows(
+    state: &AppState,
+    mouse_target: Option<MouseTarget>,
+    width: u16,
+) -> Vec<AccountPanelRow> {
+    if state.trading_profile.is_none() {
+        return Vec::new();
+    }
+
+    let action_line = account_action_line(width);
+    let actions = action_line.actions.clone();
+    vec![AccountPanelRow::action_line(
+        styled_panel_action_line(&action_line, &state.theme, Panel::Account, mouse_target),
+        actions,
+    )]
+}
+
+fn account_action_line(width: u16) -> PanelActionLine {
+    let mut line = PanelActionLine::new("actions", width);
+    line.push_visible_text("  ");
+    line.push_visible_action(
+        ACCOUNT_TRANSFER_LABEL,
+        ActionId::FocusPanel(Panel::TransferTicket),
+    );
+    line.push_visible_text("  ");
+    line.push_visible_action(
+        ACCOUNT_FUTURES_STATE_LABEL,
+        ActionId::FocusPanel(Panel::FuturesState),
+    );
+    line
+}
+
 pub(crate) fn open_order_index_at_content_row(
     state: &AppState,
     width: u16,
@@ -100,13 +136,13 @@ pub(crate) fn action_at_content_cell(
     width: u16,
     content_row: usize,
     content_column: u16,
-) -> Option<ActionId> {
+) -> Option<PanelActionSpan> {
     rows_for_width(state, None, width)
         .get(content_row)?
         .actions
         .iter()
+        .copied()
         .find(|span| (span.start..span.end).contains(&content_column))
-        .map(|span| span.action)
 }
 
 fn profile_rows(state: &AppState) -> Vec<AccountPanelRow> {
@@ -136,7 +172,6 @@ fn profile_risk_rows(state: &AppState, profile: &TradingProfileSnapshot) -> Vec<
 
 fn account_read_rows(snapshot: &crate::AccountSnapshot) -> Vec<AccountPanelRow> {
     let mut rows = vec![
-        AccountPanelRow::text(""),
         AccountPanelRow::text(format!(
             "provider: {}  environment: {}",
             snapshot.provider, snapshot.environment
@@ -201,12 +236,7 @@ fn open_order_action_row(
     let action_line = crate::open_order_view::open_order_action_line(width);
     let actions = action_line.actions.clone();
     AccountPanelRow::action_line(
-        crate::open_order_view::styled_open_order_action_line(
-            &state.theme,
-            Panel::Account,
-            width,
-            mouse_target,
-        ),
+        styled_panel_action_line(&action_line, &state.theme, Panel::Account, mouse_target),
         actions,
     )
 }
@@ -328,7 +358,8 @@ mod tests {
 
         let action = rows_for_width(&state, None, 100)
             .into_iter()
-            .find_map(|row| row.actions.first().copied())
+            .flat_map(|row| row.actions)
+            .find(|span| span.action == ActionId::StageSelectedOpenOrderCancel)
             .expect("account open order cancel action");
 
         assert_eq!(action.action, ActionId::StageSelectedOpenOrderCancel);
@@ -339,7 +370,7 @@ mod tests {
                 open_order_action_row_index(&state, 100),
                 action.start
             ),
-            Some(ActionId::StageSelectedOpenOrderCancel)
+            Some(action)
         );
         assert_eq!(
             rows_for_width(&state, None, 18)
@@ -350,10 +381,46 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rows_mark_account_operation_shortcuts_as_action_metadata() {
+        let state = AppState::from_config(crate::config::TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..crate::config::TuiConfig::default()
+        });
+
+        let row = rows_for_width(&state, None, 100)
+            .into_iter()
+            .find(|row| {
+                row.actions
+                    .iter()
+                    .any(|span| span.action == ActionId::FocusPanel(Panel::TransferTicket))
+            })
+            .expect("account action row");
+        let actions = row
+            .actions
+            .iter()
+            .map(|span| span.action)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![
+                ActionId::FocusPanel(Panel::TransferTicket),
+                ActionId::FocusPanel(Panel::FuturesState),
+            ]
+        );
+    }
+
     fn open_order_action_row_index(state: &AppState, width: u16) -> usize {
         rows_for_width(state, None, width)
             .into_iter()
-            .position(|row| !row.actions.is_empty())
+            .position(|row| {
+                row.actions
+                    .iter()
+                    .any(|span| span.action == ActionId::StageSelectedOpenOrderCancel)
+            })
             .expect("account open order action row")
     }
 

@@ -76,14 +76,12 @@ fn action_line_to_line(
 ) -> Line<'static> {
     let mut spans = Vec::new();
     let mut cursor = 0usize;
-    for action in action_line.actions {
-        let start = action.start as usize;
-        let end = action.end as usize;
+    for action in &action_line.actions {
         push_text_span(
             &mut spans,
             &action_line.text,
             cursor,
-            start,
+            action.byte_start,
             state.theme.text_style(),
         );
         let style = if mouse_target.is_some_and(|target| {
@@ -93,8 +91,14 @@ fn action_line_to_line(
         } else {
             state.theme.accent_style().add_modifier(Modifier::BOLD)
         };
-        push_text_span(&mut spans, &action_line.text, start, end, style);
-        cursor = end;
+        push_text_span(
+            &mut spans,
+            &action_line.text,
+            action.byte_start,
+            action.byte_end,
+            style,
+        );
+        cursor = action.byte_end;
     }
     push_text_span(
         &mut spans,

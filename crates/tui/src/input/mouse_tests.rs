@@ -617,6 +617,76 @@ fn mouse_click_on_account_open_order_cancel_action_stages_cancel() {
 }
 
 #[test]
+fn mouse_click_on_account_transfer_action_focuses_transfer_ticket() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Account)
+    .expect("account panel is visible");
+
+    let click = clickable_panel_action(
+        &mut state,
+        area,
+        panel,
+        Panel::Account,
+        ActionId::FocusPanel(Panel::TransferTicket),
+    );
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(state.panels.focused(), Panel::TransferTicket);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
+fn mouse_click_on_account_futures_state_action_focuses_futures_state() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Account)
+    .expect("account panel is visible");
+
+    let click = clickable_panel_action(
+        &mut state,
+        area,
+        panel,
+        Panel::Account,
+        ActionId::FocusPanel(Panel::FuturesState),
+    );
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(state.panels.focused(), Panel::FuturesState);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_click_on_settings_row_selects_setting() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {
