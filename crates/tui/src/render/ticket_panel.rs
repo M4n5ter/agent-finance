@@ -8,7 +8,9 @@ use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
 use crate::panel_action_line_view::styled_panel_action_line;
 use crate::state::AppState;
-use crate::ticket_panel_view::{TicketPanelAction, TicketPanelRow, TicketPanelRows};
+use crate::ticket_panel_view::{
+    TicketPanelAction, TicketPanelRow, TicketPanelRows, field_action_line,
+};
 
 use super::widgets::panel_block;
 
@@ -30,6 +32,7 @@ pub(super) struct TicketField {
     pub label: &'static str,
     pub value: String,
     pub selected: bool,
+    pub adjustable: bool,
 }
 
 impl TicketField {
@@ -38,7 +41,13 @@ impl TicketField {
             label,
             value,
             selected: label == selected_label,
+            adjustable: true,
         }
+    }
+
+    pub(super) fn read_only(mut self) -> Self {
+        self.adjustable = false;
+        self
     }
 }
 
@@ -53,6 +62,7 @@ pub(super) fn render_ticket_panel(
         detail_count: ticket.detail_lines.len(),
         actions: ticket.actions,
         field_count: ticket.fields.len(),
+        field_adjustable: ticket.fields.iter().map(|field| field.adjustable).collect(),
         ready: ticket.ready,
         blocker_count: ticket.blockers.len(),
     };
@@ -103,11 +113,14 @@ fn ticket_line(
         TicketPanelRow::Action(index) => {
             ticket_action_line(state, ticket, ticket.actions[index], width, mouse_target)
         }
-        TicketPanelRow::Field(index) => Line::from(vec![ticket_field_span(
+        TicketPanelRow::Field(index) => ticket_field_line(
             state,
+            ticket.panel,
             &ticket.fields[index],
-            ticket_field_hovered(mouse_target, ticket.panel, index),
-        )]),
+            index,
+            width,
+            mouse_target,
+        ),
         TicketPanelRow::ReadyAction => Line::from(Span::styled(
             format!("[stage] {}", ticket.ready_label),
             if ticket_ready_hovered(mouse_target, ticket.panel) {
@@ -139,14 +152,54 @@ fn ticket_action_line(
     )
 }
 
-fn ticket_field_span(state: &AppState, field: &TicketField, hovered: bool) -> Span<'static> {
+fn ticket_field_line(
+    state: &AppState,
+    panel: Panel,
+    field: &TicketField,
+    index: usize,
+    width: u16,
+    mouse_target: Option<MouseTarget>,
+) -> Line<'static> {
     let marker = if field.selected { ">" } else { " " };
+    let hovered = ticket_field_hovered(mouse_target, panel, index);
     let style = if hovered || field.selected {
         state.theme.selected_style().add_modifier(Modifier::BOLD)
     } else {
         state.theme.text_style()
     };
-    Span::styled(format!("{marker} {}: {}", field.label, field.value), style)
+    let field_text = format!("{marker} {}: {}", field.label, field.value);
+    let action_line = field_action_line(width, index, &field_text, field.adjustable);
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+    for action in &action_line.actions {
+        push_ticket_field_text_span(
+            &mut spans,
+            action_line.text_before(action.byte_start, cursor),
+            style,
+        );
+        let hovered = mouse_target.is_some_and(|target| {
+            target.panel_field_adjust_hovered(panel, index, action.action.direction)
+        });
+        let action_style = if hovered {
+            state.theme.selected_style().add_modifier(Modifier::BOLD)
+        } else {
+            state.theme.accent_style()
+        };
+        push_ticket_field_text_span(&mut spans, action_line.action_text(*action), action_style);
+        cursor = action.byte_end;
+    }
+    push_ticket_field_text_span(&mut spans, action_line.text_after(cursor), style);
+    Line::from(spans)
+}
+
+fn push_ticket_field_text_span(
+    spans: &mut Vec<Span<'static>>,
+    text: &str,
+    style: ratatui::style::Style,
+) {
+    if !text.is_empty() {
+        spans.push(Span::styled(text.to_string(), style));
+    }
 }
 
 fn ticket_field_hovered(mouse_target: Option<MouseTarget>, panel: Panel, index: usize) -> bool {

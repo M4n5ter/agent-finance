@@ -977,6 +977,34 @@ fn mouse_click_on_order_ticket_field_selects_that_field() {
 }
 
 #[test]
+fn mouse_click_on_order_ticket_field_adjusts_that_field() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Trade,
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::OrderTicket)
+    .expect("order ticket panel is visible");
+
+    let click = clickable_panel_field_adjust(&mut state, area, panel, Panel::OrderTicket, 1, 1);
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(state.order_ticket.selected_field_label(), "side");
+    assert_eq!(state.order_ticket_preview().side.to_string(), "sell");
+    assert_eq!(state.panels.focused(), Panel::OrderTicket);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_click_on_order_ticket_capture_price_action_fixes_quote_price() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {
@@ -1176,6 +1204,65 @@ fn mouse_click_on_transfer_ticket_field_selects_that_field() {
 }
 
 #[test]
+fn mouse_click_on_transfer_ticket_field_adjusts_that_field() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::TransferTicket)
+    .expect("transfer ticket panel is visible");
+
+    let click = clickable_panel_field_adjust(&mut state, area, panel, Panel::TransferTicket, 2, 1);
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    let preview = state.transfer_ticket_preview();
+    assert_eq!(state.transfer_ticket.selected_field_label(), "amount");
+    assert_eq!(preview.amount.as_deref(), Some("1"));
+    assert_eq!(state.panels.focused(), Panel::TransferTicket);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
+fn mouse_click_on_futures_state_field_adjusts_that_field() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["BTCUSDT".to_string()],
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::FuturesState)
+    .expect("futures state panel is visible");
+
+    let click = clickable_panel_field_adjust(&mut state, area, panel, Panel::FuturesState, 2, 1);
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    let preview = state.futures_state_ticket_preview();
+    assert_eq!(state.futures_state_ticket.selected_field_label(), "value");
+    assert_eq!(preview.leverage, Some(1));
+    assert_eq!(state.panels.focused(), Panel::FuturesState);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_click_on_inactive_futures_scope_field_does_not_select_value() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {
@@ -1202,6 +1289,38 @@ fn mouse_click_on_inactive_futures_scope_field_does_not_select_value() {
     assert_eq!(state.futures_state_ticket.selected_field_label(), "kind");
     assert_eq!(state.panels.focused(), Panel::FuturesState);
     assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
+fn mouse_cannot_adjust_inactive_futures_scope_field() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    state
+        .futures_state_ticket
+        .adjust_selected_field(-1, Some("BTCUSDT"));
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::FuturesState)
+    .expect("futures state panel is visible");
+
+    let click =
+        maybe_clickable_panel_field_adjust(&mut state, area, panel, Panel::FuturesState, 1, 1);
+
+    assert!(click.is_none());
+    assert_eq!(
+        state.futures_state_ticket_preview().kind,
+        agent_finance_core::FuturesStateChangeKind::PositionMode
+    );
+    assert_eq!(state.futures_state_ticket.selected_field_label(), "kind");
 }
 
 #[test]
@@ -1873,6 +1992,31 @@ fn clickable_panel_field(
     )
 }
 
+fn clickable_panel_field_adjust(
+    state: &mut AppState,
+    area: Rect,
+    panel: Rect,
+    target_panel: Panel,
+    target_index: usize,
+    direction: isize,
+) -> MouseEvent {
+    maybe_clickable_panel_field_adjust(state, area, panel, target_panel, target_index, direction)
+        .expect("clickable panel field adjust action was not found")
+}
+
+fn maybe_clickable_panel_field_adjust(
+    state: &mut AppState,
+    area: Rect,
+    panel: Rect,
+    target_panel: Panel,
+    target_index: usize,
+    direction: isize,
+) -> Option<MouseEvent> {
+    maybe_clickable_panel_target(state, area, panel, |target| {
+        target.panel_field_adjust_hovered(target_panel, target_index, direction)
+    })
+}
+
 fn clickable_panel_ready_action(
     state: &mut AppState,
     area: Rect,
@@ -1917,6 +2061,17 @@ fn clickable_panel_target(
     matches_target: impl Fn(MouseTarget) -> bool,
     missing: &str,
 ) -> MouseEvent {
+    maybe_clickable_panel_target(state, area, panel, matches_target).unwrap_or_else(|| {
+        panic!("{missing}");
+    })
+}
+
+fn maybe_clickable_panel_target(
+    state: &mut AppState,
+    area: Rect,
+    panel: Rect,
+    matches_target: impl Fn(MouseTarget) -> bool,
+) -> Option<MouseEvent> {
     let mut drag = MouseDrag::default();
     for content_row in 0..panel.height.saturating_sub(2) {
         for content_column in 0..panel.width.saturating_sub(2) {
@@ -1929,11 +2084,15 @@ fn clickable_panel_target(
                 mouse_event(MouseEventKind::Moved, column, row),
             );
             if current_mouse_target(area, state).is_some_and(&matches_target) {
-                return mouse_event(MouseEventKind::Down(MouseButton::Left), column, row);
+                return Some(mouse_event(
+                    MouseEventKind::Down(MouseButton::Left),
+                    column,
+                    row,
+                ));
             }
         }
     }
-    panic!("{missing}");
+    None
 }
 
 fn floating_click(floating: Rect, content_column: u16, content_row: u16) -> MouseEvent {

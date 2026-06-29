@@ -29,7 +29,7 @@ pub(super) fn render_futures_state(
             actions: crate::futures_state_controls::FUTURES_STATE_ACTIONS,
             fields: vec![
                 TicketField::new("kind", preview.kind.to_string(), selected),
-                TicketField::new("scope", preview.scope_label(), selected),
+                futures_scope_field(&preview, selected),
                 TicketField::new("value", futures_state_value(&preview), selected),
             ],
             ready: preview.ready,
@@ -39,6 +39,15 @@ pub(super) fn render_futures_state(
         },
         mouse_target,
     );
+}
+
+fn futures_scope_field(preview: &FuturesStateTicketPreview, selected: &'static str) -> TicketField {
+    let field = TicketField::new("scope", preview.scope_label(), selected);
+    if preview.scope_adjustable() {
+        field
+    } else {
+        field.read_only()
+    }
 }
 
 fn futures_state_value(preview: &FuturesStateTicketPreview) -> String {

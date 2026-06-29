@@ -40,6 +40,10 @@ enum PanelHit {
     Row(usize),
     InfoRow(usize),
     TicketField(usize),
+    TicketFieldAdjust {
+        index: usize,
+        direction: isize,
+    },
     TicketReadyAction,
     Action {
         label: &'static str,
@@ -85,13 +89,22 @@ impl PanelHit {
             (Panel::OrderTicket, Self::TicketField(index)) => {
                 Some(Action::SelectOrderTicketField(index))
             }
+            (Panel::OrderTicket, Self::TicketFieldAdjust { index, direction }) => {
+                Some(Action::AdjustOrderTicketFieldAt { index, direction })
+            }
             (Panel::OrderTicket, Self::TicketReadyAction) => Some(Action::StageOrderTicket),
             (Panel::TransferTicket, Self::TicketField(index)) => {
                 Some(Action::SelectTransferTicketField(index))
             }
+            (Panel::TransferTicket, Self::TicketFieldAdjust { index, direction }) => {
+                Some(Action::AdjustTransferTicketFieldAt { index, direction })
+            }
             (Panel::TransferTicket, Self::TicketReadyAction) => Some(Action::StageTransferTicket),
             (Panel::FuturesState, Self::TicketField(index)) => {
                 Some(Action::SelectFuturesStateTicketField(index))
+            }
+            (Panel::FuturesState, Self::TicketFieldAdjust { index, direction }) => {
+                Some(Action::AdjustFuturesStateTicketFieldAt { index, direction })
             }
             (Panel::FuturesState, Self::TicketReadyAction) => Some(Action::StageFuturesStateTicket),
             _ => None,
@@ -103,6 +116,9 @@ impl PanelHit {
             Self::Row(index) => PanelMouseAction::SelectRow { index },
             Self::InfoRow(index) => PanelMouseAction::InspectRow { index },
             Self::TicketField(index) => PanelMouseAction::SelectField { index },
+            Self::TicketFieldAdjust { index, direction } => {
+                PanelMouseAction::AdjustField { index, direction }
+            }
             Self::TicketReadyAction => PanelMouseAction::StageReadyChange,
             Self::Action { label, action } => PanelMouseAction::ExecuteAction { label, action },
             Self::AccountHit {
@@ -270,6 +286,14 @@ fn ticket_hit_at(
             action: action.action,
         });
     }
+    if let Some(action) =
+        rows.field_action_at_content_cell(content_width, content_row, content_column)
+    {
+        return Some(PanelHit::TicketFieldAdjust {
+            index: action.action.index,
+            direction: action.action.direction,
+        });
+    }
     match rows.click_at(content_row)? {
         TicketPanelClick::Field(index) => Some(PanelHit::TicketField(index)),
         TicketPanelClick::ReadyAction => Some(PanelHit::TicketReadyAction),
@@ -282,6 +306,7 @@ fn order_ticket_rows(state: &AppState) -> TicketPanelRows {
         detail_count: 1,
         actions: crate::order_ticket_controls::ORDER_TICKET_ACTIONS,
         field_count: OrderTicketField::COUNT,
+        field_adjustable: vec![true; OrderTicketField::COUNT],
         ready: preview.ready,
         blocker_count: preview.blockers.len(),
     }
@@ -293,6 +318,7 @@ fn transfer_ticket_rows(state: &AppState) -> TicketPanelRows {
         detail_count: 0,
         actions: &[],
         field_count: TransferTicketField::COUNT,
+        field_adjustable: vec![true; TransferTicketField::COUNT],
         ready: preview.ready,
         blocker_count: preview.blockers.len(),
     }
@@ -304,6 +330,7 @@ fn futures_state_ticket_rows(state: &AppState) -> TicketPanelRows {
         detail_count: 0,
         actions: &[],
         field_count: FuturesStateTicketField::MAX_COUNT,
+        field_adjustable: vec![true, preview.scope_adjustable(), true],
         ready: preview.ready,
         blocker_count: preview.blockers.len(),
     }

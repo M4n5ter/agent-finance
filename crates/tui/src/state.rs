@@ -489,6 +489,26 @@ impl AppState {
         }
     }
 
+    fn adjust_order_ticket_field_at(&mut self, index: usize, direction: isize) {
+        self.order_ticket.select_field(index);
+        self.order_ticket
+            .adjust_selected_field(direction, self.selected_quote_price());
+    }
+
+    fn adjust_transfer_ticket_field_at(&mut self, index: usize, direction: isize) {
+        self.transfer_ticket.select_field(index);
+        self.transfer_ticket.adjust_selected_field(direction);
+    }
+
+    fn adjust_futures_state_ticket_field_at(&mut self, index: usize, direction: isize) {
+        if !self.futures_state_ticket.select_field(index) {
+            return;
+        }
+        let symbol = self.selected_symbol().map(ToString::to_string);
+        self.futures_state_ticket
+            .adjust_selected_field(direction, symbol.as_deref());
+    }
+
     fn adjust_selected_setting(&mut self, direction: isize) {
         let row = self.settings_editor.selected();
         let Some(change) = self.edit_local_config(|state| {
@@ -835,6 +855,9 @@ impl AppState {
                 self.order_ticket
                     .adjust_selected_field(direction, self.selected_quote_price());
             }
+            Action::AdjustOrderTicketFieldAt { index, direction } => {
+                self.adjust_order_ticket_field_at(index, direction);
+            }
             Action::CaptureOrderReferencePrice => self.capture_order_reference_price(),
             Action::OpenTicketTextInput => self.open_ticket_text_input(),
             Action::MoveTransferTicketField(direction) => {
@@ -843,6 +866,9 @@ impl AppState {
             Action::SelectTransferTicketField(index) => self.transfer_ticket.select_field(index),
             Action::AdjustTransferTicketField(direction) => {
                 self.transfer_ticket.adjust_selected_field(direction);
+            }
+            Action::AdjustTransferTicketFieldAt { index, direction } => {
+                self.adjust_transfer_ticket_field_at(index, direction);
             }
             Action::ApplyTransferTicketPreset(preset) => {
                 let direction = preset.direction;
@@ -864,6 +890,9 @@ impl AppState {
                 let symbol = self.selected_symbol().map(ToString::to_string);
                 self.futures_state_ticket
                     .adjust_selected_field(direction, symbol.as_deref());
+            }
+            Action::AdjustFuturesStateTicketFieldAt { index, direction } => {
+                self.adjust_futures_state_ticket_field_at(index, direction);
             }
             Action::ApplyFuturesStateTicketPreset(preset) => {
                 let symbol = preset.symbol.clone();
@@ -1338,15 +1367,27 @@ pub enum Action {
     MoveOrderTicketField(isize),
     SelectOrderTicketField(usize),
     AdjustOrderTicketField(isize),
+    AdjustOrderTicketFieldAt {
+        index: usize,
+        direction: isize,
+    },
     CaptureOrderReferencePrice,
     OpenTicketTextInput,
     MoveTransferTicketField(isize),
     SelectTransferTicketField(usize),
     AdjustTransferTicketField(isize),
+    AdjustTransferTicketFieldAt {
+        index: usize,
+        direction: isize,
+    },
     ApplyTransferTicketPreset(crate::transfer_ticket::TransferTicketPreset),
     MoveFuturesStateTicketField(isize),
     SelectFuturesStateTicketField(usize),
     AdjustFuturesStateTicketField(isize),
+    AdjustFuturesStateTicketFieldAt {
+        index: usize,
+        direction: isize,
+    },
     ApplyFuturesStateTicketPreset(crate::futures_state_ticket::FuturesStateTicketPreset),
     MoveOpenOrderSelection(isize),
     SelectOpenOrder(usize),

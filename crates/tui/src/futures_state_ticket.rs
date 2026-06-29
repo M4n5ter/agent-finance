@@ -46,12 +46,14 @@ impl FuturesStateTicket {
         self.selected_field = FuturesStateTicketField::Value;
     }
 
-    pub fn select_field(&mut self, index: usize) {
+    pub fn select_field(&mut self, index: usize) -> bool {
         if let Some(field) = FuturesStateTicketField::ALL.get(index)
             && field.active_for(self.kind)
         {
             self.selected_field = *field;
+            return true;
         }
+        false
     }
 
     pub fn adjust_selected_field(&mut self, direction: isize, symbol_context: Option<&str>) {
@@ -282,6 +284,13 @@ impl FuturesStateTicketPreview {
             }
             FuturesStateChangeKind::PositionMode => "account-wide".to_string(),
         }
+    }
+
+    pub fn scope_adjustable(&self) -> bool {
+        matches!(
+            self.kind,
+            FuturesStateChangeKind::Leverage | FuturesStateChangeKind::MarginType
+        )
     }
 }
 

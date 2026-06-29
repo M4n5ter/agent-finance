@@ -62,6 +62,19 @@ impl MouseTarget {
         )
     }
 
+    pub fn panel_field_adjust_hovered(self, panel: Panel, index: usize, direction: isize) -> bool {
+        matches!(
+            self,
+            Self::PanelAction {
+                panel: hover_panel,
+                action: PanelMouseAction::AdjustField {
+                    index: hover_index,
+                    direction: hover_direction,
+                },
+            } if hover_panel == panel && hover_index == index && hover_direction == direction
+        )
+    }
+
     pub fn panel_ready_action_hovered(self, panel: Panel) -> bool {
         matches!(
             self,
@@ -179,6 +192,10 @@ pub enum PanelMouseAction {
     },
     SelectField {
         index: usize,
+    },
+    AdjustField {
+        index: usize,
+        direction: isize,
     },
     StageReadyChange,
     ExecuteAction {
