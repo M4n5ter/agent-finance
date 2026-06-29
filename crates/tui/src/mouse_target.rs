@@ -1,3 +1,4 @@
+use crate::command::ActionId;
 use crate::confirmation_dialog::ConfirmationButtonAction;
 use crate::layout::{CockpitLayout, LayoutHit};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
@@ -40,9 +41,7 @@ impl MouseTarget {
                 format!("mouse: click to open {} workspace", workspace.label())
             }
             Self::Panel(panel) => format!("mouse: click to focus {}", panel.title()),
-            Self::PanelAction { panel, action } => {
-                format!("mouse: click to {} in {}", action.label(), panel.title())
-            }
+            Self::PanelAction { panel, action } => action.status_hint(panel),
             Self::Floating(kind) => format!("mouse: click to focus {}", kind.title()),
             Self::FloatingAction { kind, action } => {
                 format!("mouse: click to {} in {}", action.label(), kind.title())
@@ -86,6 +85,29 @@ impl MouseTarget {
         )
     }
 
+    pub fn panel_action_hovered(self, panel: Panel, action: ActionId) -> bool {
+        matches!(
+            self,
+            Self::PanelAction {
+                panel: hover_panel,
+                action: PanelMouseAction::ExecuteAction {
+                    action: hover_action,
+                    ..
+                },
+            } if hover_panel == panel && hover_action == action
+        )
+    }
+
+    pub fn panel_info_row_hovered(self, panel: Panel, index: usize) -> bool {
+        matches!(
+            self,
+            Self::PanelAction {
+                panel: hover_panel,
+                action: PanelMouseAction::InspectRow { index: hover_index },
+            } if hover_panel == panel && hover_index == index
+        )
+    }
+
     pub fn floating_result_hovered(self, kind: FloatingKind, index: usize) -> bool {
         matches!(
             self,
@@ -117,17 +139,39 @@ impl MouseTarget {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum PanelMouseAction {
-    SelectRow { index: usize },
-    SelectField { index: usize },
+    SelectRow {
+        index: usize,
+    },
+    SelectField {
+        index: usize,
+    },
     StageReadyChange,
+    ExecuteAction {
+        label: &'static str,
+        action: ActionId,
+    },
+    InspectRow {
+        index: usize,
+    },
 }
 
 impl PanelMouseAction {
+    fn status_hint(self, panel: Panel) -> String {
+        match self {
+            Self::InspectRow { index } => {
+                format!("mouse: reading row {} in {}", index + 1, panel.title())
+            }
+            action => format!("mouse: click to {} in {}", action.label(), panel.title()),
+        }
+    }
+
     fn label(self) -> String {
         match self {
             Self::SelectRow { index } => format!("select row {}", index + 1),
             Self::SelectField { index } => format!("edit field {}", index + 1),
             Self::StageReadyChange => "stage ready change".to_string(),
+            Self::ExecuteAction { label, .. } => label.to_string(),
+            Self::InspectRow { index } => format!("inspect row {}", index + 1),
         }
     }
 }

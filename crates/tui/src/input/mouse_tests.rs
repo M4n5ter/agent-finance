@@ -401,6 +401,42 @@ fn mouse_click_on_settings_row_selects_setting() {
 }
 
 #[test]
+fn mouse_click_on_profile_risk_action_executes_action() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::ProfileRisk)
+    .expect("profile risk panel is visible");
+
+    let click = clickable_panel_action(
+        &mut state,
+        area,
+        panel,
+        Panel::ProfileRisk,
+        ActionId::OpenFloating(FloatingKind::TradingProfile),
+    );
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(
+        state.floating.last().map(|pane| pane.kind),
+        Some(FloatingKind::TradingProfile)
+    );
+    assert_eq!(state.panels.focused(), Panel::ProfileRisk);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_click_on_order_ticket_field_selects_that_field() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {
@@ -549,6 +585,64 @@ fn mouse_wheel_moves_focused_panel_and_search_selection() {
 }
 
 #[test]
+fn mouse_wheel_uses_hovered_panel_before_focused_panel() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["CRDO".to_string(), "BTCUSDT".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::Focus(Panel::Quote));
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Watchlist)
+    .expect("watchlist panel is visible");
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::ScrollDown, panel.x + 2, panel.y + 2),
+    );
+
+    assert_eq!(state.selected_symbol(), Some("BTCUSDT"));
+    assert_eq!(state.panels.focused(), Panel::Watchlist);
+}
+
+#[test]
+fn mouse_wheel_over_read_only_panel_does_not_fall_back_to_focused_panel() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["CRDO".to_string(), "BTCUSDT".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::Focus(Panel::Watchlist));
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Quote)
+    .expect("quote panel is visible");
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::ScrollDown, panel.x + 2, panel.y + 2),
+    );
+
+    assert_eq!(state.selected_symbol(), Some("CRDO"));
+    assert_eq!(state.panels.focused(), Panel::Quote);
+}
+
+#[test]
 fn mouse_movement_tracks_workspace_tab_hover() {
     let area = Rect::new(0, 0, 120, 32);
     let mut state = AppState::from_config(crate::config::TuiConfig::default());
@@ -568,6 +662,64 @@ fn mouse_movement_tracks_workspace_tab_hover() {
     assert_eq!(
         current_mouse_target(area, &state),
         Some(MouseTarget::WorkspaceTab(WorkspaceKind::Market))
+    );
+}
+
+#[test]
+fn mouse_movement_tracks_read_only_panel_row_hover() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Quote)
+    .expect("quote panel is visible");
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::Moved, panel.x + 2, panel.y + 1),
+    );
+
+    assert_eq!(
+        current_mouse_target(area, &state),
+        Some(MouseTarget::PanelAction {
+            panel: Panel::Quote,
+            action: PanelMouseAction::InspectRow { index: 0 },
+        })
+    );
+}
+
+#[test]
+fn mouse_movement_over_history_chart_does_not_report_info_row_hover() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    state.reduce(Action::Focus(Panel::History));
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::History)
+    .expect("history panel is visible");
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::Moved, panel.x + 2, panel.y + 8),
+    );
+
+    assert_eq!(
+        current_mouse_target(area, &state),
+        Some(MouseTarget::Panel(Panel::History))
     );
 }
 
@@ -857,6 +1009,32 @@ fn clickable_panel_row(
         }
     }
     panic!("clickable panel row was not found");
+}
+
+fn clickable_panel_action(
+    state: &mut AppState,
+    area: Rect,
+    panel: Rect,
+    target_panel: Panel,
+    target_action: ActionId,
+) -> MouseEvent {
+    let mut drag = MouseDrag::default();
+    for content_row in 0..panel.height.saturating_sub(2) {
+        let column = panel.x + 2;
+        let row = panel.y + content_row + 1;
+        handle_mouse_event(
+            area,
+            state,
+            &mut drag,
+            mouse_event(MouseEventKind::Moved, column, row),
+        );
+        if current_mouse_target(area, state)
+            .is_some_and(|target| target.panel_action_hovered(target_panel, target_action))
+        {
+            return mouse_event(MouseEventKind::Down(MouseButton::Left), column, row);
+        }
+    }
+    panic!("clickable panel action was not found");
 }
 
 fn floating_click(floating: Rect, content_column: u16, content_row: u16) -> MouseEvent {

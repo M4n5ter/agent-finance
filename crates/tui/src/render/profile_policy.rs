@@ -191,7 +191,7 @@ fn profile_risk_policy_lines(
     lines
 }
 
-pub(super) fn profile_policy_heading(theme: &ThemeConfig) -> Line<'static> {
+pub(crate) fn profile_policy_heading(theme: &ThemeConfig) -> Line<'static> {
     Line::from(Span::styled(
         "profile and risk policy",
         theme.accent_style().add_modifier(Modifier::BOLD),

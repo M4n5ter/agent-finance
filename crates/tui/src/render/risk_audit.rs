@@ -6,13 +6,34 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::model::Panel;
+use crate::mouse_target::MouseTarget;
 use crate::profile_snapshot::ProfileValidationState;
 use crate::state::{AppState, StagedChangeQueueStatus};
 use crate::task_log::{TaskLogEntry, TaskStatus};
 
 use super::widgets::{compact_text, panel_block};
 
-pub(super) fn render_risk_audit(frame: &mut Frame<'_>, state: &AppState, area: Rect) {
+pub(super) fn render_risk_audit(
+    frame: &mut Frame<'_>,
+    state: &AppState,
+    area: Rect,
+    mouse_target: Option<MouseTarget>,
+) {
+    let lines = risk_audit_lines(state);
+
+    frame.render_widget(
+        Paragraph::new(hover_lines(
+            lines,
+            mouse_target,
+            state.theme.selected_style(),
+        ))
+        .block(panel_block(Panel::RiskAudit, state))
+        .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+pub(crate) fn risk_audit_lines(state: &AppState) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(vec![
             Span::styled(
@@ -36,12 +57,27 @@ pub(super) fn render_risk_audit(frame: &mut Frame<'_>, state: &AppState, area: R
     lines.extend(staged_queue_lines(state));
     lines.extend(recent_event_lines(state));
 
-    frame.render_widget(
-        Paragraph::new(lines)
-            .block(panel_block(Panel::RiskAudit, state))
-            .wrap(Wrap { trim: true }),
-        area,
-    );
+    lines
+}
+
+fn hover_lines(
+    lines: Vec<Line<'static>>,
+    mouse_target: Option<MouseTarget>,
+    selected_style: ratatui::style::Style,
+) -> Vec<Line<'static>> {
+    lines
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if mouse_target
+                .is_some_and(|target| target.panel_info_row_hovered(Panel::RiskAudit, index))
+            {
+                line.style(selected_style)
+            } else {
+                line
+            }
+        })
+        .collect()
 }
 
 fn profile_validation_line(state: &AppState) -> Line<'static> {

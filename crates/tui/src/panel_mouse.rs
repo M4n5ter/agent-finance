@@ -36,8 +36,13 @@ pub(crate) fn hover_target(
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum PanelHit {
     Row(usize),
+    InfoRow(usize),
     TicketField(usize),
     TicketReadyAction,
+    Action {
+        label: &'static str,
+        action: crate::command::ActionId,
+    },
 }
 
 impl PanelHit {
@@ -61,6 +66,7 @@ impl PanelHit {
                 Some(Action::SelectFuturesStateTicketField(index))
             }
             (Panel::FuturesState, Self::TicketReadyAction) => Some(Action::StageFuturesStateTicket),
+            (Panel::ProfileRisk, Self::Action { action, .. }) => Some(Action::Execute(action)),
             _ => None,
         }
     }
@@ -68,8 +74,10 @@ impl PanelHit {
     const fn mouse_action(self) -> PanelMouseAction {
         match self {
             Self::Row(index) => PanelMouseAction::SelectRow { index },
+            Self::InfoRow(index) => PanelMouseAction::InspectRow { index },
             Self::TicketField(index) => PanelMouseAction::SelectField { index },
             Self::TicketReadyAction => PanelMouseAction::StageReadyChange,
+            Self::Action { label, action } => PanelMouseAction::ExecuteAction { label, action },
         }
     }
 }
@@ -110,15 +118,27 @@ fn panel_hit_at(state: &AppState, panel: Panel, area: Rect, row: u16) -> Option<
             crate::settings_panel_view::setting_index_at_content_row(state, content_row(area, row)?)
                 .map(PanelHit::Row)
         }
-        Panel::ProfileRisk
-        | Panel::Quote
+        Panel::ProfileRisk => {
+            crate::profile_risk_panel_view::action_at_content_row(state, content_row(area, row)?)
+                .map(|action| PanelHit::Action {
+                    label: action.label,
+                    action: action.action,
+                })
+        }
+        Panel::Quote
         | Panel::History
         | Panel::Evidence
         | Panel::Polymarket
         | Panel::Research
         | Panel::RiskAudit
         | Panel::ProviderHealth
-        | Panel::TaskLog => None,
+        | Panel::TaskLog => crate::read_only_panel_view::info_row_at_content_row(
+            state,
+            panel,
+            area,
+            content_row(area, row)?,
+        )
+        .map(PanelHit::InfoRow),
     }
 }
 

@@ -118,12 +118,20 @@ pub fn handle_mouse_event(
         }
         MouseEventKind::ScrollUp => {
             if !mouse_is_blocked_by_modal(state) {
-                route_mouse_wheel(state, -1);
+                state.reduce(Action::TrackMousePosition(Some(MousePosition::new(
+                    mouse.column,
+                    mouse.row,
+                ))));
+                route_mouse_wheel(terminal_area, state, mouse.column, mouse.row, -1);
             }
         }
         MouseEventKind::ScrollDown => {
             if !mouse_is_blocked_by_modal(state) {
-                route_mouse_wheel(state, 1);
+                state.reduce(Action::TrackMousePosition(Some(MousePosition::new(
+                    mouse.column,
+                    mouse.row,
+                ))));
+                route_mouse_wheel(terminal_area, state, mouse.column, mouse.row, 1);
             }
         }
         MouseEventKind::Moved => {
@@ -191,8 +199,29 @@ fn modal_mouse_action(
     crate::floating_input::mouse_action(state, kind, floating.rect, column, row)
 }
 
-fn route_mouse_wheel(state: &mut AppState, direction: isize) {
+fn route_mouse_wheel(
+    terminal_area: Rect,
+    state: &mut AppState,
+    column: u16,
+    row: u16,
+    direction: isize,
+) {
     if let Some(action) = crate::floating_input::wheel_route(state, direction) {
+        if let Some(action) = action {
+            state.reduce(action);
+        }
+        return;
+    }
+
+    let layout = layout::build(
+        terminal_area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    );
+    if let Some(LayoutHit::Panel(panel)) = layout.hit_test(column, row) {
+        let action = crate::panel_input::wheel_action_for_panel(state, panel, direction);
+        state.reduce(Action::Focus(panel));
         if let Some(action) = action {
             state.reduce(action);
         }

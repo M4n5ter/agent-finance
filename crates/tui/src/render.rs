@@ -15,7 +15,7 @@ mod panels;
 pub(crate) mod profile_policy;
 mod profile_risk;
 mod provider_health;
-mod risk_audit;
+pub(crate) mod risk_audit;
 mod settings;
 mod ticket_panel;
 mod transfer_ticket;

@@ -14,7 +14,7 @@ pub(crate) fn compact_text(value: &str, max_chars: usize) -> String {
     output
 }
 
-pub(super) fn format_price(value: f64) -> String {
+pub(crate) fn format_price(value: f64) -> String {
     if value.abs() >= 100.0 {
         format!("{value:.2}")
     } else {
@@ -22,7 +22,7 @@ pub(super) fn format_price(value: f64) -> String {
     }
 }
 
-pub(super) fn format_volume(value: f64) -> String {
+pub(crate) fn format_volume(value: f64) -> String {
     if value.abs() >= 1_000_000_000.0 {
         format!("{:.2}B", value / 1_000_000_000.0)
     } else if value.abs() >= 1_000_000.0 {
