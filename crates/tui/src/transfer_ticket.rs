@@ -28,6 +28,13 @@ impl TransferTicket {
         self.amount = amount;
     }
 
+    pub(crate) fn apply_preset(&mut self, preset: TransferTicketPreset) {
+        self.direction = preset.direction;
+        self.asset = preset.asset;
+        self.amount = Some(preset.amount);
+        self.selected_field = TransferTicketField::Amount;
+    }
+
     pub fn move_field(&mut self, direction: isize) {
         self.selected_field = self.selected_field.shift(direction);
     }
@@ -97,6 +104,13 @@ impl TransferTicket {
     pub fn selected_field_label(&self) -> &'static str {
         self.selected_field.label()
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct TransferTicketPreset {
+    pub direction: TransferDirection,
+    pub asset: String,
+    pub amount: String,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
@@ -222,5 +236,23 @@ mod tests {
         let preview = ticket.preview(Some("mainnet"), false, SubmitMode::DryRun);
         assert!(preview.ready);
         assert_eq!(preview.amount.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn transfer_ticket_preset_sets_transfer_fields_and_focuses_amount() {
+        let mut ticket = TransferTicket::default();
+
+        ticket.apply_preset(TransferTicketPreset {
+            direction: TransferDirection::UsdsFuturesToSpot,
+            asset: "USDC".to_string(),
+            amount: "4.5".to_string(),
+        });
+
+        let preview = ticket.preview(Some("mainnet"), false, SubmitMode::DryRun);
+        assert!(preview.ready);
+        assert_eq!(preview.direction, TransferDirection::UsdsFuturesToSpot);
+        assert_eq!(preview.asset, "USDC");
+        assert_eq!(preview.amount.as_deref(), Some("4.5"));
+        assert_eq!(ticket.selected_field_label(), "amount");
     }
 }

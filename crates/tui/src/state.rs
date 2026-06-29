@@ -761,6 +761,16 @@ impl AppState {
             Action::AdjustTransferTicketField(direction) => {
                 self.transfer_ticket.adjust_selected_field(direction);
             }
+            Action::ApplyTransferTicketPreset(preset) => {
+                let direction = preset.direction;
+                let asset = preset.asset.clone();
+                let amount = preset.amount.clone();
+                self.transfer_ticket.apply_preset(preset);
+                self.focus_panel(Panel::TransferTicket);
+                self.task_log.info(format!(
+                    "prepared transfer ticket {direction} {amount} {asset}"
+                ));
+            }
             Action::MoveFuturesStateTicketField(direction) => {
                 self.futures_state_ticket.move_field(direction);
             }
@@ -1236,6 +1246,7 @@ pub enum Action {
     MoveTransferTicketField(isize),
     SelectTransferTicketField(usize),
     AdjustTransferTicketField(isize),
+    ApplyTransferTicketPreset(crate::transfer_ticket::TransferTicketPreset),
     MoveFuturesStateTicketField(isize),
     SelectFuturesStateTicketField(usize),
     AdjustFuturesStateTicketField(isize),

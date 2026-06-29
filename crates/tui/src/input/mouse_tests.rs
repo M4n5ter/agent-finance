@@ -728,6 +728,54 @@ fn mouse_click_on_account_transfer_action_focuses_transfer_ticket() {
 }
 
 #[test]
+fn mouse_click_on_account_holding_prefills_transfer_ticket() {
+    let area = Rect::new(0, 0, 200, 80);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    state.account_snapshot = Some(account_snapshot_with_transferable_holdings("mainnet"));
+    state.reduce(Action::Focus(Panel::Account));
+    state.reduce(Action::ToggleFocusedZoom);
+    let mut drag = MouseDrag::default();
+    let layout = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    );
+    let panel = layout
+        .panel_rect(Panel::Account)
+        .expect("zoomed account panel is visible");
+    let content_width = panel.width.saturating_sub(2);
+    let click = clickable_account_transfer_preset(
+        &mut state,
+        area,
+        panel,
+        content_width,
+        agent_finance_core::TransferDirection::UsdsFuturesToSpot,
+    );
+
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    let preview = state.transfer_ticket_preview();
+    assert_eq!(state.panels.focused(), Panel::TransferTicket);
+    assert_eq!(
+        preview.direction,
+        agent_finance_core::TransferDirection::UsdsFuturesToSpot
+    );
+    assert_eq!(preview.asset, "USDT");
+    assert_eq!(preview.amount.as_deref(), Some("4.5"));
+    assert!(preview.ready);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_click_on_account_futures_state_action_focuses_futures_state() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {
@@ -1386,6 +1434,49 @@ fn account_snapshot_with_open_orders(profile: &str) -> crate::AccountSnapshot {
     )
 }
 
+fn account_snapshot_with_transferable_holdings(profile: &str) -> crate::AccountSnapshot {
+    crate::AccountSnapshot::new(
+        profile.to_string(),
+        Provider::Binance,
+        Environment::Live,
+        crate::profile_snapshot::test_trading_profile_snapshot(),
+        vec![
+            SignedReadSnapshot::new(
+                profile.to_string(),
+                Provider::Binance,
+                Environment::Live,
+                SignedReadRequest::SpotBalances,
+                serde_json::json!({
+                    "balances": [
+                        { "asset": "USDT", "free": "12.5", "locked": "0" },
+                        { "asset": "ETH", "free": "0", "locked": "0" }
+                    ]
+                }),
+            ),
+            SignedReadSnapshot::new(
+                profile.to_string(),
+                Provider::Binance,
+                Environment::Live,
+                SignedReadRequest::UsdsFuturesPositions,
+                serde_json::json!({
+                    "assets": [
+                        {
+                            "asset": "USDT",
+                            "walletBalance": "7.25",
+                            "availableBalance": "5",
+                            "marginBalance": "6.75",
+                            "maxWithdrawAmount": "4.5",
+                            "unrealizedProfit": "-0.5"
+                        }
+                    ],
+                    "positions": []
+                }),
+            ),
+        ],
+        Vec::new(),
+    )
+}
+
 fn staged_execution_confirmation_state() -> AppState {
     let mut state = staged_review_state();
     state.reduce(Action::Execute(ActionId::OpenFloating(FloatingKind::Help)));
@@ -1485,6 +1576,47 @@ fn clickable_panel_row(
         }
     }
     panic!("clickable panel row was not found");
+}
+
+fn clickable_account_transfer_preset(
+    state: &mut AppState,
+    area: Rect,
+    panel: Rect,
+    content_width: u16,
+    direction: agent_finance_core::TransferDirection,
+) -> MouseEvent {
+    let mut drag = MouseDrag::default();
+    for content_row in 0..panel.height.saturating_sub(2) {
+        let column = panel.x + 2;
+        let row = panel.y + content_row + 1;
+        handle_mouse_event(
+            area,
+            state,
+            &mut drag,
+            mouse_event(MouseEventKind::Moved, column, row),
+        );
+        let Some(MouseTarget::PanelAction {
+            panel: Panel::Account,
+            action:
+                PanelMouseAction::TransferPreset {
+                    content_row: target_row,
+                },
+        }) = current_mouse_target(area, state)
+        else {
+            continue;
+        };
+        let Some(preset) = crate::account_panel_view::transfer_preset_at_content_row(
+            state,
+            content_width,
+            target_row,
+        ) else {
+            continue;
+        };
+        if preset.direction == direction {
+            return mouse_event(MouseEventKind::Down(MouseButton::Left), column, row);
+        }
+    }
+    panic!("clickable account transfer preset was not found");
 }
 
 fn clickable_panel_action(

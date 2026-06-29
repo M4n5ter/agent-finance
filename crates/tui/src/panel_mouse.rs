@@ -34,7 +34,7 @@ pub(crate) fn hover_target(
         .or(Some(MouseTarget::Panel(panel)))
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum PanelHit {
     Row(usize),
     InfoRow(usize),
@@ -43,6 +43,10 @@ enum PanelHit {
     Action {
         label: &'static str,
         action: crate::command::ActionId,
+    },
+    TransferPreset {
+        content_row: usize,
+        preset: crate::transfer_ticket::TransferTicketPreset,
     },
     IntentReviewAction(IntentReviewAction),
 }
@@ -56,6 +60,9 @@ impl PanelHit {
             }
             (Panel::Account | Panel::OpenOrders, Self::Action { action, .. }) => {
                 Some(Action::Execute(action))
+            }
+            (Panel::Account, Self::TransferPreset { preset, .. }) => {
+                Some(Action::ApplyTransferTicketPreset(preset))
             }
             (Panel::IntentReview, Self::Row(index)) => Some(Action::SelectStagedChange(index)),
             (Panel::IntentReview, Self::IntentReviewAction(action)) => match action {
@@ -80,13 +87,16 @@ impl PanelHit {
         }
     }
 
-    const fn mouse_action(self) -> PanelMouseAction {
+    fn mouse_action(self) -> PanelMouseAction {
         match self {
             Self::Row(index) => PanelMouseAction::SelectRow { index },
             Self::InfoRow(index) => PanelMouseAction::InspectRow { index },
             Self::TicketField(index) => PanelMouseAction::SelectField { index },
             Self::TicketReadyAction => PanelMouseAction::StageReadyChange,
             Self::Action { label, action } => PanelMouseAction::ExecuteAction { label, action },
+            Self::TransferPreset { content_row, .. } => {
+                PanelMouseAction::TransferPreset { content_row }
+            }
             Self::IntentReviewAction(action) => PanelMouseAction::IntentReviewAction { action },
         }
     }
@@ -140,6 +150,16 @@ fn panel_hit_at(
                 return Some(PanelHit::Action {
                     label: action.label,
                     action: action.action,
+                });
+            }
+            if let Some(preset) = crate::account_panel_view::transfer_preset_at_content_row(
+                state,
+                content_width,
+                content_row,
+            ) {
+                return Some(PanelHit::TransferPreset {
+                    content_row,
+                    preset,
                 });
             }
             crate::account_panel_view::open_order_index_at_content_row(

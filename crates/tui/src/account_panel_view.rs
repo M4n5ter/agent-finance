@@ -9,35 +9,34 @@ use crate::open_order_view::OpenOrderRow;
 use crate::panel_action_line_view::{PanelActionLine, PanelActionSpan, styled_panel_action_line};
 use crate::profile_snapshot::TradingProfileSnapshot;
 use crate::state::AppState;
+use crate::transfer_ticket::TransferTicketPreset;
 
 use crate::render::profile_policy::{ProfilePolicyFormat, profile_policy_lines};
 use crate::render::widgets::compact_text;
 
 const VISIBLE_TRANSFER_LIMIT: usize = 4;
-const VISIBLE_BALANCE_LIMIT: usize = 4;
-const VISIBLE_POSITION_LIMIT: usize = 4;
 const ACCOUNT_TRANSFER_LABEL: &str = "[transfer]";
 const ACCOUNT_FUTURES_STATE_LABEL: &str = "[futures state]";
 
 pub(crate) struct AccountPanelRow {
     pub line: Line<'static>,
-    pub open_order_index: Option<usize>,
+    pub hit: Option<AccountPanelHit>,
     pub actions: Vec<PanelActionSpan>,
 }
 
 impl AccountPanelRow {
-    fn text(text: impl Into<String>) -> Self {
+    pub(crate) fn text(text: impl Into<String>) -> Self {
         Self {
             line: Line::from(text.into()),
-            open_order_index: None,
+            hit: None,
             actions: Vec::new(),
         }
     }
 
-    fn line(line: Line<'static>) -> Self {
+    pub(crate) fn line(line: Line<'static>) -> Self {
         Self {
             line,
-            open_order_index: None,
+            hit: None,
             actions: Vec::new(),
         }
     }
@@ -45,7 +44,31 @@ impl AccountPanelRow {
     fn open_order(line: Line<'static>, index: usize) -> Self {
         Self {
             line,
-            open_order_index: Some(index),
+            hit: Some(AccountPanelHit::OpenOrder(index)),
+            actions: Vec::new(),
+        }
+    }
+
+    pub(crate) fn transfer_preset(
+        state: &AppState,
+        text: impl Into<String>,
+        content_row: usize,
+        preset: TransferTicketPreset,
+        mouse_target: Option<MouseTarget>,
+    ) -> Self {
+        let line = if mouse_target
+            .is_some_and(|target| target.panel_transfer_preset_hovered(Panel::Account, content_row))
+        {
+            Line::from(Span::styled(
+                text.into(),
+                state.theme.selected_style().add_modifier(Modifier::BOLD),
+            ))
+        } else {
+            Line::from(text.into())
+        };
+        Self {
+            line,
+            hit: Some(AccountPanelHit::TransferPreset(preset)),
             actions: Vec::new(),
         }
     }
@@ -53,10 +76,16 @@ impl AccountPanelRow {
     fn action_line(line: Line<'static>, actions: Vec<PanelActionSpan>) -> Self {
         Self {
             line,
-            open_order_index: None,
+            hit: None,
             actions,
         }
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum AccountPanelHit {
+    OpenOrder(usize),
+    TransferPreset(TransferTicketPreset),
 }
 
 pub(crate) fn rows_for_width(
@@ -79,7 +108,12 @@ pub(crate) fn rows_for_width(
             ));
             rows.extend(transfer_history_rows(state, snapshot));
             rows.extend(warning_rows(state, snapshot));
-            rows.extend(holdings_rows(state, snapshot));
+            rows.extend(crate::account_holdings_panel_view::rows(
+                state,
+                snapshot,
+                mouse_target,
+                rows.len(),
+            ));
         }
         None if state.trading_profile.is_some() => rows.push(AccountPanelRow::text(
             "No account snapshot loaded yet. Waiting for signed read.",
@@ -129,9 +163,14 @@ pub(crate) fn open_order_index_at_content_row(
     width: u16,
     content_row: usize,
 ) -> Option<usize> {
-    rows_for_width(state, None, width)
+    match rows_for_width(state, None, width)
         .get(content_row)?
-        .open_order_index
+        .hit
+        .as_ref()?
+    {
+        AccountPanelHit::OpenOrder(index) => Some(*index),
+        AccountPanelHit::TransferPreset(_) => None,
+    }
 }
 
 pub(crate) fn action_at_content_cell(
@@ -146,6 +185,21 @@ pub(crate) fn action_at_content_cell(
         .iter()
         .copied()
         .find(|span| (span.start..span.end).contains(&content_column))
+}
+
+pub(crate) fn transfer_preset_at_content_row(
+    state: &AppState,
+    width: u16,
+    content_row: usize,
+) -> Option<TransferTicketPreset> {
+    match rows_for_width(state, None, width)
+        .get(content_row)?
+        .hit
+        .as_ref()?
+    {
+        AccountPanelHit::OpenOrder(_) => None,
+        AccountPanelHit::TransferPreset(preset) => Some(preset.clone()),
+    }
 }
 
 fn profile_rows(state: &AppState) -> Vec<AccountPanelRow> {
@@ -195,132 +249,6 @@ fn account_read_rows(snapshot: &crate::AccountSnapshot) -> Vec<AccountPanelRow> 
         AccountPanelRow::text(format!("{}: {label}", plan.label()))
     }));
     rows
-}
-
-struct LimitedAccountSection {
-    title: String,
-    hidden_label: &'static str,
-    visible_limit: usize,
-    rows: Vec<String>,
-}
-
-impl LimitedAccountSection {
-    fn new(
-        title: impl Into<String>,
-        hidden_label: &'static str,
-        visible_limit: usize,
-        rows: Vec<String>,
-    ) -> Self {
-        Self {
-            title: title.into(),
-            hidden_label,
-            visible_limit,
-            rows,
-        }
-    }
-
-    fn into_panel_rows(self, state: &AppState, include_spacer: bool) -> Vec<AccountPanelRow> {
-        if self.rows.is_empty() {
-            return Vec::new();
-        }
-
-        let mut rows = Vec::new();
-        if include_spacer {
-            rows.push(AccountPanelRow::text(""));
-        }
-        rows.push(AccountPanelRow::line(Line::from(Span::styled(
-            self.title,
-            state.theme.accent_style().add_modifier(Modifier::BOLD),
-        ))));
-        let total = self.rows.len();
-        rows.extend(
-            self.rows
-                .into_iter()
-                .take(self.visible_limit)
-                .map(AccountPanelRow::text),
-        );
-        push_hidden_row(
-            state,
-            &mut rows,
-            total.saturating_sub(self.visible_limit),
-            self.hidden_label,
-        );
-        rows
-    }
-}
-
-fn holdings_rows(state: &AppState, snapshot: &crate::AccountSnapshot) -> Vec<AccountPanelRow> {
-    let holdings = snapshot.holdings();
-    if holdings.is_empty() {
-        return Vec::new();
-    }
-
-    [
-        LimitedAccountSection::new(
-            format!("spot balances ({})", holdings.spot_balances.len()),
-            "more spot balances",
-            VISIBLE_BALANCE_LIMIT,
-            holdings
-                .spot_balances
-                .iter()
-                .map(|balance| {
-                    format!(
-                        "{} free:{} locked:{}",
-                        balance.asset,
-                        balance.free.as_deref().unwrap_or("-"),
-                        balance.locked.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect(),
-        ),
-        LimitedAccountSection::new(
-            format!("USD-M assets ({})", holdings.futures_assets.len()),
-            "more USD-M assets",
-            VISIBLE_BALANCE_LIMIT,
-            holdings
-                .futures_assets
-                .iter()
-                .map(|asset| {
-                    format!(
-                        "{} wallet:{} availableUsd:{} margin:{} withdraw:{} upnl:{}",
-                        asset.asset,
-                        asset.wallet_balance.as_deref().unwrap_or("-"),
-                        asset.available_balance_usd.as_deref().unwrap_or("-"),
-                        asset.margin_balance.as_deref().unwrap_or("-"),
-                        asset.max_withdraw_amount.as_deref().unwrap_or("-"),
-                        asset.unrealized_profit.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect(),
-        ),
-        LimitedAccountSection::new(
-            format!("USD-M positions ({})", holdings.futures_positions.len()),
-            "more USD-M positions",
-            VISIBLE_POSITION_LIMIT,
-            holdings
-                .futures_positions
-                .iter()
-                .map(|position| {
-                    format!(
-                        "{} {} amt:{} notional:{} isoMargin:{} isoWallet:{} upnl:{}",
-                        position.symbol,
-                        position.position_side.as_deref().unwrap_or("-"),
-                        position.position_amount,
-                        position.notional.as_deref().unwrap_or("-"),
-                        position.isolated_margin.as_deref().unwrap_or("-"),
-                        position.isolated_wallet.as_deref().unwrap_or("-"),
-                        position.unrealized_profit.as_deref().unwrap_or("-")
-                    )
-                })
-                .collect(),
-        ),
-    ]
-    .into_iter()
-    .fold(Vec::new(), |mut rows, section| {
-        let include_spacer = rows.is_empty();
-        rows.extend(section.into_panel_rows(state, include_spacer));
-        rows
-    })
 }
 
 fn open_order_rows(
@@ -431,7 +359,12 @@ fn transfer_history_rows(
     rows
 }
 
-fn push_hidden_row(state: &AppState, rows: &mut Vec<AccountPanelRow>, hidden: usize, label: &str) {
+pub(crate) fn push_hidden_row(
+    state: &AppState,
+    rows: &mut Vec<AccountPanelRow>,
+    hidden: usize,
+    label: &str,
+) {
     if hidden > 0 {
         rows.push(AccountPanelRow::line(Line::from(Span::styled(
             format!("+{hidden} {label}"),
@@ -462,7 +395,7 @@ fn warning_rows(state: &AppState, snapshot: &crate::AccountSnapshot) -> Vec<Acco
 mod tests {
     use super::*;
     use agent_finance_core::{
-        Environment, Market, Provider, SignedReadRequest, SignedReadSnapshot,
+        Environment, Market, Provider, SignedReadRequest, SignedReadSnapshot, TransferDirection,
     };
 
     #[test]
@@ -477,7 +410,10 @@ mod tests {
 
         let clickable = rows_for_width(&state, None, 100)
             .into_iter()
-            .filter_map(|row| row.open_order_index)
+            .filter_map(|row| match row.hit {
+                Some(AccountPanelHit::OpenOrder(index)) => Some(index),
+                Some(AccountPanelHit::TransferPreset(_)) | None => None,
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(clickable, vec![0, 1]);
@@ -562,7 +498,30 @@ mod tests {
             "mainnet",
         ));
 
-        let text = rows_text(rows_for_width(&state, None, 120));
+        let rows = rows_for_width(&state, None, 120);
+        let spot_transfer = rows
+            .iter()
+            .find(|row| line_text(&row.line).contains("USDT free:12.5"))
+            .and_then(transfer_preset)
+            .expect("spot balance transfer preset");
+        assert_eq!(
+            spot_transfer.direction,
+            TransferDirection::SpotToUsdsFutures
+        );
+        assert_eq!(spot_transfer.asset, "USDT");
+        assert_eq!(spot_transfer.amount, "12.5");
+        let futures_transfer = rows
+            .iter()
+            .find(|row| line_text(&row.line).contains("USDT wallet:7.25"))
+            .and_then(transfer_preset)
+            .expect("USD-M withdraw transfer preset");
+        assert_eq!(
+            futures_transfer.direction,
+            TransferDirection::UsdsFuturesToSpot
+        );
+        assert_eq!(futures_transfer.amount, "4.5");
+
+        let text = rows_text(rows);
         let open_orders_index = text.find("open orders (1)").expect("open orders row");
         let holdings_index = text.find("spot balances (2)").expect("holdings row");
 
@@ -743,15 +702,27 @@ mod tests {
     }
 
     fn rows_text(rows: Vec<AccountPanelRow>) -> String {
-        rows.into_iter()
-            .map(|row| {
-                row.line
-                    .spans
-                    .into_iter()
-                    .map(|span| span.content.into_owned())
-                    .collect::<String>()
-            })
+        rows_text_ref(&rows)
+    }
+
+    fn rows_text_ref(rows: &[AccountPanelRow]) -> String {
+        rows.iter()
+            .map(|row| line_text(&row.line))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn transfer_preset(row: &AccountPanelRow) -> Option<&TransferTicketPreset> {
+        match row.hit.as_ref()? {
+            AccountPanelHit::OpenOrder(_) => None,
+            AccountPanelHit::TransferPreset(preset) => Some(preset),
+        }
+    }
+
+    fn line_text(line: &Line<'_>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
     }
 }
