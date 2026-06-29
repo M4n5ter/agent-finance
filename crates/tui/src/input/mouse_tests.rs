@@ -580,6 +580,43 @@ fn mouse_click_on_account_open_order_row_selects_order() {
 }
 
 #[test]
+fn mouse_click_on_account_open_order_cancel_action_stages_cancel() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Account,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    state.account_snapshot = Some(account_snapshot_with_open_orders("mainnet"));
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::Account)
+    .expect("account panel is visible");
+
+    let click = clickable_panel_action(
+        &mut state,
+        area,
+        panel,
+        Panel::Account,
+        ActionId::StageSelectedOpenOrderCancel,
+    );
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(state.staged_change_count(), 1);
+    assert_eq!(state.panels.focused(), Panel::IntentReview);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_click_on_settings_row_selects_setting() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {

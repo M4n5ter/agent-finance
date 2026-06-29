@@ -15,9 +15,10 @@ pub(super) fn render_account(
     area: Rect,
     mouse_target: Option<MouseTarget>,
 ) {
-    let items = account_panel_view::rows(state, mouse_target)
-        .into_iter()
-        .map(|row| ListItem::new(row.line));
+    let items =
+        account_panel_view::rows_for_width(state, mouse_target, area.width.saturating_sub(2))
+            .into_iter()
+            .map(|row| ListItem::new(row.line));
     frame.render_widget(
         List::new(items).block(panel_block(Panel::Account, state)),
         area,

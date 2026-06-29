@@ -1,7 +1,13 @@
 use std::ops::Range;
 
+use ratatui::style::Modifier;
+use ratatui::text::{Line, Span};
+
 use crate::account::OpenOrderSummary;
 use crate::command::ActionId;
+use crate::model::Panel;
+use crate::mouse_target::MouseTarget;
+use crate::theme::ThemeConfig;
 
 pub(crate) const VISIBLE_OPEN_ORDER_LIMIT: usize = 4;
 
@@ -97,6 +103,41 @@ pub(crate) fn open_order_index_at_content_row(
     }
 }
 
+pub(crate) fn styled_open_order_line(
+    theme: &ThemeConfig,
+    selected_open_order: usize,
+    panel: Panel,
+    index: usize,
+    order: &OpenOrderSummary,
+    mouse_target: Option<MouseTarget>,
+) -> Line<'static> {
+    let hovered = mouse_target.is_some_and(|target| target.panel_row_hovered(panel, index));
+    let marker = if index == selected_open_order {
+        ">"
+    } else {
+        " "
+    };
+    let style = if hovered {
+        theme.selected_style().add_modifier(Modifier::BOLD)
+    } else if index == selected_open_order {
+        theme.accent_style().add_modifier(Modifier::BOLD)
+    } else {
+        theme.text_style()
+    };
+    Line::from(Span::styled(
+        format!(
+            "{marker} {} {} {} {} @ {} [{}]",
+            order.market,
+            order.side.as_deref().unwrap_or("-"),
+            order.remaining_quantity.as_deref().unwrap_or("-"),
+            order.symbol,
+            order.price.as_deref().unwrap_or("-"),
+            order.identifier()
+        ),
+        style,
+    ))
+}
+
 pub(crate) fn open_order_action_line(width: u16) -> OpenOrderActionLine {
     let mut line = OpenOrderActionLine {
         text: String::from("selected order"),
@@ -110,6 +151,49 @@ pub(crate) fn open_order_action_line(width: u16) -> OpenOrderActionLine {
         ActionId::StageSelectedOpenOrderCancel,
     );
     line
+}
+
+pub(crate) fn styled_open_order_action_line(
+    theme: &ThemeConfig,
+    panel: Panel,
+    width: u16,
+    mouse_target: Option<MouseTarget>,
+) -> Line<'static> {
+    let action_line = open_order_action_line(width);
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+
+    for action in &action_line.actions {
+        let start = action.start as usize;
+        let end = action.end as usize;
+        if cursor < start {
+            spans.push(Span::styled(
+                action_line.text[cursor..start].to_string(),
+                theme.text_style(),
+            ));
+        }
+        let hovered =
+            mouse_target.is_some_and(|target| target.panel_action_hovered(panel, action.action));
+        let style = if hovered {
+            theme.selected_style().add_modifier(Modifier::BOLD)
+        } else {
+            theme.accent_style()
+        };
+        spans.push(Span::styled(
+            action_line.text[start..end].to_string(),
+            style,
+        ));
+        cursor = end;
+    }
+
+    if cursor < action_line.text.len() {
+        spans.push(Span::styled(
+            action_line.text[cursor..].to_string(),
+            theme.text_style(),
+        ));
+    }
+
+    Line::from(spans)
 }
 
 pub(crate) fn open_order_action_at_content_cell(

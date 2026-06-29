@@ -2,13 +2,13 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use crate::account::ACCOUNT_READ_PLAN;
+use crate::command::ActionId;
 use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
-use crate::open_order_view::OpenOrderRow;
+use crate::open_order_view::{OpenOrderActionSpan, OpenOrderRow};
 use crate::profile_snapshot::TradingProfileSnapshot;
 use crate::state::AppState;
 
-use crate::render::open_orders::open_order_line;
 use crate::render::profile_policy::{ProfilePolicyFormat, profile_policy_lines};
 use crate::render::widgets::compact_text;
 
@@ -17,6 +17,7 @@ const VISIBLE_TRANSFER_LIMIT: usize = 4;
 pub(crate) struct AccountPanelRow {
     pub line: Line<'static>,
     pub open_order_index: Option<usize>,
+    pub actions: Vec<OpenOrderActionSpan>,
 }
 
 impl AccountPanelRow {
@@ -24,6 +25,7 @@ impl AccountPanelRow {
         Self {
             line: Line::from(text.into()),
             open_order_index: None,
+            actions: Vec::new(),
         }
     }
 
@@ -31,6 +33,7 @@ impl AccountPanelRow {
         Self {
             line,
             open_order_index: None,
+            actions: Vec::new(),
         }
     }
 
@@ -38,18 +41,36 @@ impl AccountPanelRow {
         Self {
             line,
             open_order_index: Some(index),
+            actions: Vec::new(),
+        }
+    }
+
+    fn action_line(line: Line<'static>, actions: Vec<OpenOrderActionSpan>) -> Self {
+        Self {
+            line,
+            open_order_index: None,
+            actions,
         }
     }
 }
 
-pub(crate) fn rows(state: &AppState, mouse_target: Option<MouseTarget>) -> Vec<AccountPanelRow> {
+pub(crate) fn rows_for_width(
+    state: &AppState,
+    mouse_target: Option<MouseTarget>,
+    content_width: u16,
+) -> Vec<AccountPanelRow> {
     let mut rows = profile_rows(state);
 
     match state.account_snapshot.as_ref() {
         Some(snapshot) => {
             rows.extend(profile_risk_rows(state, &snapshot.profile_config));
             rows.extend(account_read_rows(snapshot));
-            rows.extend(open_order_rows(state, snapshot, mouse_target));
+            rows.extend(open_order_rows(
+                state,
+                snapshot,
+                mouse_target,
+                content_width,
+            ));
             rows.extend(transfer_history_rows(state, snapshot));
             rows.extend(warning_rows(state, snapshot));
         }
@@ -66,9 +87,26 @@ pub(crate) fn rows(state: &AppState, mouse_target: Option<MouseTarget>) -> Vec<A
 
 pub(crate) fn open_order_index_at_content_row(
     state: &AppState,
+    width: u16,
     content_row: usize,
 ) -> Option<usize> {
-    rows(state, None).get(content_row)?.open_order_index
+    rows_for_width(state, None, width)
+        .get(content_row)?
+        .open_order_index
+}
+
+pub(crate) fn action_at_content_cell(
+    state: &AppState,
+    width: u16,
+    content_row: usize,
+    content_column: u16,
+) -> Option<ActionId> {
+    rows_for_width(state, None, width)
+        .get(content_row)?
+        .actions
+        .iter()
+        .find(|span| (span.start..span.end).contains(&content_column))
+        .map(|span| span.action)
 }
 
 fn profile_rows(state: &AppState) -> Vec<AccountPanelRow> {
@@ -125,21 +163,52 @@ fn open_order_rows(
     state: &AppState,
     snapshot: &crate::AccountSnapshot,
     mouse_target: Option<MouseTarget>,
+    content_width: u16,
 ) -> Vec<AccountPanelRow> {
     let open_orders = snapshot.open_orders();
     let selected = state
         .selected_open_order
         .min(open_orders.len().saturating_sub(1));
-    crate::open_order_view::open_order_rows(&open_orders, selected)
+    let mut rows = crate::open_order_view::open_order_rows(&open_orders, selected)
         .into_iter()
         .map(|row| match row {
             OpenOrderRow::Order { index, order } => AccountPanelRow::open_order(
-                open_order_line(state, Panel::Account, index, order, mouse_target),
+                crate::open_order_view::styled_open_order_line(
+                    &state.theme,
+                    state.selected_open_order,
+                    Panel::Account,
+                    index,
+                    order,
+                    mouse_target,
+                ),
                 index,
             ),
             row => AccountPanelRow::line(non_order_open_order_line(state, row)),
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    if !open_orders.is_empty() {
+        rows.push(open_order_action_row(state, content_width, mouse_target));
+    }
+    rows
+}
+
+fn open_order_action_row(
+    state: &AppState,
+    width: u16,
+    mouse_target: Option<MouseTarget>,
+) -> AccountPanelRow {
+    let action_line = crate::open_order_view::open_order_action_line(width);
+    let actions = action_line.actions.clone();
+    AccountPanelRow::action_line(
+        crate::open_order_view::styled_open_order_action_line(
+            &state.theme,
+            Panel::Account,
+            width,
+            mouse_target,
+        ),
+        actions,
+    )
 }
 
 fn non_order_open_order_line(state: &AppState, row: OpenOrderRow<'_>) -> Line<'static> {
@@ -239,12 +308,53 @@ mod tests {
         });
         state.account_snapshot = Some(account_snapshot_with_open_orders("mainnet"));
 
-        let clickable = rows(&state, None)
+        let clickable = rows_for_width(&state, None, 100)
             .into_iter()
             .filter_map(|row| row.open_order_index)
             .collect::<Vec<_>>();
 
         assert_eq!(clickable, vec![0, 1]);
+    }
+
+    #[test]
+    fn rows_mark_account_open_order_cancel_action_metadata() {
+        let mut state = AppState::from_config(crate::config::TuiConfig {
+            trading: crate::config::TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            ..crate::config::TuiConfig::default()
+        });
+        state.account_snapshot = Some(account_snapshot_with_open_orders("mainnet"));
+
+        let action = rows_for_width(&state, None, 100)
+            .into_iter()
+            .find_map(|row| row.actions.first().copied())
+            .expect("account open order cancel action");
+
+        assert_eq!(action.action, ActionId::StageSelectedOpenOrderCancel);
+        assert_eq!(
+            action_at_content_cell(
+                &state,
+                100,
+                open_order_action_row_index(&state, 100),
+                action.start
+            ),
+            Some(ActionId::StageSelectedOpenOrderCancel)
+        );
+        assert_eq!(
+            rows_for_width(&state, None, 18)
+                .into_iter()
+                .flat_map(|row| row.actions)
+                .count(),
+            0
+        );
+    }
+
+    fn open_order_action_row_index(state: &AppState, width: u16) -> usize {
+        rows_for_width(state, None, width)
+            .into_iter()
+            .position(|row| !row.actions.is_empty())
+            .expect("account open order action row")
     }
 
     fn account_snapshot_with_open_orders(profile: &str) -> crate::AccountSnapshot {

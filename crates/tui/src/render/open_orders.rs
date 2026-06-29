@@ -4,13 +4,11 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem};
 
-use crate::account::OpenOrderSummary;
 use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
 use crate::open_order_view::OpenOrderRow;
 use crate::state::AppState;
 
-use super::panels::panel_row_hovered;
 use super::widgets::panel_block;
 
 pub(super) fn render_open_orders(
@@ -31,7 +29,12 @@ pub(super) fn render_open_orders(
             if snapshot.open_orders().is_empty() {
                 lines.push(Line::from("No open orders."));
             } else {
-                lines.push(open_order_action_line(state, area, mouse_target));
+                lines.push(open_order_action_line(
+                    state,
+                    Panel::OpenOrders,
+                    area.width.saturating_sub(2),
+                    mouse_target,
+                ));
                 lines.push(Line::from(
                     crate::open_order_controls::open_order_section_hint(),
                 ));
@@ -98,78 +101,28 @@ fn open_order_row_line(
     }
 }
 
-pub(crate) fn open_order_line(
+fn open_order_line(
     state: &AppState,
     panel: Panel,
     index: usize,
-    order: &OpenOrderSummary,
+    order: &crate::account::OpenOrderSummary,
     mouse_target: Option<MouseTarget>,
 ) -> Line<'static> {
-    let hovered = panel_row_hovered(mouse_target, panel, index);
-    let marker = if index == state.selected_open_order {
-        ">"
-    } else {
-        " "
-    };
-    let style = if hovered {
-        state.theme.selected_style().add_modifier(Modifier::BOLD)
-    } else if index == state.selected_open_order {
-        state.theme.accent_style().add_modifier(Modifier::BOLD)
-    } else {
-        state.theme.text_style()
-    };
-    Line::from(Span::styled(
-        format!(
-            "{marker} {} {} {} {} @ {} [{}]",
-            order.market,
-            order.side.as_deref().unwrap_or("-"),
-            order.remaining_quantity.as_deref().unwrap_or("-"),
-            order.symbol,
-            order.price.as_deref().unwrap_or("-"),
-            order.identifier()
-        ),
-        style,
-    ))
+    crate::open_order_view::styled_open_order_line(
+        &state.theme,
+        state.selected_open_order,
+        panel,
+        index,
+        order,
+        mouse_target,
+    )
 }
 
 fn open_order_action_line(
     state: &AppState,
-    area: Rect,
+    panel: Panel,
+    width: u16,
     mouse_target: Option<MouseTarget>,
 ) -> Line<'static> {
-    let action_line = crate::open_order_view::open_order_action_line(area.width.saturating_sub(2));
-    let mut spans = Vec::new();
-    let mut cursor = 0usize;
-
-    for action in action_line.actions {
-        let start = action.start as usize;
-        let end = action.end as usize;
-        if cursor < start {
-            spans.push(Span::styled(
-                action_line.text[cursor..start].to_string(),
-                state.theme.text_style(),
-            ));
-        }
-        let hovered = mouse_target
-            .is_some_and(|target| target.panel_action_hovered(Panel::OpenOrders, action.action));
-        let style = if hovered {
-            state.theme.selected_style().add_modifier(Modifier::BOLD)
-        } else {
-            state.theme.accent_style()
-        };
-        spans.push(Span::styled(
-            action_line.text[start..end].to_string(),
-            style,
-        ));
-        cursor = end;
-    }
-
-    if cursor < action_line.text.len() {
-        spans.push(Span::styled(
-            action_line.text[cursor..].to_string(),
-            state.theme.text_style(),
-        ));
-    }
-
-    Line::from(spans)
+    crate::open_order_view::styled_open_order_action_line(&state.theme, panel, width, mouse_target)
 }

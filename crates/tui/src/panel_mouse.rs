@@ -54,7 +54,9 @@ impl PanelHit {
             (Panel::Account | Panel::OpenOrders, Self::Row(index)) => {
                 Some(Action::SelectOpenOrder(index))
             }
-            (Panel::OpenOrders, Self::Action { action, .. }) => Some(Action::Execute(action)),
+            (Panel::Account | Panel::OpenOrders, Self::Action { action, .. }) => {
+                Some(Action::Execute(action))
+            }
             (Panel::IntentReview, Self::Row(index)) => Some(Action::SelectStagedChange(index)),
             (Panel::IntentReview, Self::IntentReviewAction(action)) => match action {
                 IntentReviewAction::ExecuteSelected => Some(Action::ExecuteStagedChange),
@@ -125,11 +127,28 @@ fn panel_hit_at(
             )
             .map(PanelHit::Row)
         }
-        Panel::Account => crate::account_panel_view::open_order_index_at_content_row(
-            state,
-            content_row(area, row)?,
-        )
-        .map(PanelHit::Row),
+        Panel::Account => {
+            let content_row = content_row(area, row)?;
+            let content_width = content_width(area);
+            let content_column = content_column(area, column).unwrap_or(u16::MAX);
+            if let Some(action) = crate::account_panel_view::action_at_content_cell(
+                state,
+                content_width,
+                content_row,
+                content_column,
+            ) {
+                return Some(PanelHit::Action {
+                    label: "stage cancel",
+                    action,
+                });
+            }
+            crate::account_panel_view::open_order_index_at_content_row(
+                state,
+                content_width,
+                content_row,
+            )
+            .map(PanelHit::Row)
+        }
         Panel::IntentReview => intent_review_hit_at(state, area, column, row),
         Panel::OrderTicket => ticket_hit_at(content_row(area, row)?, order_ticket_rows(state)),
         Panel::TransferTicket => {
