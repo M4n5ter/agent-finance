@@ -96,6 +96,10 @@ try {
     fail("TUI did not enable session live writes while keeping dry-run submit mode");
   }
 
+  verifyWorkspaceSwitch("account", ["Account", "Transfer Ticket", "Futures State", "Provider Health"]);
+  verifyWorkspaceSwitch("settings", ["Settings", "Profile / Risk", "Provider Health"]);
+  verifyWorkspaceSwitch("market", ["Watchlist", "History Chart", "Quote / Sessions"]);
+
   executePaletteCommand(
     "focus quote",
     ["focus quote", "Focus quote"],
@@ -114,7 +118,7 @@ try {
   }
 
   runTmux(["send-keys", "-t", session, "z"]);
-  if (!waitForScreen(["Watchlist", "Polymarket", "News / Research", "Quote / Sessions"], 4_000)) {
+  if (!waitForScreen(["Watchlist", "History Chart", "Quote / Sessions"], 4_000)) {
     fail("TUI did not restore the workspace layout after zoom");
   }
 
@@ -357,6 +361,15 @@ function editWatchlist() {
   if (!watchlist.includes("AAPL") || !watchlist.includes("BTCUSDT") || watchlist.includes("MSFT")) {
     fail("TUI watchlist panel did not return to the original symbols after deleting MSFT");
   }
+}
+
+function verifyWorkspaceSwitch(workspace, markers) {
+  executePaletteCommand(
+    `workspace ${workspace}`,
+    [`workspace ${workspace}`, `Workspace ${workspace}`],
+    markers,
+    `${workspace} workspace switch`,
+  );
 }
 
 function stageAndCloseDryRunOrder() {
