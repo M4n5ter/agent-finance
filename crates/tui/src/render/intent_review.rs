@@ -15,6 +15,8 @@ use crate::state::{AppState, StagedChangeQueueStatus, StagedChangeView, VISIBLE_
 use super::panels::panel_row_hovered;
 use super::widgets::panel_block;
 
+const STAGE_COLUMN_WIDTH: u16 = 21;
+
 pub(super) fn render_intent_review(
     frame: &mut Frame<'_>,
     state: &AppState,
@@ -85,7 +87,8 @@ fn intent_review_summary_lines(
         )),
     ]));
 
-    if let Some(selected) = changes.iter().find(|change| change.selected) {
+    let selected = changes.iter().find(|change| change.selected);
+    if let Some(selected) = selected {
         lines.push(selected_change_line(state, selected));
     } else {
         lines.push(Line::from(Span::styled(
@@ -102,7 +105,7 @@ fn intent_review_summary_lines(
                 text: "gate preview: no selected change".to_string(),
             }]
         });
-    lines.push(compact_gate_preview_line(state, &compact_rows));
+    lines.push(compact_progress_gate_line(state, selected, &compact_rows));
 
     lines.push(action_line_to_line(
         state,
@@ -129,11 +132,44 @@ fn selected_change_line(state: &AppState, change: &StagedChangeView) -> Line<'st
     ])
 }
 
-fn compact_gate_preview_line(state: &AppState, rows: &[GatePreviewRow]) -> Line<'static> {
+fn execution_next_step(change: &StagedChangeView) -> &'static str {
+    match change.stage.queue_status() {
+        StagedChangeQueueStatus::Draft => "next: wait for validation",
+        StagedChangeQueueStatus::Ready => "next: execute or close",
+        StagedChangeQueueStatus::Running => "next: wait for worker result",
+        StagedChangeQueueStatus::Done => "next: close after review",
+        StagedChangeQueueStatus::Failed => "next: inspect task log or close",
+        StagedChangeQueueStatus::Closed => "next: close",
+    }
+}
+
+fn compact_progress_gate_line(
+    state: &AppState,
+    selected: Option<&StagedChangeView>,
+    rows: &[GatePreviewRow],
+) -> Line<'static> {
     let mut spans = vec![
-        Span::styled("gate", state.theme.muted_style()),
+        Span::styled("progress", state.theme.muted_style()),
         Span::raw("  "),
     ];
+    if let Some(change) = selected {
+        spans.push(Span::raw(format!(
+            "status:{} / stage:{} / {} / intent:{}",
+            change.stage.queue_status().label(),
+            change.stage,
+            execution_next_step(change),
+            staged_change_tracking(change),
+        )));
+    } else {
+        spans.push(Span::styled(
+            "no selected change",
+            state.theme.warning_style(),
+        ));
+    }
+    spans.extend([
+        Span::styled("  gate", state.theme.muted_style()),
+        Span::raw("  "),
+    ]);
     for (index, row) in rows.iter().enumerate() {
         if index > 0 {
             spans.push(Span::styled(" | ", state.theme.muted_style()));
@@ -281,6 +317,7 @@ fn staged_changes_table<'a>(
         [
             Constraint::Length(1),
             Constraint::Length(9),
+            Constraint::Length(STAGE_COLUMN_WIDTH),
             Constraint::Length(8),
             Constraint::Length(13),
             Constraint::Length(10),
@@ -289,8 +326,10 @@ fn staged_changes_table<'a>(
         ],
     )
     .header(
-        Row::new(["", "state", "mode", "kind", "profile", "summary", "intent"])
-            .style(state.theme.muted_style().add_modifier(Modifier::BOLD)),
+        Row::new([
+            "", "status", "stage", "mode", "kind", "profile", "summary", "intent",
+        ])
+        .style(state.theme.muted_style().add_modifier(Modifier::BOLD)),
     )
 }
 
@@ -314,6 +353,7 @@ fn staged_change_row<'a>(
     Row::new(vec![
         Cell::from(marker),
         Cell::from(Span::styled(status.label(), status_style)),
+        Cell::from(change.stage.to_string()),
         Cell::from(
             change
                 .mode
@@ -354,5 +394,42 @@ fn intent_status_label(status: IntentStatus) -> &'static str {
         IntentStatus::Submitted => "submitted",
         IntentStatus::Failed => "failed",
         IntentStatus::Expired => "expired",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::StagedChangeStage;
+
+    #[test]
+    fn stage_column_width_covers_all_stage_labels() {
+        let stages = [
+            StagedChangeStage::Draft,
+            StagedChangeStage::Validating,
+            StagedChangeStage::Ready,
+            StagedChangeStage::SubmitQueued,
+            StagedChangeStage::IntentCreated,
+            StagedChangeStage::DryRunCompleted,
+            StagedChangeStage::TestCompleted,
+            StagedChangeStage::DryRunFailed,
+            StagedChangeStage::TestFailed,
+            StagedChangeStage::LivePreflightFailed,
+            StagedChangeStage::LiveIntentClaimed,
+            StagedChangeStage::LiveSubmitted,
+            StagedChangeStage::FailedBeforeIntent,
+            StagedChangeStage::IntentFailed,
+            StagedChangeStage::LocalCommitQueued,
+            StagedChangeStage::LocalCommitted,
+            StagedChangeStage::LocalCommitFailed,
+            StagedChangeStage::Abandoned,
+        ];
+
+        for stage in stages {
+            assert!(
+                unicode_width::UnicodeWidthStr::width(stage.label()) <= STAGE_COLUMN_WIDTH as usize,
+                "{stage} should fit the stage column"
+            );
+        }
     }
 }

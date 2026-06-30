@@ -28,15 +28,19 @@ const fn first_staged_change_content_row() -> usize {
 }
 
 pub(crate) fn action_line(hidden: usize, width: u16) -> IntentReviewActionLine {
-    let mut line = IntentReviewActionLine::new(crate::hints::intent_review_panel_hint(), width);
-    line.push_visible_text("  ");
-    line.push_visible_action("[execute]", IntentReviewAction::ExecuteSelected);
-    line.push_visible_text("  ");
-    line.push_visible_action("[close]", IntentReviewAction::CloseSelected);
+    let mut hint = crate::hints::intent_review_panel_hint();
     if hidden > 0 {
-        line.push_visible_text(&format!("  +{hidden} hidden staged change(s)"));
+        hint.push_str(&format!("  +{hidden} hidden staged change(s)"));
     }
-    line
+    crate::action_line_view::right_aligned_action_line(
+        width,
+        &hint,
+        2,
+        &[
+            ("[execute]", IntentReviewAction::ExecuteSelected),
+            ("[close]", IntentReviewAction::CloseSelected),
+        ],
+    )
 }
 
 pub(crate) fn action_at_content_cell(
@@ -93,14 +97,12 @@ mod tests {
     }
 
     #[test]
-    fn narrow_action_line_does_not_expose_hidden_actions() {
+    fn narrow_action_line_keeps_actions_when_the_hint_must_shrink() {
         let line = action_line(0, 40);
 
         assert!(unicode_width::UnicodeWidthStr::width(line.text.as_str()) <= 40);
-        assert!(line.actions.is_empty());
-        assert_eq!(
-            action_at_content_cell(0, 40, INTENT_REVIEW_ACTION_ROW, 39),
-            None
-        );
+        assert_eq!(line.actions.len(), 2);
+        assert!(line.text.contains("[execute]"));
+        assert!(line.text.contains("[close]"));
     }
 }
