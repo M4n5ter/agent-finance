@@ -146,32 +146,22 @@ fn staged_execution_rows(
     match &request.execution {
         StagedExecution::Submit { mode, .. } => {
             rows.push(ConfirmationRow::Text(format!("mode: {mode}")));
-            push_gate_preview_rows(&mut rows, gate_preview);
-            rows.push(ConfirmationRow::Blank);
+            if let Some(gate) = pending.typed_gate {
+                push_typed_submit_gate_rows(&mut rows, gate);
+                push_submit_buttons(&mut rows, pending.can_confirm);
+                if push_gate_preview_rows(&mut rows, gate_preview) {
+                    rows.push(ConfirmationRow::Blank);
+                }
+            } else {
+                push_gate_preview_rows(&mut rows, gate_preview);
+                push_submit_buttons(&mut rows, pending.can_confirm);
+            }
             rows.push(ConfirmationRow::Text(
                 "This creates an intent and runs the trading runtime gates.".into(),
             ));
             rows.push(ConfirmationRow::Text(
                 "Live mode still requires profile permissions, risk policy, intent claim lock, and audit logging.".into(),
             ));
-            if let Some(gate) = pending.typed_gate {
-                rows.push(ConfirmationRow::Blank);
-                rows.push(ConfirmationRow::Text(gate.reason.into()));
-                rows.push(ConfirmationRow::Text(format!(
-                    "Type {} exactly before submitting.",
-                    gate.phrase
-                )));
-                rows.push(ConfirmationRow::Input {
-                    label: "confirmation".into(),
-                    value: gate.input.into(),
-                    matched: gate.matched,
-                });
-            }
-            rows.push(ConfirmationRow::Blank);
-            rows.push(ConfirmationRow::Buttons(ConfirmationButtons {
-                primary: pending.can_confirm.then(|| "Confirm submit".into()),
-                cancel: "Cancel".into(),
-            }));
         }
         StagedExecution::LocalCommit { .. } => {
             if push_gate_preview_rows(&mut rows, gate_preview) {
@@ -194,6 +184,32 @@ fn staged_execution_rows(
         }
     }
     rows
+}
+
+fn push_typed_submit_gate_rows(
+    rows: &mut Vec<ConfirmationRow>,
+    gate: crate::state::TypedConfirmationGateView<'_>,
+) {
+    rows.push(ConfirmationRow::Blank);
+    rows.push(ConfirmationRow::Text(gate.reason.into()));
+    rows.push(ConfirmationRow::Text(format!(
+        "Type {} exactly before submitting.",
+        gate.phrase
+    )));
+    rows.push(ConfirmationRow::Input {
+        label: "confirmation".into(),
+        value: gate.input.into(),
+        matched: gate.matched,
+    });
+}
+
+fn push_submit_buttons(rows: &mut Vec<ConfirmationRow>, can_confirm: bool) {
+    rows.push(ConfirmationRow::Blank);
+    rows.push(ConfirmationRow::Buttons(ConfirmationButtons {
+        primary: can_confirm.then(|| "Confirm submit".into()),
+        cancel: "Cancel".into(),
+    }));
+    rows.push(ConfirmationRow::Blank);
 }
 
 fn push_gate_preview_rows(
@@ -421,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn staged_execution_confirmation_surfaces_gate_preview_before_submit_copy() {
+    fn staged_execution_confirmation_prioritizes_typed_gate_before_gate_preview() {
         let request = transfer_execution_request();
         let rows = rows_for(
             FloatingKind::StagedExecutionConfirmation,
@@ -439,9 +455,21 @@ mod tests {
             80,
         );
 
+        let typed_prompt = row_index(&rows, "Type TRANSFER").expect("typed prompt is present");
+        let typed_input = rows
+            .iter()
+            .position(|row| matches!(row, ConfirmationRow::Input { .. }))
+            .expect("typed input is present");
+        let button_row = rows
+            .iter()
+            .position(|row| matches!(row, ConfirmationRow::Buttons(_)))
+            .expect("button row is present");
         let gate_heading = row_index(&rows, "gate preview:").expect("gate heading is present");
         let submit_copy = row_index(&rows, "This creates an intent")
             .expect("submit copy is present after gate preview");
+        assert!(typed_prompt < gate_heading);
+        assert!(typed_input < gate_heading);
+        assert!(button_row < gate_heading);
         assert!(gate_heading < submit_copy);
         assert!(rows.iter().any(|row| matches!(
             row,
@@ -457,6 +485,31 @@ mod tests {
                 text,
             }) if text.starts_with("runtime gate:")
         )));
+    }
+
+    #[test]
+    fn untyped_submit_confirmation_keeps_gate_preview_before_buttons() {
+        let request = order_execution_request();
+        let rows = rows_for(
+            FloatingKind::StagedExecutionConfirmation,
+            Some(untyped_confirmation_view(&request, true)),
+            vec![GatePreviewRow {
+                severity: GatePreviewSeverity::Info,
+                text: "core risk preview: allow  findings:0".into(),
+            }],
+            80,
+        );
+
+        let gate_heading = row_index(&rows, "gate preview:").expect("gate heading is present");
+        let button_row = rows
+            .iter()
+            .position(|row| matches!(row, ConfirmationRow::Buttons(_)))
+            .expect("button row is present");
+        assert!(gate_heading < button_row);
+        assert!(
+            rows.iter()
+                .all(|row| !matches!(row, ConfirmationRow::Input { .. }))
+        );
     }
 
     fn row_index(rows: &[ConfirmationRow], prefix: &str) -> Option<usize> {
@@ -481,6 +534,17 @@ mod tests {
         }
     }
 
+    fn untyped_confirmation_view<'a>(
+        request: &'a StagedExecutionRequest,
+        can_confirm: bool,
+    ) -> PendingStagedConfirmationView<'a> {
+        PendingStagedConfirmationView {
+            request,
+            typed_gate: None,
+            can_confirm,
+        }
+    }
+
     fn transfer_execution_request() -> StagedExecutionRequest {
         StagedExecutionRequest {
             id: "transfer-mainnet".into(),
@@ -492,6 +556,34 @@ mod tests {
                         asset: "USDT".into(),
                         amount: "5".into(),
                         parsed_amount: DecimalValue::from_str("5").expect("valid decimal"),
+                        effective_mode: SubmitMode::DryRun,
+                    },
+                ),
+                mode: SubmitMode::DryRun,
+            },
+        }
+    }
+
+    fn order_execution_request() -> StagedExecutionRequest {
+        StagedExecutionRequest {
+            id: "order-mainnet".into(),
+            execution: StagedExecution::Submit {
+                subject: crate::state::StagedSubmitSubject::OrderTicket(
+                    crate::state::OrderTicketReview {
+                        profile: "mainnet".into(),
+                        symbol: "BTCUSDT".into(),
+                        market: agent_finance_core::Market::Spot,
+                        side: agent_finance_core::OrderSide::Buy,
+                        kind: agent_finance_core::OrderKind::Market,
+                        quantity: "0.001".into(),
+                        price: None,
+                        time_in_force: agent_finance_core::TimeInForce::Gtc,
+                        reduce_only: false,
+                        parsed_quantity: DecimalValue::from_str("0.001").expect("valid decimal"),
+                        order_spec: agent_finance_core::OrderSpec::Market {
+                            valuation_price: DecimalValue::from_str("60000")
+                                .expect("valid decimal"),
+                        },
                         effective_mode: SubmitMode::DryRun,
                     },
                 ),

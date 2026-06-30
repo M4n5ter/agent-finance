@@ -125,6 +125,8 @@ try {
   editWatchlist();
 
   stageAndCloseDryRunOrder();
+  stageAndCancelTypedTransfer();
+  stageAndCancelTypedFuturesState();
 
   runTmux(["send-keys", "-t", session, "q"]);
   waitForSessionExit(8_000);
@@ -307,15 +309,25 @@ function writeSmokeProfile() {
       "",
       "[permissions]",
       "spot_trading = true",
-      "usds_futures = false",
-      "universal_transfer = false",
+      "usds_futures = true",
+      "universal_transfer = true",
       "",
       "[risk]",
       "allow_live = false",
       "",
+      "[[risk.allowed_transfers]]",
+      'direction = "spot-to-usds-futures"',
+      'asset = "USDT"',
+      'max_amount = "5"',
+      "",
+      "[[risk.allowed_futures_state_changes]]",
+      'kind = "leverage"',
+      'symbol = "ETHUSDT"',
+      "max_leverage = 1",
+      "",
       '[risk.allowed_symbols.BTCUSDT]',
-      'markets = ["spot"]',
-      'order_kinds = ["limit"]',
+      'markets = ["spot", "usds-futures"]',
+      'order_kinds = ["market", "limit"]',
       'max_order_notional_usdt = "25"',
       "",
     ].join("\n"),
@@ -418,6 +430,82 @@ function stageAndCloseDryRunOrder() {
   }
 }
 
+function stageAndCancelTypedTransfer() {
+  executePaletteCommand(
+    "workspace account",
+    ["workspace account", "Workspace account"],
+    ["Account", "Transfer Ticket", "Futures State"],
+    "account workspace switch for transfer staging",
+  );
+  executePaletteCommand(
+    "focus transfer",
+    ["focus transfer", "Focus transfer ticket"],
+    ["Transfer Ticket", "amount: -"],
+    "transfer ticket focus",
+  );
+
+  runTmux(["send-keys", "-t", session, "]", "]", "e"]);
+  if (!waitForScreen(["Ticket Text Input", "transfer ticket amount"], 4_000)) {
+    fail("TUI did not open the transfer amount editor");
+  }
+  runTmux(["send-keys", "-t", session, "5", "Enter"]);
+  if (!waitForScreen(["Transfer Ticket", "amount: 5", "[stage] ready"], 4_000)) {
+    fail("TUI did not make the transfer ticket ready for staging");
+  }
+  runTmux(["send-keys", "-t", session, "t"]);
+  if (!waitForPanel("Intent Review", ["visible:1", "total:1", "transfer", "smoke", "dry-run"], 4_000)) {
+    fail("TUI did not stage a transfer intent from the transfer ticket");
+  }
+  confirmTypedGateAndDiscard({
+    phrase: "TRANSFER",
+    label: "transfer",
+    intentKind: "transfer",
+  });
+}
+
+function stageAndCancelTypedFuturesState() {
+  executePaletteCommand(
+    "focus futures",
+    ["focus futures", "Focus futures state"],
+    ["Futures State", "kind: leverage"],
+    "futures state focus",
+  );
+
+  runTmux(["send-keys", "-t", session, "u", "i", "u", "i"]);
+  if (!waitForScreen(["Futures State", "scope: ETHUSDT", "value: 1", "[stage] ready"], 4_000)) {
+    fail("TUI did not make the futures state ticket ready for staging");
+  }
+  runTmux(["send-keys", "-t", session, "f"]);
+  if (!waitForPanel("Intent Review", ["visible:1", "total:1", "futures-state", "smoke", "dry-run"], 4_000)) {
+    fail("TUI did not stage a futures state intent from the ticket");
+  }
+
+  confirmTypedGateAndDiscard({
+    phrase: "FUTURES STATE",
+    label: "futures state",
+    intentKind: "futures-state",
+  });
+}
+
+function confirmTypedGateAndDiscard({ phrase, label, intentKind }) {
+  runTmux(["send-keys", "-t", session, "Enter"]);
+  if (!waitForScreen(["Confirm Staged Execution", `Type ${phrase} exactly before submitting.`], 4_000)) {
+    fail(`TUI did not show the ${label} typed confirmation gate`);
+  }
+  runTmux(["send-keys", "-t", session, phrase]);
+  if (!waitForScreen([`confirmation: ${phrase}`, "matched", "[Confirm submit]"], 4_000)) {
+    fail(`TUI did not accept the ${label} typed confirmation phrase`);
+  }
+  runTmux(["send-keys", "-t", session, "Escape"]);
+  if (!waitForPanel("Intent Review", [intentKind, "ready"], 4_000)) {
+    fail(`TUI did not return to the staged ${label} after cancelling confirmation`);
+  }
+  runTmux(["send-keys", "-t", session, "d"]);
+  if (!waitForPanel("Intent Review", ["operation queue", "No staged changes."], 4_000)) {
+    fail(`TUI did not close the staged ${label} intent`);
+  }
+}
+
 function fillMinimalOrderTicket() {
   runTmux(["send-keys", "-t", session, "Down", "Down", "Left", "Left"]);
   if (!waitForScreen(["kind: market"], 4_000)) {
@@ -460,8 +548,10 @@ function waitForScreen(markers, timeoutMs) {
 function waitForPanel(title, markers, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let lastPanel = "";
+  let lastScreen = "";
   while (Date.now() < deadline) {
     const screen = capturePane();
+    lastScreen = screen;
     lastPanel = panelTextByTitle(screen, title);
     if (markers.every((marker) => lastPanel.includes(marker))) {
       return lastPanel;
@@ -470,6 +560,8 @@ function waitForPanel(title, markers, timeoutMs) {
   }
   if (lastPanel) {
     process.stderr.write(lastPanel);
+  } else if (lastScreen) {
+    process.stderr.write(lastScreen);
   }
   return "";
 }
