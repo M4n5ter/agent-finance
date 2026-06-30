@@ -413,6 +413,17 @@ impl AppState {
         ));
     }
 
+    fn capture_chart_price(&mut self, price: f64) {
+        let symbol = self.selected_symbol().map(ToString::to_string);
+        self.order_ticket.capture_reference_price(price);
+        self.focus_panel(Panel::OrderTicket);
+        self.task_log.info(format!(
+            "captured chart price {} for {}",
+            self.order_ticket_preview().price.as_deref().unwrap_or("-"),
+            symbol.as_deref().unwrap_or("selected symbol")
+        ));
+    }
+
     fn stage_transfer_ticket(&mut self) {
         let preview = self.transfer_ticket_preview();
         self.focus_panel(Panel::IntentReview);
@@ -979,6 +990,7 @@ impl AppState {
                 self.adjust_order_ticket_field_at(index, direction);
             }
             Action::CaptureOrderReferencePrice => self.capture_order_reference_price(),
+            Action::CaptureChartPrice { price } => self.capture_chart_price(price),
             Action::OpenTicketTextInput => self.open_ticket_text_input(),
             Action::MoveTransferTicketField(direction) => {
                 self.transfer_ticket.move_field(direction);
@@ -1501,6 +1513,9 @@ pub enum Action {
         direction: isize,
     },
     CaptureOrderReferencePrice,
+    CaptureChartPrice {
+        price: f64,
+    },
     OpenTicketTextInput,
     MoveTransferTicketField(isize),
     SelectTransferTicketField(usize),

@@ -6,6 +6,7 @@ use ratatui::widgets::Widget;
 
 use crate::chart::ChartWindow;
 use crate::chart::series::{CandleBucket, compressed_bars, moving_average, vwap};
+use crate::history_chart::{ChartAreas, PriceBounds, PricePoint, bucket_capacity, visible_bars};
 use crate::mouse_target::MousePosition;
 use crate::theme::ThemeConfig;
 
@@ -55,34 +56,15 @@ impl Widget for CandlestickChart<'_> {
         }
         let geometry = ChartGeometry::for_buckets(area, buckets.len());
 
-        let axis_height = 1;
-        let volume_height = volume_height(area.height);
-        let price_height = area
-            .height
-            .saturating_sub(volume_height)
-            .saturating_sub(axis_height);
-        let price_area = Rect {
-            height: price_height,
-            ..area
-        };
-        let volume_area = Rect {
-            y: area.y + price_height,
-            height: volume_height,
-            ..area
-        };
-        let time_area = Rect {
-            y: area.y + price_height + volume_height,
-            height: axis_height,
-            ..area
-        };
+        let areas = ChartAreas::from(area);
         let bounds = PriceBounds::from_buckets(&buckets);
-        render_reference_lines(buffer, price_area, bounds, &buckets, self.mode, self.theme);
-        render_overlays(buffer, price_area, bounds, &buckets, geometry, self.theme);
-        render_candles(buffer, price_area, bounds, &buckets, geometry, self.theme);
-        render_volume(buffer, volume_area, &buckets, geometry, self.theme);
-        render_reference_labels(buffer, price_area, bounds, &buckets, self.mode, self.theme);
-        render_price_labels(buffer, price_area, bounds, self.theme);
-        render_time_labels(buffer, time_area, &buckets, self.theme);
+        render_reference_lines(buffer, areas.price, bounds, &buckets, self.mode, self.theme);
+        render_overlays(buffer, areas.price, bounds, &buckets, geometry, self.theme);
+        render_candles(buffer, areas.price, bounds, &buckets, geometry, self.theme);
+        render_volume(buffer, areas.volume, &buckets, geometry, self.theme);
+        render_reference_labels(buffer, areas.price, bounds, &buckets, self.mode, self.theme);
+        render_price_labels(buffer, areas.price, bounds, self.theme);
+        render_time_labels(buffer, areas.time, &buckets, self.theme);
         render_workbench_legend(buffer, area, &buckets, self.mode, self.theme);
         render_cursor(
             buffer,
@@ -95,11 +77,6 @@ impl Widget for CandlestickChart<'_> {
         );
         render_hover(buffer, area, self.hover, &buckets, geometry, self.theme);
     }
-}
-
-fn visible_bars(bars: &[HistoryBarSnapshot], window: ChartWindow) -> &[HistoryBarSnapshot] {
-    let range = window.visible_range(bars.len());
-    &bars[range]
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -158,76 +135,6 @@ impl ChartGeometry {
         let width = u32::from(self.area.width - 1);
         let index = (offset * (self.bucket_count - 1) as u32 + width / 2) / width;
         Some(index as usize)
-    }
-}
-
-fn bucket_capacity(area: Rect) -> usize {
-    if area.width >= 48 {
-        usize::from(area.width / 2).max(1)
-    } else {
-        usize::from(area.width).max(1)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct PriceBounds {
-    min: f64,
-    max: f64,
-}
-
-impl PriceBounds {
-    fn from_buckets(buckets: &[CandleBucket]) -> Self {
-        let (min, max) = buckets
-            .iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), bucket| {
-                (min.min(bucket.low), max.max(bucket.high))
-            });
-        let scale = min.abs().max(max.abs()).max(f64::MIN_POSITIVE);
-        let padding = ((max - min).abs() * 0.05).max(scale * 0.001);
-        Self {
-            min: min - padding,
-            max: max + padding,
-        }
-    }
-
-    fn row(self, area: Rect, price: f64) -> u16 {
-        self.point(area, price).row
-    }
-
-    fn point(self, area: Rect, price: f64) -> PricePoint {
-        if area.height <= 1 || (self.max - self.min).abs() <= f64::EPSILON {
-            return PricePoint {
-                row: area.y,
-                cell_slot: 0,
-            };
-        }
-        let ratio = ((price - self.min) / (self.max - self.min)).clamp(0.0, 1.0);
-        let slots = u32::from(area.height) * 4;
-        let slot = ((1.0 - ratio) * f64::from(slots.saturating_sub(1))).round() as u32;
-        PricePoint {
-            row: area.y + (slot / 4) as u16,
-            cell_slot: (slot % 4) as u8,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
-struct PricePoint {
-    row: u16,
-    cell_slot: u8,
-}
-
-impl PricePoint {
-    fn slot(self) -> u32 {
-        u32::from(self.row) * 4 + u32::from(self.cell_slot)
-    }
-}
-
-fn volume_height(height: u16) -> u16 {
-    match height {
-        0..=7 => 0,
-        8..=12 => 2,
-        _ => (height / 5).clamp(3, 6),
     }
 }
 
@@ -500,8 +407,8 @@ fn render_volume(
 }
 
 fn render_price_labels(buffer: &mut Buffer, area: Rect, bounds: PriceBounds, theme: &ThemeConfig) {
-    let high = format!("{:.2}", bounds.max);
-    let low = format!("{:.2}", bounds.min);
+    let high = format!("{:.2}", bounds.max());
+    let low = format!("{:.2}", bounds.min());
     write_right(
         buffer,
         area.x,
@@ -856,10 +763,7 @@ mod tests {
         render_candles(
             &mut buffer,
             area,
-            PriceBounds {
-                min: 90.0,
-                max: 110.0,
-            },
+            PriceBounds::new(90.0, 110.0),
             &[bucket],
             geometry,
             &ThemeConfig::default(),

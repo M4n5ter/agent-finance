@@ -11,6 +11,7 @@ use crate::search_floating_view::SearchFloatingLayout;
 use crate::staged_gate_preview::confirmation_gate_preview;
 use crate::status_bar::StatusAction;
 use agent_finance_core::{Environment, Market, Provider, SignedReadRequest, SignedReadSnapshot};
+use agent_finance_market::history_snapshot::{HistoryBarSnapshot, HistorySnapshot};
 use agent_finance_market::snapshot::{MarketSnapshot, QuoteSnapshot, RegularBasisSnapshot};
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
@@ -2079,9 +2080,20 @@ fn mouse_movement_over_history_chart_reports_chart_hover() {
 }
 
 #[test]
-fn mouse_click_on_history_chart_only_focuses_and_tracks_hover() {
+fn mouse_click_on_history_chart_price_fills_order_ticket_without_staging() {
     let area = Rect::new(0, 0, 120, 32);
-    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
     state.reduce(Action::Focus(Panel::Quote));
     let panel = layout::build(
         area,
@@ -2092,8 +2104,7 @@ fn mouse_click_on_history_chart_only_focuses_and_tracks_hover() {
     .panel_rect(Panel::History)
     .expect("history panel is visible");
     let chart = crate::read_only_panel_view::history_chart_area(panel, false);
-    let click_position = MousePosition::new(chart.x + 2, chart.y + 2);
-    let previous_log_count = state.task_log.iter().count();
+    let click_position = MousePosition::new(chart.x + 2, chart.y + chart.height / 2);
     let mut drag = MouseDrag::default();
 
     handle_mouse_event(
@@ -2107,9 +2118,15 @@ fn mouse_click_on_history_chart_only_focuses_and_tracks_hover() {
         ),
     );
 
-    assert_eq!(state.panels.focused(), Panel::History);
+    assert_eq!(state.panels.focused(), Panel::OrderTicket);
     assert_eq!(state.mouse_position, Some(click_position));
-    assert_eq!(state.task_log.iter().count(), previous_log_count);
+    let price = state
+        .order_ticket
+        .price_text()
+        .expect("chart click captures price")
+        .parse::<f64>()
+        .expect("captured price is numeric");
+    assert!((90.0..=110.0).contains(&price));
     assert_eq!(state.staged_change_count(), 0);
     assert!(state.pending_staged_confirmation().is_none());
     assert!(state.take_pending_staged_execution().is_none());
@@ -2482,6 +2499,49 @@ fn market_snapshot_with_price(symbol: &str, price: f64) -> MarketSnapshot {
             },
         }],
         errors: Vec::new(),
+    }
+}
+
+fn history_snapshot(symbol: &str) -> HistorySnapshot {
+    HistorySnapshot {
+        requested_symbol: symbol.to_string(),
+        symbol: symbol.to_string(),
+        provider: "test".to_string(),
+        interval: "5m".to_string(),
+        fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+        latest_close: Some(103.0),
+        latest_time: Some("09:45".to_string()),
+        return_pct: Some(3.0),
+        volume: Some(3_300.0),
+        bars: vec![
+            history_bar("09:30", "09:35", 100.0, 110.0, 90.0, 101.0, 1_000.0),
+            history_bar("09:35", "09:40", 101.0, 108.0, 94.0, 102.0, 1_100.0),
+            history_bar("09:40", "09:45", 102.0, 106.0, 96.0, 103.0, 1_200.0),
+        ],
+        errors: Vec::new(),
+    }
+}
+
+fn history_bar(
+    open_time: &str,
+    close_time: &str,
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,
+    volume: f64,
+) -> HistoryBarSnapshot {
+    HistoryBarSnapshot {
+        open_time: open_time.to_string(),
+        close_time: Some(close_time.to_string()),
+        open: Some(open),
+        high: Some(high),
+        low: Some(low),
+        close,
+        volume: Some(volume),
+        quote_volume: None,
+        trades: None,
+        repaired: false,
     }
 }
 

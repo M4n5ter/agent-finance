@@ -14,7 +14,14 @@ pub(crate) fn click_action(
     column: u16,
     row: u16,
 ) -> Option<Action> {
-    panel_hit_at(state, panel, area, column, row).and_then(|hit| hit.action_for(panel))
+    let hit = panel_hit_at(state, panel, area, column, row)?;
+    if panel == Panel::History
+        && let PanelHit::ChartPoint { position } = &hit
+    {
+        return history_chart_price_at(state, area, position.row)
+            .map(|price| Action::CaptureChartPrice { price });
+    }
+    hit.action_for(panel)
 }
 
 pub(crate) fn hover_target(
@@ -308,6 +315,22 @@ fn history_hit_at(state: &AppState, area: Rect, column: u16, row: u16) -> Option
     }
     crate::read_only_panel_view::info_row_at_content_row(state, Panel::History, area, content_row)
         .map(PanelHit::InfoRow)
+}
+
+fn history_chart_price_at(state: &AppState, panel_area: Rect, row: u16) -> Option<f64> {
+    let workbench = crate::read_only_panel_view::history_workbench_active(state);
+    let chart_area = crate::read_only_panel_view::history_chart_area(panel_area, workbench);
+    state
+        .selected_symbol()
+        .and_then(|symbol| state.history.selected_snapshot(symbol))
+        .and_then(|snapshot| {
+            crate::history_chart::chart_price_at_row(
+                &snapshot.bars,
+                state.chart.window(),
+                chart_area,
+                row,
+            )
+        })
 }
 
 fn rect_contains(area: Rect, column: u16, row: u16) -> bool {

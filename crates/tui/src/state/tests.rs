@@ -276,6 +276,30 @@ fn capture_order_reference_price_without_quote_only_warns() {
 }
 
 #[test]
+fn capture_chart_price_fills_order_ticket_without_staging() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Market,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+
+    state.reduce(Action::CaptureChartPrice { price: 204.1234 });
+
+    let preview = state.order_ticket_preview();
+    assert_eq!(state.panels.focused(), Panel::OrderTicket);
+    assert_eq!(preview.symbol.as_deref(), Some("CRDO"));
+    assert_eq!(preview.price.as_deref(), Some("204.12"));
+    assert_eq!(state.staged_change_count(), 0);
+    assert!(state.pending_staged_confirmation().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
+}
+
+#[test]
 fn submitting_ready_order_change_queues_submit_request() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["CRDO".to_string()],
