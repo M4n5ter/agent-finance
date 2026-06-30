@@ -8,6 +8,7 @@ mod account;
 mod chrome;
 mod futures_state;
 mod history;
+mod history_annotations;
 mod intent_review;
 pub(crate) mod open_orders;
 mod order_ticket;

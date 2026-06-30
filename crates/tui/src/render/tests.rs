@@ -785,6 +785,85 @@ fn history_workbench_cursor_zoom_matches_snapshot_at_120x32() {
 }
 
 #[test]
+fn history_chart_warns_when_visible_data_is_close_only_or_partial() {
+    let mut state = snapshot_state();
+    let mut snapshot = history_snapshot("CRDO");
+    snapshot.bars[3].open = None;
+    snapshot.bars[3].high = None;
+    snapshot.bars[3].low = None;
+    snapshot
+        .errors
+        .push("fallback provider returned partial data".to_string());
+    state.reduce(crate::state::Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(crate::state::Action::HistoryLoaded {
+        generation: 1,
+        snapshot,
+    });
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Market,
+    )));
+
+    let text = render_to_text(&state, 120, 32);
+
+    assert!(text.contains("warning: close-only bars=1 +1 more"));
+}
+
+#[test]
+fn history_chart_ignores_close_only_bars_outside_the_visible_window() {
+    let mut state = snapshot_state();
+    let mut snapshot = history_snapshot("CRDO");
+    snapshot.bars[3].open = None;
+    snapshot.bars[3].high = None;
+    snapshot.bars[3].low = None;
+    state.reduce(crate::state::Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(crate::state::Action::HistoryLoaded {
+        generation: 1,
+        snapshot,
+    });
+    state.reduce(crate::state::Action::SelectChartWindow {
+        start_bps: 5_000,
+        end_bps: 10_000,
+    });
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Market,
+    )));
+
+    let text = render_to_text(&state, 120, 32);
+
+    assert!(!text.contains("close-only bars"));
+}
+
+#[test]
+fn history_chart_warns_when_history_provider_errors_exist() {
+    let mut state = snapshot_state();
+    let mut snapshot = history_snapshot("CRDO");
+    snapshot
+        .errors
+        .push("fallback provider returned partial data".to_string());
+    state.reduce(crate::state::Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(crate::state::Action::HistoryLoaded {
+        generation: 1,
+        snapshot,
+    });
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Market,
+    )));
+
+    let text = render_to_text(&state, 120, 32);
+
+    assert!(text.contains("warning: fallback provider returned partial data"));
+}
+
+#[test]
 fn trade_workspace_matches_snapshot_at_140x36() {
     let mut state = snapshot_state();
     state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(

@@ -7,9 +7,13 @@ use ratatui::widgets::Widget;
 use crate::chart::ChartWindow;
 use crate::chart::series::{CandleBucket, compressed_bars, moving_average, vwap};
 use crate::chart_overlay::{ChartOverlayKind, ChartOverlayLine};
-use crate::history_chart::{ChartAreas, PriceBounds, PricePoint, bucket_capacity, visible_bars};
+use crate::history_chart::{
+    ChartAreas, ChartWarning, PriceBounds, PricePoint, bucket_capacity, visible_bars,
+};
 use crate::mouse_target::MousePosition;
 use crate::theme::ThemeConfig;
+
+use super::history_annotations::render_warning_band;
 
 pub(super) fn chart<'a>(
     bars: &'a [HistoryBarSnapshot],
@@ -18,6 +22,7 @@ pub(super) fn chart<'a>(
     mode: ChartMode,
     view: ChartView,
     overlays: &'a [ChartOverlayLine],
+    warnings: &'a [ChartWarning],
 ) -> CandlestickChart<'a> {
     CandlestickChart {
         bars,
@@ -26,6 +31,7 @@ pub(super) fn chart<'a>(
         mode,
         view,
         overlays,
+        warnings,
     }
 }
 
@@ -37,6 +43,7 @@ pub(super) struct CandlestickChart<'a> {
     mode: ChartMode,
     view: ChartView,
     overlays: &'a [ChartOverlayLine],
+    warnings: &'a [ChartWarning],
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -103,6 +110,7 @@ impl Widget for CandlestickChart<'_> {
             geometry,
             self.theme,
         );
+        render_warning_band(buffer, area, self.mode, self.warnings, self.theme);
         render_hover(buffer, area, self.hover, &buckets, geometry, self.theme);
     }
 }

@@ -189,6 +189,7 @@ fn render_history(
     } else {
         Vec::new()
     };
+    let chart_warnings = crate::history_chart::chart_warnings(snapshot, state.chart.window());
     let hover = mouse_target.and_then(|target| target.panel_chart_hovered(Panel::History));
     let mode = if workbench {
         history::ChartMode::Workbench
@@ -206,6 +207,7 @@ fn render_history(
             selected_overlay_index: state.chart.selected_reference_line(),
         },
         &chart_overlays,
+        &chart_warnings,
     );
     frame.render_widget(chart, chart_area);
 }

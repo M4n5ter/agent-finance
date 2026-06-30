@@ -1,4 +1,4 @@
-use agent_finance_market::history_snapshot::HistoryBarSnapshot;
+use agent_finance_market::history_snapshot::{HistoryBarSnapshot, HistorySnapshot};
 use ratatui::layout::Rect;
 
 use crate::chart::ChartWindow;
@@ -177,6 +177,60 @@ pub(crate) fn visible_bars(
     &bars[range]
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct ChartWarning {
+    pub kind: ChartWarningKind,
+    pub message: String,
+}
+
+impl ChartWarning {
+    fn close_only(count: usize) -> Self {
+        Self {
+            kind: ChartWarningKind::CloseOnly,
+            message: format!("close-only bars={count}"),
+        }
+    }
+
+    fn provider(message: String) -> Self {
+        Self {
+            kind: ChartWarningKind::Provider,
+            message,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum ChartWarningKind {
+    CloseOnly,
+    Provider,
+}
+
+pub(crate) fn chart_warnings(
+    snapshot: Option<&HistorySnapshot>,
+    window: ChartWindow,
+) -> Vec<ChartWarning> {
+    let Some(snapshot) = snapshot else {
+        return Vec::new();
+    };
+    let mut warnings = Vec::new();
+    let close_only = visible_bars(&snapshot.bars, window)
+        .iter()
+        .filter(|bar| bar.open.is_none() || bar.high.is_none() || bar.low.is_none())
+        .count();
+    if close_only > 0 {
+        warnings.push(ChartWarning::close_only(close_only));
+    }
+    warnings.extend(
+        snapshot
+            .errors
+            .iter()
+            .take(2)
+            .cloned()
+            .map(ChartWarning::provider),
+    );
+    warnings
+}
+
 pub(crate) fn bucket_capacity(area: Rect) -> usize {
     if area.width >= 48 {
         usize::from(area.width / 2).max(1)
@@ -196,6 +250,7 @@ pub(crate) fn volume_height(height: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chart::{ChartPreset, ChartState};
 
     #[test]
     fn chart_price_hit_test_maps_rows_to_visible_price_range() {
@@ -238,5 +293,69 @@ mod tests {
             Some(10_000)
         );
         assert_eq!(chart_bps_at_column(area, ChartWindow::FULL, 111), None);
+    }
+
+    #[test]
+    fn chart_warnings_count_close_only_bars_inside_the_visible_window() {
+        let mut bars = vec![history_bar(100.0); 20];
+        bars[1].open = None;
+        bars[1].high = None;
+        bars[1].low = None;
+        bars[18].open = None;
+        bars[18].high = None;
+        bars[18].low = None;
+        let mut state = ChartState::new(ChartPreset::Auto);
+        assert!(state.select_window(5_000, 10_000));
+
+        let warnings = chart_warnings(Some(&history_snapshot(bars)), state.window());
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, ChartWarningKind::CloseOnly);
+        assert_eq!(warnings[0].message, "close-only bars=1");
+    }
+
+    #[test]
+    fn chart_warnings_keep_provider_errors_when_visible_bars_are_clean() {
+        let mut snapshot = history_snapshot(vec![history_bar(100.0); 20]);
+        snapshot.errors.push("fallback failed".to_string());
+        let mut state = ChartState::new(ChartPreset::Auto);
+        assert!(state.select_window(5_000, 10_000));
+
+        let warnings = chart_warnings(Some(&snapshot), state.window());
+
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].kind, ChartWarningKind::Provider);
+        assert_eq!(warnings[0].message, "fallback failed");
+    }
+
+    fn history_snapshot(bars: Vec<HistoryBarSnapshot>) -> HistorySnapshot {
+        HistorySnapshot {
+            requested_symbol: "CRDO".to_string(),
+            symbol: "CRDO".to_string(),
+            provider: "test".to_string(),
+            interval: "5m".to_string(),
+            fetched_at_local: None,
+            latest_close: bars.last().map(|bar| bar.close),
+            latest_time: None,
+            return_pct: None,
+            volume: None,
+            bars,
+            errors: Vec::new(),
+        }
+    }
+
+    fn history_bar(close: f64) -> HistoryBarSnapshot {
+        HistoryBarSnapshot {
+            open_time: "09:30".to_string(),
+            close_time: Some("09:35".to_string()),
+            open: Some(close - 1.0),
+            high: Some(close + 1.0),
+            low: Some(close - 2.0),
+            close,
+            volume: Some(1_000.0),
+            quote_volume: None,
+            trades: None,
+            repaired: false,
+        }
     }
 }
