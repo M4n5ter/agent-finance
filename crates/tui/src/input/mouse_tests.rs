@@ -1270,6 +1270,63 @@ fn mouse_click_on_profile_risk_action_executes_action() {
 }
 
 #[test]
+fn mouse_click_on_profile_risk_action_blank_space_does_not_execute_action() {
+    let area = Rect::new(0, 0, 160, 48);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        workspace: crate::config::WorkspaceConfig {
+            current: WorkspaceKind::Settings,
+        },
+        ..crate::config::TuiConfig::default()
+    });
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::ProfileRisk)
+    .expect("profile risk panel is visible");
+    let target_action = ActionId::OpenFloating(FloatingKind::TradingProfile);
+    let label_click =
+        clickable_panel_action(&mut state, area, panel, Panel::ProfileRisk, target_action);
+    let blank_column = ((label_click.column + 1)..panel.right().saturating_sub(1))
+        .find(|column| {
+            let mut drag = MouseDrag::default();
+            handle_mouse_event(
+                area,
+                &mut state,
+                &mut drag,
+                mouse_event(MouseEventKind::Moved, *column, label_click.row),
+            );
+            !current_mouse_target(area, &state).is_some_and(|target| {
+                target.panel_action_hovered(Panel::ProfileRisk, target_action)
+            })
+        })
+        .expect("blank space after profile risk action label");
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(
+            MouseEventKind::Down(MouseButton::Left),
+            blank_column,
+            label_click.row,
+        ),
+    );
+
+    assert!(
+        !state
+            .floating
+            .iter()
+            .any(|pane| pane.kind == FloatingKind::TradingProfile)
+    );
+    assert_eq!(state.panels.focused(), Panel::ProfileRisk);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_click_on_order_ticket_field_selects_that_field() {
     let area = Rect::new(0, 0, 160, 48);
     let mut state = AppState::from_config(crate::config::TuiConfig {

@@ -8,7 +8,10 @@ use crate::futures_state_ticket::FuturesStateTicketPreset;
 use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
 use crate::open_order_view::OpenOrderRow;
-use crate::panel_action_line_view::{PanelActionLine, PanelActionSpan, styled_panel_action_line};
+use crate::panel_action_line_view::{
+    PanelActionLine, PanelActionSpan, RenderedPanelActionLine, panel_action_span_at,
+    render_panel_action_line,
+};
 use crate::profile_snapshot::TradingProfileSnapshot;
 use crate::state::AppState;
 use crate::transfer_ticket::TransferTicketPreset;
@@ -100,13 +103,17 @@ impl AccountPanelRow {
         }
     }
 
-    fn action_line(line: Line<'static>, actions: Vec<PanelActionSpan>) -> Self {
+    fn action_line(rendered: RenderedPanelActionLine) -> Self {
         Self {
-            line,
+            line: rendered.line,
             hit: None,
-            actions,
+            actions: rendered.actions,
             preset_actions: Vec::new(),
         }
+    }
+
+    fn panel_action_at(&self, content_column: u16) -> Option<PanelActionSpan> {
+        panel_action_span_at(&self.actions, content_column)
     }
 }
 
@@ -171,11 +178,12 @@ fn account_action_rows(
     }
 
     let action_line = account_action_line(state, width);
-    let actions = action_line.actions.clone();
-    vec![AccountPanelRow::action_line(
-        styled_panel_action_line(&action_line, &state.theme, Panel::Account, mouse_target),
-        actions,
-    )]
+    vec![AccountPanelRow::action_line(render_panel_action_line(
+        &action_line,
+        &state.theme,
+        Panel::Account,
+        mouse_target,
+    ))]
 }
 
 fn account_action_line(state: &AppState, width: u16) -> PanelActionLine {
@@ -209,10 +217,7 @@ pub(crate) fn action_at_content_cell(
 ) -> Option<PanelActionSpan> {
     rows_for_width(state, None, width)
         .get(content_row)?
-        .actions
-        .iter()
-        .copied()
-        .find(|span| (span.start..span.end).contains(&content_column))
+        .panel_action_at(content_column)
 }
 
 pub(crate) fn preset_at_content_cell(
@@ -318,11 +323,12 @@ fn open_order_action_row(
     mouse_target: Option<MouseTarget>,
 ) -> AccountPanelRow {
     let action_line = crate::open_order_view::open_order_action_line(width);
-    let actions = action_line.actions.clone();
-    AccountPanelRow::action_line(
-        styled_panel_action_line(&action_line, &state.theme, Panel::Account, mouse_target),
-        actions,
-    )
+    AccountPanelRow::action_line(render_panel_action_line(
+        &action_line,
+        &state.theme,
+        Panel::Account,
+        mouse_target,
+    ))
 }
 
 fn account_preset_action_line(

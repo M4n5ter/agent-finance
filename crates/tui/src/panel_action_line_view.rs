@@ -10,6 +10,34 @@ use crate::theme::ThemeConfig;
 pub(crate) type PanelActionLine = ActionLine<ActionId>;
 pub(crate) type PanelActionSpan = ActionSpan<ActionId>;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct RenderedPanelActionLine {
+    pub line: Line<'static>,
+    pub actions: Vec<PanelActionSpan>,
+}
+
+pub(crate) fn panel_action_span_at(
+    actions: &[PanelActionSpan],
+    content_column: u16,
+) -> Option<PanelActionSpan> {
+    actions
+        .iter()
+        .copied()
+        .find(|span| (span.start..span.end).contains(&content_column))
+}
+
+pub(crate) fn render_panel_action_line(
+    action_line: &PanelActionLine,
+    theme: &ThemeConfig,
+    panel: Panel,
+    mouse_target: Option<MouseTarget>,
+) -> RenderedPanelActionLine {
+    RenderedPanelActionLine {
+        line: styled_panel_action_line(action_line, theme, panel, mouse_target),
+        actions: action_line.actions.clone(),
+    }
+}
+
 pub(crate) fn styled_panel_action_line(
     action_line: &PanelActionLine,
     theme: &ThemeConfig,

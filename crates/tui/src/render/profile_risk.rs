@@ -15,7 +15,7 @@ pub(super) fn render_profile_risk(
     area: Rect,
     mouse_target: Option<MouseTarget>,
 ) {
-    let items = profile_risk_panel_view::rows(state, mouse_target)
+    let items = profile_risk_panel_view::rows(state, area.width.saturating_sub(2), mouse_target)
         .into_iter()
         .map(|row| ListItem::new(row.line));
     frame.render_widget(

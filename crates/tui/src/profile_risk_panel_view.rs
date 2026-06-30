@@ -1,8 +1,11 @@
-use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use crate::model::Panel;
 use crate::mouse_target::MouseTarget;
+use crate::panel_action_line_view::{
+    PanelActionLine, PanelActionSpan, RenderedPanelActionLine, panel_action_span_at,
+    render_panel_action_line,
+};
 use crate::profile_risk_controls::{PROFILE_RISK_ACTIONS, ProfileRiskActionSpec};
 use crate::profile_snapshot::{ProfileValidationState, TradingProfileSnapshot};
 use crate::state::AppState;
@@ -14,42 +17,52 @@ use crate::render::widgets::compact_text;
 
 pub(crate) struct ProfileRiskPanelRow {
     pub line: Line<'static>,
-    pub action: Option<ProfileRiskActionSpec>,
+    pub panel_actions: Vec<PanelActionSpan>,
 }
 
 impl ProfileRiskPanelRow {
     fn text(text: impl Into<String>) -> Self {
         Self {
             line: Line::from(text.into()),
-            action: None,
+            panel_actions: Vec::new(),
         }
     }
 
     fn line(line: Line<'static>) -> Self {
-        Self { line, action: None }
+        Self {
+            line,
+            panel_actions: Vec::new(),
+        }
     }
 
     fn action(
         state: &AppState,
+        width: u16,
         mouse_target: Option<MouseTarget>,
         action: ProfileRiskActionSpec,
     ) -> Self {
-        let hovered = mouse_target
-            .is_some_and(|target| target.panel_action_hovered(Panel::ProfileRisk, action.action));
-        let style = if hovered {
-            state.theme.selected_style().add_modifier(Modifier::BOLD)
-        } else {
-            state.theme.accent_style()
-        };
+        let mut action_line = PanelActionLine::new("", width);
+        action_line.push_visible_action(action.label, action.action);
+        let rendered =
+            render_panel_action_line(&action_line, &state.theme, Panel::ProfileRisk, mouse_target);
+        Self::panel_action(rendered)
+    }
+
+    fn panel_action(rendered: RenderedPanelActionLine) -> Self {
         Self {
-            line: Line::from(Span::styled(action.label, style)),
-            action: Some(action),
+            line: rendered.line,
+            panel_actions: rendered.actions,
         }
+    }
+
+    fn panel_action_at(&self, content_column: u16) -> Option<PanelActionSpan> {
+        panel_action_span_at(&self.panel_actions, content_column)
     }
 }
 
 pub(crate) fn rows(
     state: &AppState,
+    width: u16,
     mouse_target: Option<MouseTarget>,
 ) -> Vec<ProfileRiskPanelRow> {
     let mut rows = vec![
@@ -92,16 +105,21 @@ pub(crate) fn rows(
 
     rows.push(ProfileRiskPanelRow::text(""));
     rows.extend(
-        PROFILE_RISK_ACTIONS.map(|action| ProfileRiskPanelRow::action(state, mouse_target, action)),
+        PROFILE_RISK_ACTIONS
+            .map(|action| ProfileRiskPanelRow::action(state, width, mouse_target, action)),
     );
     rows
 }
 
-pub(crate) fn action_at_content_row(
+pub(crate) fn action_at_content_cell(
     state: &AppState,
+    width: u16,
     content_row: usize,
-) -> Option<ProfileRiskActionSpec> {
-    rows(state, None).get(content_row)?.action
+    content_column: u16,
+) -> Option<PanelActionSpan> {
+    rows(state, width, None)
+        .get(content_row)?
+        .panel_action_at(content_column)
 }
 
 fn validation_summary_line(state: &AppState) -> Line<'static> {
@@ -172,9 +190,10 @@ mod tests {
     fn rows_mark_profile_risk_actions_as_clickable_metadata() {
         let state = AppState::from_config(crate::config::TuiConfig::default());
 
-        let actions = rows(&state, None)
+        let actions = rows(&state, 100, None)
             .into_iter()
-            .filter_map(|row| row.action.map(|action| action.action))
+            .flat_map(|row| row.panel_actions)
+            .map(|action| action.action)
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -184,6 +203,34 @@ mod tests {
                 ActionId::RevalidateTradingProfile,
                 ActionId::StageProfileLiveToggle,
             ]
+        );
+    }
+
+    #[test]
+    fn action_hit_test_uses_visible_label_cells_only() {
+        let state = AppState::from_config(crate::config::TuiConfig::default());
+        let rendered_rows = rows(&state, 100, None);
+        let (content_row, span) = rendered_rows
+            .iter()
+            .enumerate()
+            .find_map(|(content_row, row)| {
+                row.panel_actions
+                    .iter()
+                    .find(|span| {
+                        span.action
+                            == ActionId::OpenFloating(crate::model::FloatingKind::TradingProfile)
+                    })
+                    .map(|span| (content_row, *span))
+            })
+            .expect("profile editor action is rendered");
+
+        assert_eq!(
+            action_at_content_cell(&state, 100, content_row, span.start),
+            Some(span)
+        );
+        assert_eq!(
+            action_at_content_cell(&state, 100, content_row, span.end),
+            None
         );
     }
 }

@@ -5,7 +5,10 @@ use crate::action_line_view::{ActionLine, ActionSpan};
 use crate::command::ActionId;
 use crate::model::{FloatingKind, Panel};
 use crate::mouse_target::MouseTarget;
-use crate::panel_action_line_view::{PanelActionLine, PanelActionSpan, styled_panel_action_line};
+use crate::panel_action_line_view::{
+    PanelActionLine, PanelActionSpan, RenderedPanelActionLine, panel_action_span_at,
+    render_panel_action_line,
+};
 use crate::settings_editor::SettingRow;
 use crate::state::AppState;
 
@@ -53,13 +56,17 @@ impl SettingsPanelRow {
         }
     }
 
-    fn panel_action(line: Line<'static>, panel_actions: Vec<PanelActionSpan>) -> Self {
+    fn panel_action(rendered: RenderedPanelActionLine) -> Self {
         Self {
-            line,
+            line: rendered.line,
             setting_index: None,
             actions: Vec::new(),
-            panel_actions,
+            panel_actions: rendered.actions,
         }
+    }
+
+    fn panel_action_at(&self, content_column: u16) -> Option<PanelActionSpan> {
+        panel_action_span_at(&self.panel_actions, content_column)
     }
 }
 
@@ -150,10 +157,7 @@ pub(crate) fn panel_action_at_content_cell(
 ) -> Option<PanelActionSpan> {
     rows(state, width, None)
         .get(content_row)?
-        .panel_actions
-        .iter()
-        .copied()
-        .find(|span| (span.start..span.end).contains(&content_column))
+        .panel_action_at(content_column)
 }
 
 pub(crate) fn action_at_content_cell(
@@ -213,11 +217,12 @@ fn settings_action_row(
         action_line.push_visible_text("  ");
         action_line.push_visible_action(label, *action);
     }
-    let panel_actions = action_line.actions.clone();
-    SettingsPanelRow::panel_action(
-        styled_panel_action_line(&action_line, &state.theme, Panel::Settings, mouse_target),
-        panel_actions,
-    )
+    SettingsPanelRow::panel_action(render_panel_action_line(
+        &action_line,
+        &state.theme,
+        Panel::Settings,
+        mouse_target,
+    ))
 }
 
 fn setting_rows(

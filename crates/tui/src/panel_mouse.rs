@@ -58,6 +58,13 @@ enum PanelHit {
 }
 
 impl PanelHit {
+    fn from_panel_action(action: crate::panel_action_line_view::PanelActionSpan) -> Self {
+        Self::Action {
+            label: action.label,
+            action: action.action,
+        }
+    }
+
     fn action_for(self, panel: Panel) -> Option<Action> {
         match (panel, self) {
             (Panel::Watchlist, Self::Row(index)) => Some(Action::SelectWatchlistSymbol(index)),
@@ -157,10 +164,7 @@ fn panel_hit_at(
                 content_row,
                 content_column,
             ) {
-                return Some(PanelHit::Action {
-                    label: action.label,
-                    action: action.action,
-                });
+                return Some(PanelHit::from_panel_action(action));
             }
             crate::open_order_view::open_order_index_at_content_row(
                 &open_orders,
@@ -179,10 +183,7 @@ fn panel_hit_at(
                 content_row,
                 content_column,
             ) {
-                return Some(PanelHit::Action {
-                    label: action.label,
-                    action: action.action,
-                });
+                return Some(PanelHit::from_panel_action(action));
             }
             if let Some(action) = crate::account_panel_view::preset_at_content_cell(
                 state,
@@ -227,10 +228,7 @@ fn panel_hit_at(
                 content_row,
                 content_column,
             ) {
-                return Some(PanelHit::Action {
-                    label: action.label,
-                    action: action.action,
-                });
+                return Some(PanelHit::from_panel_action(action));
             }
             if let Some(action) = crate::settings_panel_view::action_at_content_cell(
                 state,
@@ -250,13 +248,13 @@ fn panel_hit_at(
             )
             .map(PanelHit::Row)
         }
-        Panel::ProfileRisk => {
-            crate::profile_risk_panel_view::action_at_content_row(state, content_row(area, row)?)
-                .map(|action| PanelHit::Action {
-                    label: action.label,
-                    action: action.action,
-                })
-        }
+        Panel::ProfileRisk => crate::profile_risk_panel_view::action_at_content_cell(
+            state,
+            content_width(area),
+            content_row(area, row)?,
+            content_column(area, column).unwrap_or(u16::MAX),
+        )
+        .map(PanelHit::from_panel_action),
         Panel::Quote
         | Panel::History
         | Panel::Evidence
@@ -306,10 +304,7 @@ fn ticket_hit_at(
     rows: crate::ticket_panel_view::TicketPanelRows,
 ) -> Option<PanelHit> {
     if let Some(action) = rows.action_at_content_cell(content_width, content_row, content_column) {
-        return Some(PanelHit::Action {
-            label: action.label,
-            action: action.action,
-        });
+        return Some(PanelHit::from_panel_action(action));
     }
     if let Some(action) =
         rows.field_action_at_content_cell(content_width, content_row, content_column)
