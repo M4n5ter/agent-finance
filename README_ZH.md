@@ -8,6 +8,8 @@
 
 它也提供 `agent-finance tui`，可以在一个终端里同时观察标的、provider health、研究上下文、crypto evidence 和预测市场信号。
 
+![agent-finance TUI 市场 cockpit](assets/tui-market-cockpit.png)
+
 安装后，Agent 可以直接从 CLI 读取自己的使用说明。
 
 ```bash
