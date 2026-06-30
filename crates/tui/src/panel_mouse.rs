@@ -1,14 +1,11 @@
 use ratatui::layout::Rect;
 
 use crate::account_panel_view::{AccountPanelHit, AccountTicketPreset};
-use crate::futures_state_ticket::FuturesStateTicketField;
 use crate::intent_review_view::IntentReviewAction;
 use crate::model::Panel;
 use crate::mouse_target::{MouseTarget, PanelMouseAction};
-use crate::order_ticket::OrderTicketField;
 use crate::state::{Action, AppState};
-use crate::ticket_panel_view::{TicketPanelClick, TicketPanelRows};
-use crate::transfer_ticket::TransferTicketField;
+use crate::ticket_panel_view::TicketPanelClick;
 
 pub(crate) fn click_action(
     state: &AppState,
@@ -206,19 +203,19 @@ fn panel_hit_at(
             content_row(area, row)?,
             content_column(area, column).unwrap_or(u16::MAX),
             content_width(area),
-            order_ticket_rows(state),
+            crate::ticket_panel_view::order_ticket_rows(state),
         ),
         Panel::TransferTicket => ticket_hit_at(
             content_row(area, row)?,
             content_column(area, column).unwrap_or(u16::MAX),
             content_width(area),
-            transfer_ticket_rows(state),
+            crate::ticket_panel_view::transfer_ticket_rows(state),
         ),
         Panel::FuturesState => ticket_hit_at(
             content_row(area, row)?,
             content_column(area, column).unwrap_or(u16::MAX),
             content_width(area),
-            futures_state_ticket_rows(state),
+            crate::ticket_panel_view::futures_state_ticket_rows(state),
         ),
         Panel::Settings => {
             let content_row = content_row(area, row)?;
@@ -295,7 +292,7 @@ fn ticket_hit_at(
     content_row: usize,
     content_column: u16,
     content_width: u16,
-    rows: TicketPanelRows,
+    rows: crate::ticket_panel_view::TicketPanelRows,
 ) -> Option<PanelHit> {
     if let Some(action) = rows.action_at_content_cell(content_width, content_row, content_column) {
         return Some(PanelHit::Action {
@@ -314,42 +311,6 @@ fn ticket_hit_at(
     match rows.click_at(content_row)? {
         TicketPanelClick::Field(index) => Some(PanelHit::TicketField(index)),
         TicketPanelClick::ReadyAction => Some(PanelHit::TicketReadyAction),
-    }
-}
-
-fn order_ticket_rows(state: &AppState) -> TicketPanelRows {
-    let preview = state.order_ticket_preview();
-    TicketPanelRows {
-        detail_count: 1,
-        actions: crate::order_ticket_controls::ORDER_TICKET_ACTIONS,
-        field_count: OrderTicketField::COUNT,
-        field_adjustable: vec![true; OrderTicketField::COUNT],
-        ready: preview.ready,
-        blocker_count: preview.blockers.len(),
-    }
-}
-
-fn transfer_ticket_rows(state: &AppState) -> TicketPanelRows {
-    let preview = state.transfer_ticket_preview();
-    TicketPanelRows {
-        detail_count: 0,
-        actions: crate::transfer_ticket_controls::TRANSFER_TICKET_ACTIONS,
-        field_count: TransferTicketField::COUNT,
-        field_adjustable: vec![true; TransferTicketField::COUNT],
-        ready: preview.ready,
-        blocker_count: preview.blockers.len(),
-    }
-}
-
-fn futures_state_ticket_rows(state: &AppState) -> TicketPanelRows {
-    let preview = state.futures_state_ticket_preview();
-    TicketPanelRows {
-        detail_count: 0,
-        actions: crate::futures_state_controls::FUTURES_STATE_ACTIONS,
-        field_count: FuturesStateTicketField::MAX_COUNT,
-        field_adjustable: vec![true, preview.scope_adjustable(), true],
-        ready: preview.ready,
-        blocker_count: preview.blockers.len(),
     }
 }
 

@@ -237,8 +237,6 @@ pub enum FuturesStateTicketField {
 }
 
 impl FuturesStateTicketField {
-    pub const MAX_COUNT: usize = Self::ALL.len();
-
     const ALL: [Self; 3] = [Self::Kind, Self::Symbol, Self::Value];
 
     pub const fn label(self) -> &'static str {

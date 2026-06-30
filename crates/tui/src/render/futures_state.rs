@@ -26,28 +26,18 @@ pub(super) fn render_futures_state(
             live_writes_enabled: preview.live_writes_enabled,
             effective_mode: preview.effective_mode.to_string(),
             detail_lines: Vec::new(),
-            actions: crate::futures_state_controls::FUTURES_STATE_ACTIONS,
+            rows: crate::ticket_panel_view::futures_state_ticket_rows(state),
             fields: vec![
                 TicketField::new("kind", preview.kind.to_string(), selected),
-                futures_scope_field(&preview, selected),
+                TicketField::new("scope", preview.scope_label(), selected),
                 TicketField::new("value", futures_state_value(&preview), selected),
             ],
-            ready: preview.ready,
             ready_label: "ready",
             blockers: preview.blockers,
             hint: crate::futures_state_controls::futures_state_section_hint(),
         },
         mouse_target,
     );
-}
-
-fn futures_scope_field(preview: &FuturesStateTicketPreview, selected: &'static str) -> TicketField {
-    let field = TicketField::new("scope", preview.scope_label(), selected);
-    if preview.scope_adjustable() {
-        field
-    } else {
-        field.read_only()
-    }
 }
 
 fn futures_state_value(preview: &FuturesStateTicketPreview) -> String {

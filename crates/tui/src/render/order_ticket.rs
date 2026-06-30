@@ -31,7 +31,7 @@ pub(super) fn render_order_ticket(
                 preview.symbol.as_deref().unwrap_or("-"),
                 preview.profile.as_deref().unwrap_or("-")
             )],
-            actions: crate::order_ticket_controls::ORDER_TICKET_ACTIONS,
+            rows: crate::ticket_panel_view::order_ticket_rows(state),
             fields: vec![
                 TicketField::new("market", ticket.market().to_string(), selected),
                 TicketField::new("side", ticket.side().to_string(), selected),
@@ -53,7 +53,6 @@ pub(super) fn render_order_ticket(
                 ),
                 TicketField::new("reduce only", ticket.reduce_only().to_string(), selected),
             ],
-            ready: preview.ready,
             ready_label: "ready for intent review",
             blockers: preview.blockers,
             hint: crate::order_ticket_controls::order_ticket_panel_hint(),

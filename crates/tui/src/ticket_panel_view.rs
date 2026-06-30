@@ -1,6 +1,7 @@
 use crate::action_line_view::{ActionLine, ActionSpan, right_aligned_action_line};
 use crate::command::ActionId;
 use crate::panel_action_line_view::{PanelActionLine, PanelActionSpan};
+use crate::state::AppState;
 
 const FIELD_PREV_LABEL: &str = "[prev]";
 const FIELD_NEXT_LABEL: &str = "[next]";
@@ -50,7 +51,6 @@ impl TicketPanelAction {
 pub(crate) struct TicketPanelRows {
     pub detail_count: usize,
     pub actions: &'static [TicketPanelAction],
-    pub field_count: usize,
     pub field_adjustable: Vec<bool>,
     pub ready: bool,
     pub blocker_count: usize,
@@ -60,7 +60,7 @@ impl TicketPanelRows {
     pub(crate) fn rows(&self) -> Vec<TicketPanelRow> {
         let mut rows = vec![TicketPanelRow::Header];
         rows.extend((0..self.detail_count).map(TicketPanelRow::Detail));
-        rows.extend((0..self.field_count).map(TicketPanelRow::Field));
+        rows.extend((0..self.field_count()).map(TicketPanelRow::Field));
         if self.ready {
             rows.push(TicketPanelRow::ReadyAction);
         } else {
@@ -109,8 +109,45 @@ impl TicketPanelRows {
             .action_at(content_column)
     }
 
-    fn field_is_adjustable(&self, index: usize) -> bool {
-        self.field_adjustable.get(index).copied().unwrap_or(true)
+    pub(crate) fn field_count(&self) -> usize {
+        self.field_adjustable.len()
+    }
+
+    pub(crate) fn field_is_adjustable(&self, index: usize) -> bool {
+        self.field_adjustable.get(index).copied().unwrap_or(false)
+    }
+}
+
+pub(crate) fn order_ticket_rows(state: &AppState) -> TicketPanelRows {
+    let preview = state.order_ticket_preview();
+    TicketPanelRows {
+        detail_count: 1,
+        actions: crate::order_ticket_controls::ORDER_TICKET_ACTIONS,
+        field_adjustable: vec![true; crate::order_ticket::OrderTicketField::COUNT],
+        ready: preview.ready,
+        blocker_count: preview.blockers.len(),
+    }
+}
+
+pub(crate) fn transfer_ticket_rows(state: &AppState) -> TicketPanelRows {
+    let preview = state.transfer_ticket_preview();
+    TicketPanelRows {
+        detail_count: 0,
+        actions: crate::transfer_ticket_controls::TRANSFER_TICKET_ACTIONS,
+        field_adjustable: vec![true; crate::transfer_ticket::TransferTicketField::COUNT],
+        ready: preview.ready,
+        blocker_count: preview.blockers.len(),
+    }
+}
+
+pub(crate) fn futures_state_ticket_rows(state: &AppState) -> TicketPanelRows {
+    let preview = state.futures_state_ticket_preview();
+    TicketPanelRows {
+        detail_count: 0,
+        actions: crate::futures_state_controls::FUTURES_STATE_ACTIONS,
+        field_adjustable: vec![true, preview.scope_adjustable(), true],
+        ready: preview.ready,
+        blocker_count: preview.blockers.len(),
     }
 }
 
@@ -157,7 +194,6 @@ mod tests {
         let rows = TicketPanelRows {
             detail_count: 1,
             actions: &[],
-            field_count: 2,
             field_adjustable: vec![true, true],
             ready: true,
             blocker_count: 0,
@@ -184,7 +220,6 @@ mod tests {
         let rows = TicketPanelRows {
             detail_count: 0,
             actions: &[],
-            field_count: 1,
             field_adjustable: vec![true],
             ready: false,
             blocker_count: 4,
@@ -214,7 +249,6 @@ mod tests {
         let rows = TicketPanelRows {
             detail_count: 1,
             actions: ACTIONS,
-            field_count: 1,
             field_adjustable: vec![true],
             ready: false,
             blocker_count: 1,
@@ -247,7 +281,6 @@ mod tests {
         let rows = TicketPanelRows {
             detail_count: 0,
             actions: &[],
-            field_count: 1,
             field_adjustable: vec![true],
             ready: false,
             blocker_count: 0,
@@ -282,7 +315,6 @@ mod tests {
         let rows = TicketPanelRows {
             detail_count: 0,
             actions: &[],
-            field_count: 2,
             field_adjustable: vec![true, false],
             ready: false,
             blocker_count: 0,

@@ -20,9 +20,8 @@ pub(super) struct TicketPanel {
     pub live_writes_enabled: bool,
     pub effective_mode: String,
     pub detail_lines: Vec<String>,
-    pub actions: &'static [TicketPanelAction],
+    pub rows: TicketPanelRows,
     pub fields: Vec<TicketField>,
-    pub ready: bool,
     pub ready_label: &'static str,
     pub blockers: Vec<String>,
     pub hint: String,
@@ -32,7 +31,6 @@ pub(super) struct TicketField {
     pub label: &'static str,
     pub value: String,
     pub selected: bool,
-    pub adjustable: bool,
 }
 
 impl TicketField {
@@ -41,13 +39,7 @@ impl TicketField {
             label,
             value,
             selected: label == selected_label,
-            adjustable: true,
         }
-    }
-
-    pub(super) fn read_only(mut self) -> Self {
-        self.adjustable = false;
-        self
     }
 }
 
@@ -58,15 +50,12 @@ pub(super) fn render_ticket_panel(
     ticket: TicketPanel,
     mouse_target: Option<MouseTarget>,
 ) {
-    let rows = TicketPanelRows {
-        detail_count: ticket.detail_lines.len(),
-        actions: ticket.actions,
-        field_count: ticket.fields.len(),
-        field_adjustable: ticket.fields.iter().map(|field| field.adjustable).collect(),
-        ready: ticket.ready,
-        blocker_count: ticket.blockers.len(),
-    };
-    let lines = rows
+    debug_assert_eq!(ticket.rows.field_count(), ticket.fields.len());
+    debug_assert_eq!(ticket.rows.detail_count, ticket.detail_lines.len());
+    debug_assert_eq!(ticket.rows.blocker_count, ticket.blockers.len());
+
+    let lines = ticket
+        .rows
         .rows()
         .into_iter()
         .map(|row| {
@@ -110,12 +99,16 @@ fn ticket_line(
             )),
         ]),
         TicketPanelRow::Detail(index) => Line::from(ticket.detail_lines[index].clone()),
-        TicketPanelRow::Action(index) => {
-            ticket_action_line(state, ticket, ticket.actions[index], width, mouse_target)
-        }
+        TicketPanelRow::Action(index) => ticket_action_line(
+            state,
+            ticket,
+            ticket.rows.actions[index],
+            width,
+            mouse_target,
+        ),
         TicketPanelRow::Field(index) => ticket_field_line(
             state,
-            ticket.panel,
+            ticket,
             &ticket.fields[index],
             index,
             width,
@@ -154,12 +147,13 @@ fn ticket_action_line(
 
 fn ticket_field_line(
     state: &AppState,
-    panel: Panel,
+    ticket: &TicketPanel,
     field: &TicketField,
     index: usize,
     width: u16,
     mouse_target: Option<MouseTarget>,
 ) -> Line<'static> {
+    let panel = ticket.panel;
     let marker = if field.selected { ">" } else { " " };
     let hovered = ticket_field_hovered(mouse_target, panel, index);
     let style = if hovered || field.selected {
@@ -168,7 +162,12 @@ fn ticket_field_line(
         state.theme.text_style()
     };
     let field_text = format!("{marker} {}: {}", field.label, field.value);
-    let action_line = field_action_line(width, index, &field_text, field.adjustable);
+    let action_line = field_action_line(
+        width,
+        index,
+        &field_text,
+        ticket.rows.field_is_adjustable(index),
+    );
     let mut spans = Vec::new();
     let mut cursor = 0usize;
     for action in &action_line.actions {
