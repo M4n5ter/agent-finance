@@ -26,7 +26,9 @@ pub struct HistorySnapshot {
     pub requested_symbol: String,
     pub symbol: String,
     pub provider: String,
+    pub session: String,
     pub interval: String,
+    pub range: String,
     pub fetched_at_local: Option<String>,
     pub latest_close: Option<f64>,
     pub latest_time: Option<String>,
@@ -60,6 +62,15 @@ pub async fn fetch_history_snapshot(
     } else {
         AssetClass::Auto
     };
+    let session = if asset == AssetClass::Crypto
+        || matches!(
+            request.provider,
+            Provider::BinanceSpot | Provider::BinanceUsdsFutures
+        ) {
+        "24/7".to_string()
+    } else {
+        request.session.label().to_string()
+    };
     let batch = service::history(
         runtime,
         HistoryRequest {
@@ -73,7 +84,7 @@ pub async fn fetch_history_snapshot(
             no_actions: false,
             repair: false,
             interval: request.interval,
-            range: request.range,
+            range: request.range.clone(),
             limit: request.limit,
             stooq_market: StooqMarket::Us,
             stooq_asset: StooqAsset::Stocks,
@@ -83,6 +94,8 @@ pub async fn fetch_history_snapshot(
 
     Ok(snapshot_from_batch(
         request.symbol,
+        session,
+        request.range,
         batch,
         Some(time::now_local(runtime.timezone())),
     ))
@@ -90,6 +103,8 @@ pub async fn fetch_history_snapshot(
 
 fn snapshot_from_batch(
     requested_symbol: String,
+    session: String,
+    range: String,
     batch: HistoryBatch,
     fetched_at_local: Option<String>,
 ) -> HistorySnapshot {
@@ -110,7 +125,9 @@ fn snapshot_from_batch(
         requested_symbol,
         symbol: batch.symbol,
         provider: batch.provider,
+        session,
         interval: batch.interval,
+        range,
         fetched_at_local,
         latest_close: latest.map(|bar| bar.close),
         latest_time: latest.map(|bar| bar.open_time.clone()),
@@ -144,6 +161,8 @@ mod tests {
     fn snapshot_from_batch_maps_latest_bar_and_return() {
         let snapshot = snapshot_from_batch(
             "CRDO".to_string(),
+            HistorySession::Regular.label().to_string(),
+            "5d".to_string(),
             HistoryBatch {
                 symbol: "CRDO".to_string(),
                 provider: "yahoo".to_string(),
@@ -161,6 +180,8 @@ mod tests {
         );
 
         assert_eq!(snapshot.latest_close, Some(125.0));
+        assert_eq!(snapshot.session, "regular");
+        assert_eq!(snapshot.range, "5d");
         assert_eq!(snapshot.latest_time.as_deref(), Some("2026-06-25"));
         assert_eq!(snapshot.volume, Some(12_000.0));
         assert_eq!(snapshot.bars[1].open, Some(124.0));

@@ -1,14 +1,14 @@
 ---
 source: crates/tui/src/render/tests.rs
-assertion_line: 1264
+assertion_line: 1345
 expression: "render_to_text_grid(state, width, height)"
 ---
 ┌History Chart [fresh]─────────────────────────────────────────────────────────────────────────────────────────────────┐
 │actions  [refresh]                                                                                                    │
 │CRDO history                                                                                                          │
-│provider: test  preset=auto  interval=5m  bars=48                                                                     │
+│source: test regular 5d/5m  preset=auto  bars=48                                                                      │
 │latest: 109.16 at 13:25  return=10.04%                                                                                │
-│volume: 15.81K  freshness: 2026-06-25 09:30:00                                                                        │
+│volume: 15.81K  freshness: 2026-06-25T09:30:00+08:00                                                                  │
 │range: 9:30 -> 13:30  O=98.8000 H=113.18 L=94.7200 C=109.16                                                           │
 │view=full  cursor=off  h/l cursor  wheel/[ ]/drag zoom  0-6 preset  r refresh  z exit                                 │
 │                                                                                                                      │

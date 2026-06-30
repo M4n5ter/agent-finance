@@ -196,20 +196,42 @@ fn render_history(
     } else {
         history::ChartMode::Cockpit
     };
-    let chart = history::chart(
+    let chart = history::chart(history::ChartProps {
         bars,
-        &state.theme,
+        context: history_chart_context(snapshot),
+        theme: &state.theme,
         hover,
         mode,
-        history::ChartView {
+        view: history::ChartView {
             window: state.chart.window(),
             cursor_bps: state.chart.cursor_bps(),
             selected_overlay_index: state.chart.selected_reference_line(),
         },
-        &chart_overlays,
-        &chart_warnings,
-    );
+        overlays: &chart_overlays,
+        warnings: &chart_warnings,
+    });
     frame.render_widget(chart, chart_area);
+}
+
+fn history_chart_context(
+    snapshot: Option<&agent_finance_market::history_snapshot::HistorySnapshot>,
+) -> history::ChartContext<'_> {
+    snapshot.map_or(
+        history::ChartContext {
+            provider: "-",
+            session: "-",
+            interval: "-",
+            range: "-",
+            fetched_at: None,
+        },
+        |snapshot| history::ChartContext {
+            provider: &snapshot.provider,
+            session: &snapshot.session,
+            interval: &snapshot.interval,
+            range: &snapshot.range,
+            fetched_at: snapshot.fetched_at_local.as_deref(),
+        },
+    )
 }
 
 fn render_evidence(

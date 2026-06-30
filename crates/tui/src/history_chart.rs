@@ -333,6 +333,8 @@ mod tests {
             requested_symbol: "CRDO".to_string(),
             symbol: "CRDO".to_string(),
             provider: "test".to_string(),
+            session: "regular".to_string(),
+            range: "5d".to_string(),
             interval: "5m".to_string(),
             fetched_at_local: None,
             latest_close: bars.last().map(|bar| bar.close),

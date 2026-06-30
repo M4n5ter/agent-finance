@@ -73,9 +73,9 @@ try {
       "Research",
       "Watchlist",
       "Quote / Sessions",
-      "provider: yahoo",
+      "source: yahoo",
       "preset=auto",
-      "interval=5m",
+      "5d/5m",
     ],
     20_000,
   );

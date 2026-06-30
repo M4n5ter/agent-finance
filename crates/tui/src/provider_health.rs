@@ -704,6 +704,8 @@ mod tests {
             requested_symbol: symbol.to_string(),
             symbol: symbol.to_string(),
             provider: provider.to_string(),
+            session: "regular".to_string(),
+            range: "5d".to_string(),
             interval: "1d".to_string(),
             fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
             latest_close: Some(250.0),

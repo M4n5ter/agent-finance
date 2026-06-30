@@ -14,36 +14,36 @@ use crate::mouse_target::MousePosition;
 use crate::theme::ThemeConfig;
 
 use super::history_annotations::render_warning_band;
+use super::history_annotations::{render_crosshair, render_hover_tooltip};
 
-pub(super) fn chart<'a>(
-    bars: &'a [HistoryBarSnapshot],
-    theme: &'a ThemeConfig,
-    hover: Option<MousePosition>,
-    mode: ChartMode,
-    view: ChartView,
-    overlays: &'a [ChartOverlayLine],
-    warnings: &'a [ChartWarning],
-) -> CandlestickChart<'a> {
-    CandlestickChart {
-        bars,
-        theme,
-        hover,
-        mode,
-        view,
-        overlays,
-        warnings,
-    }
+pub(super) fn chart<'a>(props: ChartProps<'a>) -> CandlestickChart<'a> {
+    CandlestickChart { props }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ChartProps<'a> {
+    pub bars: &'a [HistoryBarSnapshot],
+    pub context: ChartContext<'a>,
+    pub theme: &'a ThemeConfig,
+    pub hover: Option<MousePosition>,
+    pub mode: ChartMode,
+    pub view: ChartView,
+    pub overlays: &'a [ChartOverlayLine],
+    pub warnings: &'a [ChartWarning],
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct CandlestickChart<'a> {
-    bars: &'a [HistoryBarSnapshot],
-    theme: &'a ThemeConfig,
-    hover: Option<MousePosition>,
-    mode: ChartMode,
-    view: ChartView,
-    overlays: &'a [ChartOverlayLine],
-    warnings: &'a [ChartWarning],
+    props: ChartProps<'a>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) struct ChartContext<'a> {
+    pub provider: &'a str,
+    pub session: &'a str,
+    pub interval: &'a str,
+    pub range: &'a str,
+    pub fetched_at: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -64,7 +64,8 @@ impl Widget for CandlestickChart<'_> {
         if area.width < 8 || area.height < 4 {
             return;
         }
-        let visible = visible_bars(self.bars, self.view.window);
+        let props = self.props;
+        let visible = visible_bars(props.bars, props.view.window);
         let buckets = compressed_bars(visible, bucket_capacity(area));
         if buckets.is_empty() {
             return;
@@ -74,44 +75,66 @@ impl Widget for CandlestickChart<'_> {
         let areas = ChartAreas::from(area);
         let bounds = PriceBounds::from_buckets_and_prices(
             &buckets,
-            self.overlays.iter().map(|line| line.price),
+            props.overlays.iter().map(|line| line.price),
         );
-        render_reference_lines(buffer, areas.price, bounds, &buckets, self.mode, self.theme);
+        render_reference_lines(
+            buffer,
+            areas.price,
+            bounds,
+            &buckets,
+            props.mode,
+            props.theme,
+        );
         render_chart_overlay_lines(
             buffer,
             areas.price,
             bounds,
-            self.overlays,
-            self.view.selected_overlay_index,
-            self.theme,
+            props.overlays,
+            props.view.selected_overlay_index,
+            props.theme,
         );
-        render_overlays(buffer, areas.price, bounds, &buckets, geometry, self.theme);
-        render_candles(buffer, areas.price, bounds, &buckets, geometry, self.theme);
-        render_volume(buffer, areas.volume, &buckets, geometry, self.theme);
-        render_reference_labels(buffer, areas.price, bounds, &buckets, self.mode, self.theme);
+        render_overlays(buffer, areas.price, bounds, &buckets, geometry, props.theme);
+        render_candles(buffer, areas.price, bounds, &buckets, geometry, props.theme);
+        render_volume(buffer, areas.volume, &buckets, geometry, props.theme);
+        render_reference_labels(
+            buffer,
+            areas.price,
+            bounds,
+            &buckets,
+            props.mode,
+            props.theme,
+        );
         render_chart_overlay_labels(
             buffer,
             areas.price,
             bounds,
-            self.overlays,
-            self.view.selected_overlay_index,
-            self.mode,
-            self.theme,
+            props.overlays,
+            props.view.selected_overlay_index,
+            props.mode,
+            props.theme,
         );
-        render_price_labels(buffer, areas.price, bounds, self.theme);
-        render_time_labels(buffer, areas.time, &buckets, self.theme);
-        render_workbench_legend(buffer, area, &buckets, self.mode, self.theme);
+        render_price_labels(buffer, areas.price, bounds, props.theme);
+        render_time_labels(buffer, areas.time, &buckets, props.theme);
+        render_workbench_legend(buffer, area, &buckets, props.mode, props.theme);
         render_cursor(
             buffer,
             area,
-            self.view.cursor_bps,
-            self.view.window,
+            props.view.cursor_bps,
+            props.view.window,
             &buckets,
             geometry,
-            self.theme,
+            props.theme,
         );
-        render_warning_band(buffer, area, self.mode, self.warnings, self.theme);
-        render_hover(buffer, area, self.hover, &buckets, geometry, self.theme);
+        render_warning_band(buffer, area, props.mode, props.warnings, props.theme);
+        render_hover(
+            buffer,
+            area,
+            props.hover,
+            &buckets,
+            geometry,
+            props.context,
+            props.theme,
+        );
     }
 }
 
@@ -635,6 +658,7 @@ fn render_hover(
     hover: Option<MousePosition>,
     buckets: &[CandleBucket],
     geometry: ChartGeometry,
+    context: ChartContext<'_>,
     theme: &ThemeConfig,
 ) {
     let Some(hover) = hover else {
@@ -655,68 +679,7 @@ fn render_hover(
     };
     let column = geometry.body_x(index).unwrap_or(hover.column);
     render_crosshair(buffer, area, column, theme);
-    render_hover_tooltip(buffer, area, column, bucket, theme);
-}
-
-fn render_crosshair(buffer: &mut Buffer, area: Rect, column: u16, theme: &ThemeConfig) {
-    for row in area.y..area.bottom() {
-        if buffer[(column, row)].symbol() == " " {
-            buffer.set_string(column, row, "┊", theme.muted_style());
-        }
-    }
-}
-
-fn render_hover_tooltip(
-    buffer: &mut Buffer,
-    area: Rect,
-    column: u16,
-    bucket: &CandleBucket,
-    theme: &ThemeConfig,
-) {
-    if area.width < 24 || area.height < 3 {
-        return;
-    }
-    let volume = bucket
-        .volume
-        .map(super::widgets::format_volume)
-        .unwrap_or_else(|| "-".to_string());
-    let lines = [
-        format!(
-            "{} O{} H{}",
-            bucket_time_range(bucket),
-            super::widgets::format_price(bucket.open),
-            super::widgets::format_price(bucket.high)
-        ),
-        format!(
-            "L{} C{} V{}",
-            super::widgets::format_price(bucket.low),
-            super::widgets::format_price(bucket.close),
-            volume
-        ),
-    ];
-    let width = lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or_default()
-        .min(area.width as usize);
-    let right_start = column.saturating_add(2);
-    let axis_reserved = 8;
-    let usable_right = area.right().saturating_sub(axis_reserved);
-    let x = if right_start + width as u16 <= usable_right {
-        right_start
-    } else {
-        column
-            .saturating_sub(width as u16)
-            .saturating_sub(2)
-            .max(area.x)
-    };
-    let style = theme.selected_style();
-    for (offset, line) in lines.iter().enumerate() {
-        let y = area.y + offset as u16;
-        let clipped = clipped_prefix(line, width);
-        buffer.set_string(x, y, format!("{clipped:<width$}"), style);
-    }
+    render_hover_tooltip(buffer, area, column, bucket, context, theme);
 }
 
 fn write_right(buffer: &mut Buffer, x: u16, y: u16, width: u16, text: &str, style: Style) {
@@ -751,15 +714,6 @@ fn candle_style(bucket: &CandleBucket, theme: &ThemeConfig) -> Style {
         theme.danger_style()
     } else {
         theme.neutral_style()
-    }
-}
-
-fn bucket_time_range(bucket: &CandleBucket) -> String {
-    match bucket.close_time.as_deref() {
-        Some(close_time) if close_time != bucket.open_time => {
-            format!("{}-{}", bucket.open_time, close_time)
-        }
-        _ => bucket.open_time.clone(),
     }
 }
 

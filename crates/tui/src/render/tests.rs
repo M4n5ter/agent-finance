@@ -1068,7 +1068,7 @@ fn research_snapshot() -> ResearchContextSnapshot {
     ResearchContextSnapshot {
         requested_symbol: "CRDO".to_string(),
         symbol: "CRDO".to_string(),
-        fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+        fetched_at_local: Some("2026-06-25T09:30:00+08:00".to_string()),
         news: vec![ResearchNewsSnapshot {
             title: "AI optics demand accelerates".to_string(),
             provider: "test".to_string(),
@@ -1094,8 +1094,10 @@ fn history_snapshot(symbol: &str) -> HistorySnapshot {
         requested_symbol: symbol.to_string(),
         symbol: symbol.to_string(),
         provider: "test".to_string(),
+        session: "regular".to_string(),
+        range: "5d".to_string(),
         interval: "5m".to_string(),
-        fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
+        fetched_at_local: Some("2026-06-25T09:30:00+08:00".to_string()),
         latest_close: Some(latest.close),
         latest_time: Some(latest.open_time.clone()),
         return_pct: Some((latest.close / first.close - 1.0) * 100.0),
