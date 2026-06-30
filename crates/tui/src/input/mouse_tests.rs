@@ -1,7 +1,7 @@
 use super::*;
 use crate::command::ActionId;
 use crate::confirmation_dialog::{self, ConfirmationButtonAction, ConfirmationRow};
-use crate::intent_review_view::{IntentReviewAction, action_line};
+use crate::intent_review_view::{IntentReviewAction, action_line, staged_change_content_row};
 use crate::layout::{self, DockedColumnSplit, LayoutHit};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
 use crate::mouse_target::{self, MousePosition, MouseTarget, PanelMouseAction};
@@ -377,7 +377,7 @@ fn mouse_click_on_intent_review_row_selects_staged_change() {
         mouse_event(
             MouseEventKind::Down(MouseButton::Left),
             panel.x + 2,
-            panel.y + 4,
+            panel.y + 1 + staged_change_content_row(0) as u16,
         ),
     );
 
@@ -518,7 +518,7 @@ fn intent_review_row_selection_works_when_click_column_is_outside_inner_content(
         mouse_event(
             MouseEventKind::Down(MouseButton::Left),
             panel.right().saturating_sub(1),
-            panel.y + 4,
+            panel.y + 1 + staged_change_content_row(0) as u16,
         ),
     );
 
@@ -1933,7 +1933,10 @@ fn intent_review_action_cell(
         .into_iter()
         .find(|span| span.action == action)
         .expect("intent review action is visible");
-    (panel.x + 1 + span.start, panel.y + 2)
+    (
+        panel.x + 1 + span.start,
+        panel.y + 1 + crate::intent_review_view::INTENT_REVIEW_ACTION_ROW as u16,
+    )
 }
 
 fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {

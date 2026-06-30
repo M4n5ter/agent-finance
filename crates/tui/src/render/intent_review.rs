@@ -9,6 +9,7 @@ use agent_finance_core::intent::IntentStatus;
 
 use crate::intent_review_view::{INTENT_REVIEW_SUMMARY_ROWS, IntentReviewActionLine, action_line};
 use crate::mouse_target::MouseTarget;
+use crate::staged_gate_preview::{GatePreviewRow, GatePreviewSeverity, selected_gate_preview};
 use crate::state::{AppState, StagedChangeQueueStatus, StagedChangeView, VISIBLE_REVIEW_LIMIT};
 
 use super::panels::panel_row_hovered;
@@ -46,27 +47,111 @@ pub(super) fn render_intent_review(
     let hidden = state
         .staged_change_count()
         .saturating_sub(VISIBLE_REVIEW_LIMIT);
-    let summary = vec![
-        Line::from(vec![
-            Span::styled(
-                "operation queue",
-                state.theme.accent_style().add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(format!(
-                "  {live_label} / effective:{} / visible:{} / total:{}",
-                state.effective_submit_mode(),
-                changes.len(),
-                state.staged_change_count()
-            )),
-        ]),
-        action_line_to_line(state, action_line(hidden, inner.width), mouse_target),
-    ];
+    let summary = intent_review_summary_lines(
+        state,
+        &changes,
+        live_label,
+        hidden,
+        inner.width,
+        mouse_target,
+    );
     frame.render_widget(Paragraph::new(summary), chunks[0]);
 
     frame.render_widget(
         staged_changes_table(state, &changes, mouse_target),
         chunks[1],
     );
+}
+
+fn intent_review_summary_lines(
+    state: &AppState,
+    changes: &[StagedChangeView],
+    live_label: &str,
+    hidden: usize,
+    width: u16,
+    mouse_target: Option<MouseTarget>,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::with_capacity(INTENT_REVIEW_SUMMARY_ROWS as usize);
+    lines.push(Line::from(vec![
+        Span::styled(
+            "operation queue",
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!(
+            "  {live_label} / effective:{} / visible:{} / total:{}",
+            state.effective_submit_mode(),
+            changes.len(),
+            state.staged_change_count()
+        )),
+    ]));
+
+    if let Some(selected) = changes.iter().find(|change| change.selected) {
+        lines.push(selected_change_line(state, selected));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "selected: none",
+            state.theme.warning_style(),
+        )));
+    }
+
+    let compact_rows = selected_gate_preview(state)
+        .map(|preview| preview.compact_rows().into_iter().cloned().collect())
+        .unwrap_or_else(|| {
+            vec![GatePreviewRow {
+                severity: GatePreviewSeverity::Warning,
+                text: "gate preview: no selected change".to_string(),
+            }]
+        });
+    lines.push(compact_gate_preview_line(state, &compact_rows));
+
+    lines.push(action_line_to_line(
+        state,
+        action_line(hidden, width),
+        mouse_target,
+    ));
+    lines
+}
+
+fn selected_change_line(state: &AppState, change: &StagedChangeView) -> Line<'static> {
+    let mode = change
+        .mode
+        .map(|mode| mode.to_string())
+        .unwrap_or_else(|| "local".to_string());
+    Line::from(vec![
+        Span::styled(
+            "selected",
+            state.theme.accent_style().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!(
+            "  {} {} {}  {}",
+            change.change_kind, mode, change.stage, change.summary
+        )),
+    ])
+}
+
+fn compact_gate_preview_line(state: &AppState, rows: &[GatePreviewRow]) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled("gate", state.theme.muted_style()),
+        Span::raw("  "),
+    ];
+    for (index, row) in rows.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" | ", state.theme.muted_style()));
+        }
+        spans.push(Span::styled(
+            row.text.clone(),
+            gate_preview_style(state, row.severity),
+        ));
+    }
+    Line::from(spans)
+}
+
+fn gate_preview_style(state: &AppState, severity: GatePreviewSeverity) -> Style {
+    match severity {
+        GatePreviewSeverity::Info => state.theme.text_style(),
+        GatePreviewSeverity::Warning => state.theme.warning_style(),
+        GatePreviewSeverity::Block => state.theme.danger_style().add_modifier(Modifier::BOLD),
+    }
 }
 
 fn action_line_to_line(

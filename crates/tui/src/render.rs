@@ -495,13 +495,17 @@ mod tests {
 
         assert!(text.contains("Intent Review"));
         assert!(text.contains("operation queue"));
+        assert!(text.contains("selected"));
+        assert!(text.contains("gate"));
+        assert!(text.contains("profile gate: unavailable until profile validation completes"));
         assert!(text.contains("state"));
         assert!(text.contains("summary"));
         assert!(text.contains("ready"));
         assert!(text.contains("dry-run"));
         assert!(text.contains("order"));
         assert!(text.contains("buy 0.05 CRDO spot limit-maker @ 204"));
-        assert!(text.contains("up/down/k/j select  enter submit  d/backspace close  q quit"));
+        assert!(text.contains("[execute]"));
+        assert!(text.contains("[close]"));
     }
 
     #[test]

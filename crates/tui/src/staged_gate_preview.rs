@@ -15,6 +15,34 @@ pub(crate) struct GatePreview {
     pub rows: Vec<GatePreviewRow>,
 }
 
+impl GatePreview {
+    pub(crate) fn compact_rows(&self) -> Vec<&GatePreviewRow> {
+        let Some(outcome) = self.core_outcome_row() else {
+            return self
+                .most_severe_row()
+                .into_iter()
+                .collect::<Vec<&GatePreviewRow>>();
+        };
+        let caveat = self
+            .most_severe_row()
+            .filter(|row| !std::ptr::eq(*row, outcome))
+            .filter(|row| row.severity != GatePreviewSeverity::Info);
+        std::iter::once(outcome).chain(caveat).collect()
+    }
+
+    fn core_outcome_row(&self) -> Option<&GatePreviewRow> {
+        self.rows
+            .iter()
+            .find(|row| row.text.starts_with("core risk preview:"))
+    }
+
+    fn most_severe_row(&self) -> Option<&GatePreviewRow> {
+        self.rows
+            .iter()
+            .max_by_key(|row| row.severity.compact_rank())
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct GatePreviewRow {
     pub severity: GatePreviewSeverity,
@@ -26,6 +54,16 @@ pub(crate) enum GatePreviewSeverity {
     Info,
     Warning,
     Block,
+}
+
+impl GatePreviewSeverity {
+    const fn compact_rank(self) -> u8 {
+        match self {
+            Self::Info => 0,
+            Self::Warning => 1,
+            Self::Block => 2,
+        }
+    }
 }
 
 impl GatePreviewRow {
@@ -256,4 +294,124 @@ fn profile_risk_rows(review: &ProfileRiskReview) -> Vec<GatePreviewRow> {
         )),
         GatePreviewRow::info("local commit: backup and stale-content check run at commit time"),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::config::{TradingConfig, TuiConfig, WorkspaceConfig};
+    use crate::model::WorkspaceKind;
+    use crate::profile_snapshot::{
+        ProfileValidationSnapshot, ProfileValidationState, test_profile,
+    };
+    use crate::state::Action;
+    use agent_finance_core::{OrderKind, SubmitMode};
+
+    #[test]
+    fn compact_preview_keeps_core_outcome_before_compact_caveat() {
+        let mut state = trade_state("BTCUSDT");
+        load_test_profile(&mut state);
+        state.reduce(Action::SetLiveWritesEnabled(true));
+        state.default_submit_mode = SubmitMode::Live;
+        stage_order(&mut state);
+
+        let preview = selected_gate_preview(&state).expect("selected gate preview");
+        let compact = compact_text(&preview);
+
+        assert!(compact[0].starts_with("core risk preview:"));
+        assert!(
+            compact
+                .iter()
+                .skip(1)
+                .any(|text| !text.starts_with("core risk preview:")),
+            "a compact caveat should remain visible without replacing the risk outcome"
+        );
+    }
+
+    #[test]
+    fn compact_preview_keeps_blocking_subject_risk_visible() {
+        let mut state = trade_state("ETHUSDT");
+        load_test_profile(&mut state);
+        stage_order(&mut state);
+
+        let preview = selected_gate_preview(&state).expect("selected gate preview");
+        let compact = compact_text(&preview);
+
+        assert_eq!(compact[0], "core risk preview: blocked");
+        assert!(
+            compact
+                .iter()
+                .any(|text| text.starts_with("symbol-not-allowed:")),
+            "blocking subject-level finding should remain visible"
+        );
+    }
+
+    #[test]
+    fn compact_preview_without_core_outcome_uses_most_severe_gate() {
+        let mut state = trade_state("BTCUSDT");
+        stage_order(&mut state);
+        state.profile_validation = ProfileValidationState::ready(
+            ProfileValidationSnapshot::from_profile(&test_profile("hedge"), "hedge.toml".into()),
+        );
+
+        let preview = selected_gate_preview(&state).expect("selected gate preview");
+        let compact = compact_text(&preview);
+
+        assert_eq!(
+            compact,
+            vec!["profile gate: selected change uses mainnet, validated profile is hedge"]
+        );
+    }
+
+    fn compact_text(preview: &GatePreview) -> Vec<String> {
+        preview
+            .compact_rows()
+            .into_iter()
+            .map(|row| row.text.clone())
+            .collect()
+    }
+
+    fn trade_state(symbol: &str) -> AppState {
+        AppState::from_config(TuiConfig {
+            watchlist: vec![symbol.to_string()],
+            trading: TradingConfig {
+                default_profile: Some("mainnet".to_string()),
+            },
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Trade,
+            },
+            ..TuiConfig::default()
+        })
+    }
+
+    fn load_test_profile(state: &mut AppState) {
+        load_test_profile_named(state, "mainnet");
+    }
+
+    fn load_test_profile_named(state: &mut AppState, profile: &str) {
+        let mut profile_config = test_profile(profile);
+        if let Some(policy) = profile_config.risk.allowed_symbols.get_mut("btcusdt") {
+            policy.order_kinds.push(OrderKind::PostOnlyLimit);
+        }
+        state.reduce(Action::ProfileValidationStarted {
+            generation: 1,
+            profile: profile.to_string(),
+        });
+        state.reduce(Action::ProfileValidationLoaded {
+            generation: 1,
+            snapshot: ProfileValidationSnapshot::from_profile(
+                &profile_config,
+                format!("{profile}.toml").into(),
+            ),
+        });
+    }
+
+    fn stage_order(state: &mut AppState) {
+        state
+            .order_ticket
+            .set_quantity_text(Some("0.05".to_string()));
+        state.order_ticket.set_price_text(Some("204".to_string()));
+        state.reduce(Action::StageOrderTicket);
+    }
 }
