@@ -13,11 +13,24 @@ agent-finance skills get providers
 agent-finance skills get crypto
 agent-finance skills get prediction-markets
 agent-finance skills get history-indicators
+agent-finance skills get tui
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
-Use the TUI as an interactive cockpit for live monitoring and guided exploration across quote, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette. Use structured `market ... --json` commands when an agent needs parseable data.
+Use the TUI as an interactive cockpit for live monitoring and guided exploration across quote, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, executable command palette, and the OHLCV chart workbench. Load `skills get tui` before relying on chart workbench interactions. Use structured `market ... --json` commands when an agent needs parseable data.
 It persists watchlist and layout state to TOML by default; add `--no-persist` for disposable sessions.
+
+## TUI Chart Workbench
+
+```bash
+agent-finance tui --symbols CRDO,LITE,AAOI --chart-preset auto
+agent-finance tui --symbols BTC/USDT,ETH/USDT --chart-preset 1d
+agent-finance skills get tui
+```
+
+Focus History and press `z` for the full chart workbench. Use hover for crosshair and O/H/L/C/V tooltip, wheel to zoom, drag to zoom into a selected window, `h`/`l` or arrows to move the cursor, `[`/`]` to zoom, number preset actions to switch chart range, and command palette actions for refresh, preset switching, reset zoom, and copying chart price to the order ticket.
+
+The chart can show OHLCV candles, volume, MA20, MA50, VWAP, current price, previous close, day open/high/low, open-order lines, and position entry lines when the provider and local snapshots provide those fields. Clicking a chart price fills a draft ticket only; it must still pass stage, review, risk, and live confirmation before any signed exchange write.
 
 ## Price and Sessions
 

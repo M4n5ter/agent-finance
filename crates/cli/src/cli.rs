@@ -5,7 +5,7 @@ pub use agent_finance_market::{
     AssetClass, HistoryAdjustment, HistorySession, OptionsProvider, Provider, ReadUrlProvider,
     ResearchProvider, SessionMode, StooqAsset, StooqFrequency, StooqMarket,
 };
-pub use agent_finance_tui::WorkspaceKind;
+pub use agent_finance_tui::{ChartPreset, WorkspaceKind};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::{Parser, Subcommand};
 
@@ -115,6 +115,10 @@ pub struct TuiArgs {
     /// Initial workspace for the cockpit.
     #[arg(long, value_parser = enum_value_parser::<WorkspaceKind>(WorkspaceKind::labels()))]
     pub workspace: Option<WorkspaceKind>,
+
+    /// Initial chart range preset for the History panel.
+    #[arg(long, value_parser = enum_value_parser::<ChartPreset>(ChartPreset::labels()))]
+    pub chart_preset: Option<ChartPreset>,
 
     /// Print a read-only TUI state snapshot without entering the alternate screen.
     #[arg(long)]
@@ -245,13 +249,21 @@ mod tests {
 
     #[test]
     fn tui_accepts_trading_profile_without_dump_state() {
-        let cli = Cli::try_parse_from(["agent-finance", "tui", "--profile", "mainnet"])
-            .expect("profile should be accepted for interactive TUI");
+        let cli = Cli::try_parse_from([
+            "agent-finance",
+            "tui",
+            "--profile",
+            "mainnet",
+            "--chart-preset",
+            "5d",
+        ])
+        .expect("profile should be accepted for interactive TUI");
 
         let Command::Tui(args) = cli.command else {
             panic!("expected TUI command");
         };
         assert_eq!(args.profile.as_deref(), Some("mainnet"));
+        assert_eq!(args.chart_preset, Some(ChartPreset::FiveDays));
     }
 
     #[test]

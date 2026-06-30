@@ -61,5 +61,6 @@ mod workspace_tabs;
 
 pub use account::{AccountReadError, AccountSnapshot};
 pub use app::run;
+pub use chart::ChartPreset;
 pub use config::{TuiConfig, TuiDumpOptions, TuiLaunch};
 pub use model::WorkspaceKind;

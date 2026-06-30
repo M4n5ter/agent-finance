@@ -191,6 +191,7 @@ fn load_embedded_store() -> Result<Vec<SkillDocument>> {
         embedded_document("profile", PROFILE, &[])?,
         embedded_document("providers", PROVIDERS, &[])?,
         embedded_document("research-data", RESEARCH_DATA, &[])?,
+        embedded_document("tui", TUI, &[])?,
     ];
     documents.sort_by(|left, right| left.info.name.cmp(&right.info.name));
     Ok(documents)
@@ -337,6 +338,7 @@ const PRICE: &str = include_str!("../../../skill-data/price/SKILL.md");
 const PROFILE: &str = include_str!("../../../skill-data/profile/SKILL.md");
 const PROVIDERS: &str = include_str!("../../../skill-data/providers/SKILL.md");
 const RESEARCH_DATA: &str = include_str!("../../../skill-data/research-data/SKILL.md");
+const TUI: &str = include_str!("../../../skill-data/tui/SKILL.md");
 
 #[cfg(test)]
 mod tests {

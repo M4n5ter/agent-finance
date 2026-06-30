@@ -104,6 +104,7 @@ agent-finance skills get research-data
 agent-finance skills get providers
 agent-finance skills get prediction-markets
 agent-finance skills get profile
+agent-finance skills get tui
 ```
 
 ## Quick Tour
@@ -176,9 +177,10 @@ Interactive cockpit:
 
 ```bash
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
+agent-finance tui --symbols CRDO,LITE,AAOI --chart-preset auto
 ```
 
-The TUI is an interactive cockpit with watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, and an executable command palette. Use it for live monitoring and guided exploration; keep using `market ... --json` commands when you need structured data.
+The TUI is an interactive cockpit with watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, executable command palette, and a native OHLCV candlestick workbench. In the History panel, press `z` for the full chart, hover for O/H/L/C/V, wheel or drag to zoom, and click a chart price to fill the order ticket draft. Chart-guided trading never submits directly; it still goes through stage, review, risk, live confirmation, and audit. Use `agent-finance skills get tui` for the cockpit workflow, and keep using `market ... --json` commands when you need structured data.
 It persists the watchlist, docked panel set, focused panel, column layout, floating panes, refresh cadence, and provider preferences to TOML unless `--no-persist` is used.
 
 ## Signed Trading Workflows

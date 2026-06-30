@@ -20,6 +20,8 @@ pub enum ChartPreset {
 }
 
 impl ChartPreset {
+    pub const LABELS: &'static [&'static str] = &["auto", "1d", "5d", "1mo", "3mo", "6mo", "1y"];
+
     pub const ALL: [Self; 7] = [
         Self::Auto,
         Self::OneDay,
@@ -29,6 +31,10 @@ impl ChartPreset {
         Self::SixMonths,
         Self::OneYear,
     ];
+
+    pub const fn labels() -> &'static [&'static str] {
+        Self::LABELS
+    }
 
     pub const fn label(self) -> &'static str {
         match self {

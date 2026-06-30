@@ -34,6 +34,7 @@ agent-finance skills get crypto
 agent-finance skills get prediction-markets
 agent-finance skills get providers
 agent-finance skills get profile
+agent-finance skills get tui
 ```
 
 Load a narrow skill before task-specific commands. Use `skills get core --full` when you need the extended command map.
@@ -121,6 +122,7 @@ agent-finance audit export --json
 - Use both daily and minute history before judging fills, limit-order quality, stop placement, or intraday action.
 - Use `market providers --json` for a machine-readable capability matrix.
 - Use `capabilities --json` for the unified terminal surface, including account/order/transfer/futures-state safety boundaries.
+- Use `skills get tui` before relying on the interactive cockpit, chart workbench, account overlays, or chart-guided draft ticket workflow.
 - Treat crypto as 24/7 market data. Use Binance/Coinbase/OKX/CoinGecko through capability-first crypto commands, then force providers only for cross-checking.
 - Spot is crypto spot; USD-M futures / TradFi perps are derivatives and proxy instruments.
 - Treat Polymarket as quantifiable prediction-market sentiment and event-probability evidence only; it is not an equity quote or primary-source fact.

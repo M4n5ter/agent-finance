@@ -104,6 +104,7 @@ agent-finance skills get research-data
 agent-finance skills get providers
 agent-finance skills get prediction-markets
 agent-finance skills get profile
+agent-finance skills get tui
 ```
 
 ## 빠른 예시
@@ -176,9 +177,10 @@ agent-finance capabilities
 
 ```bash
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
+agent-finance tui --symbols CRDO,LITE,AAOI --chart-preset auto
 ```
 
-TUI는 watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, 마우스 포커스, docked column 드래그 리사이즈, floating corner resize, panel close/restore, 실행 가능한 command palette를 갖춘 인터랙티브 cockpit입니다. 실시간 모니터링과 탐색 진행에는 TUI를 쓰고, 구조화된 데이터가 필요할 때는 계속 `market ... --json` 명령을 사용하세요.
+TUI는 watchlist, quote/sessions, history, crypto evidence, research, Polymarket, provider health, task log, 마우스 포커스, docked column 드래그 리사이즈, floating corner resize, panel close/restore, 실행 가능한 command palette, 그리고 네이티브 OHLCV 캔들 workbench를 갖춘 인터랙티브 cockpit입니다. History panel에서 `z`를 누르면 전체 차트로 들어가고, hover로 O/H/L/C/V를 확인하며, wheel이나 drag로 zoom하고, 차트 가격을 클릭하면 order ticket draft price에 채웁니다. 차트는 거래 준비를 돕는 도구일 뿐 직접 submit하지 않습니다. stage, review, risk, live confirmation, audit 경로는 그대로 유지됩니다. cockpit workflow는 `agent-finance skills get tui`를 읽고, 구조화된 데이터가 필요할 때는 계속 `market ... --json` 명령을 사용하세요.
 `--no-persist`를 쓰지 않으면 TUI는 watchlist, docked panel 구성, 현재 focused panel, column layout, floating panes, refresh cadence, provider preference를 TOML로 저장합니다.
 
 ## 서명 거래 흐름

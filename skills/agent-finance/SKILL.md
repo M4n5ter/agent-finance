@@ -37,6 +37,7 @@ agent-finance skills get research-data
 agent-finance skills get providers
 agent-finance skills get prediction-markets
 agent-finance skills get profile
+agent-finance skills get tui
 ```
 
 ## Operating Rules
@@ -45,7 +46,8 @@ agent-finance skills get profile
 - Use `market sessions` when regular, premarket, postmarket, overnight, provider differences, or proxy prices matter.
 - Inspect daily and minute history before trading, order-quality, stop-loss, or take-profit conclusions.
 - Use `--json` when another agent or script will consume the output.
-- Use `agent-finance tui` for live monitoring or guided exploration across watchlists, provider health, research context, crypto evidence, and Polymarket signals.
+- Use `agent-finance tui` for live monitoring or guided exploration across watchlists, provider health, research context, crypto evidence, Polymarket signals, and the OHLCV chart workbench.
+- Load `skills get tui` before relying on TUI chart interactions, account overlays, or chart-guided draft ticket workflows.
 - Treat crypto and prediction-market data as market evidence, not primary company facts.
 - Load `skills get profile` before signed account, order, transfer, futures state, risk, or audit workflows.
 - Use a real browser tool for login-gated, dynamic, screenshot-sensitive, X/Reddit, brokerage, or extraction-suspicious pages.

@@ -43,6 +43,7 @@ pub async fn run() -> Result<()> {
                 .with_profile(args.profile)
                 .with_account_load(!args.no_account_load)
                 .with_workspace(args.workspace)
+                .with_chart_preset(args.chart_preset)
                 .with_dump_state(dump_state),
             )
         }

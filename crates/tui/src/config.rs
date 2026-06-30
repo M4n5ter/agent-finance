@@ -27,6 +27,7 @@ pub struct TuiLaunch {
     pub config_path: Option<PathBuf>,
     pub no_persist: bool,
     pub workspace: Option<WorkspaceKind>,
+    pub chart_preset: Option<ChartPreset>,
     pub profile: Option<String>,
     pub dump_state: Option<TuiDumpOptions>,
     pub tick_rate: Duration,
@@ -62,6 +63,7 @@ impl TuiLaunch {
             config_path,
             no_persist,
             workspace: None,
+            chart_preset: None,
             profile: None,
             dump_state: None,
             tick_rate: Duration::from_millis(250),
@@ -75,6 +77,11 @@ impl TuiLaunch {
 
     pub fn with_workspace(mut self, workspace: Option<WorkspaceKind>) -> Self {
         self.workspace = workspace;
+        self
+    }
+
+    pub fn with_chart_preset(mut self, chart_preset: Option<ChartPreset>) -> Self {
+        self.chart_preset = chart_preset;
         self
     }
 
@@ -119,6 +126,9 @@ impl TuiLaunch {
         }
         if let Some(workspace) = self.workspace {
             config.workspace.current = workspace;
+        }
+        if let Some(chart_preset) = self.chart_preset {
+            config.chart.preset = chart_preset;
         }
         if let Some(profile) = self.profile.as_ref() {
             config.trading.default_profile = Some(profile.clone());
@@ -744,6 +754,23 @@ mod tests {
 
         assert_eq!(persisted.workspace.current, WorkspaceKind::Research);
         assert_eq!(runtime.workspace.current, WorkspaceKind::Market);
+    }
+
+    #[test]
+    fn launch_chart_preset_override_changes_runtime_chart_only() {
+        let launch =
+            TuiLaunch::new(Vec::new(), None, true).with_chart_preset(Some(ChartPreset::OneMonth));
+        let persisted = TuiConfig {
+            chart: ChartConfig {
+                preset: ChartPreset::SixMonths,
+            },
+            ..TuiConfig::default()
+        };
+
+        let runtime = launch.runtime_config(persisted.clone());
+
+        assert_eq!(persisted.chart.preset, ChartPreset::SixMonths);
+        assert_eq!(runtime.chart.preset, ChartPreset::OneMonth);
     }
 
     #[test]
