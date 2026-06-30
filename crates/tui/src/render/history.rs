@@ -4,6 +4,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::Widget;
 
+use crate::chart::ChartWindow;
 use crate::chart::series::{CandleBucket, compressed_bars, moving_average, vwap};
 use crate::mouse_target::MousePosition;
 use crate::theme::ThemeConfig;
@@ -13,12 +14,16 @@ pub(super) fn chart<'a>(
     theme: &'a ThemeConfig,
     hover: Option<MousePosition>,
     mode: ChartMode,
+    window: ChartWindow,
+    cursor_bps: Option<u16>,
 ) -> CandlestickChart<'a> {
     CandlestickChart {
         bars,
         theme,
         hover,
         mode,
+        window,
+        cursor_bps,
     }
 }
 
@@ -28,6 +33,8 @@ pub(super) struct CandlestickChart<'a> {
     theme: &'a ThemeConfig,
     hover: Option<MousePosition>,
     mode: ChartMode,
+    window: ChartWindow,
+    cursor_bps: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -41,11 +48,12 @@ impl Widget for CandlestickChart<'_> {
         if area.width < 8 || area.height < 4 {
             return;
         }
-        let geometry = ChartGeometry::for_area(area);
-        let buckets = compressed_bars(self.bars, geometry.bucket_capacity());
+        let visible = visible_bars(self.bars, self.window);
+        let buckets = compressed_bars(visible, bucket_capacity(area));
         if buckets.is_empty() {
             return;
         }
+        let geometry = ChartGeometry::for_buckets(area, buckets.len());
 
         let axis_height = 1;
         let volume_height = volume_height(area.height);
@@ -72,32 +80,56 @@ impl Widget for CandlestickChart<'_> {
         render_overlays(buffer, price_area, bounds, &buckets, geometry, self.theme);
         render_candles(buffer, price_area, bounds, &buckets, geometry, self.theme);
         render_volume(buffer, volume_area, &buckets, geometry, self.theme);
+        render_reference_labels(buffer, price_area, bounds, &buckets, self.mode, self.theme);
         render_price_labels(buffer, price_area, bounds, self.theme);
         render_time_labels(buffer, time_area, &buckets, self.theme);
         render_workbench_legend(buffer, area, &buckets, self.mode, self.theme);
+        render_cursor(
+            buffer,
+            area,
+            self.cursor_bps,
+            self.window,
+            &buckets,
+            geometry,
+            self.theme,
+        );
         render_hover(buffer, area, self.hover, &buckets, geometry, self.theme);
     }
+}
+
+fn visible_bars(bars: &[HistoryBarSnapshot], window: ChartWindow) -> &[HistoryBarSnapshot] {
+    let range = window.visible_range(bars.len());
+    &bars[range]
 }
 
 #[derive(Debug, Clone, Copy)]
 struct ChartGeometry {
     area: Rect,
+    bucket_count: usize,
     candle_width: u16,
 }
 
 impl ChartGeometry {
-    fn for_area(area: Rect) -> Self {
+    fn for_buckets(area: Rect, bucket_count: usize) -> Self {
         let candle_width = if area.width >= 48 { 2 } else { 1 };
-        Self { area, candle_width }
-    }
-
-    fn bucket_capacity(self) -> usize {
-        usize::from(self.area.width / self.candle_width).max(1)
+        Self {
+            area,
+            bucket_count: bucket_count.max(1),
+            candle_width,
+        }
     }
 
     fn candle_x(self, index: usize) -> Option<u16> {
-        let offset = index.checked_mul(usize::from(self.candle_width))?;
-        let x = self.area.x.checked_add(offset as u16)?;
+        if index >= self.bucket_count {
+            return None;
+        }
+        let offset = if self.bucket_count <= 1 || self.area.width <= 1 {
+            self.area.width / 2
+        } else {
+            ((index as u32 * u32::from(self.area.width - 1)) / (self.bucket_count - 1) as u32)
+                as u16
+        };
+        let x = self.area.x.checked_add(offset)?;
         (x < self.area.right()).then_some(x)
     }
 
@@ -119,7 +151,21 @@ impl ChartGeometry {
         if column < self.area.x || column >= self.area.right() {
             return None;
         }
-        Some(usize::from((column - self.area.x) / self.candle_width))
+        if self.bucket_count <= 1 || self.area.width <= 1 {
+            return Some(0);
+        }
+        let offset = u32::from(column - self.area.x);
+        let width = u32::from(self.area.width - 1);
+        let index = (offset * (self.bucket_count - 1) as u32 + width / 2) / width;
+        Some(index as usize)
+    }
+}
+
+fn bucket_capacity(area: Rect) -> usize {
+    if area.width >= 48 {
+        usize::from(area.width / 2).max(1)
+    } else {
+        usize::from(area.width).max(1)
     }
 }
 
@@ -145,11 +191,35 @@ impl PriceBounds {
     }
 
     fn row(self, area: Rect, price: f64) -> u16 {
+        self.point(area, price).row
+    }
+
+    fn point(self, area: Rect, price: f64) -> PricePoint {
         if area.height <= 1 || (self.max - self.min).abs() <= f64::EPSILON {
-            return area.y;
+            return PricePoint {
+                row: area.y,
+                cell_slot: 0,
+            };
         }
         let ratio = ((price - self.min) / (self.max - self.min)).clamp(0.0, 1.0);
-        area.y + area.height - 1 - (ratio * f64::from(area.height - 1)).round() as u16
+        let slots = u32::from(area.height) * 4;
+        let slot = ((1.0 - ratio) * f64::from(slots.saturating_sub(1))).round() as u32;
+        PricePoint {
+            row: area.y + (slot / 4) as u16,
+            cell_slot: (slot % 4) as u8,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+struct PricePoint {
+    row: u16,
+    cell_slot: u8,
+}
+
+impl PricePoint {
+    fn slot(self) -> u32 {
+        u32::from(self.row) * 4 + u32::from(self.cell_slot)
     }
 }
 
@@ -177,19 +247,42 @@ fn render_candles(
             break;
         };
         let style = candle_style(bucket, theme);
-        let high = bounds.row(area, bucket.high);
-        let low = bounds.row(area, bucket.low);
-        let open = bounds.row(area, bucket.open);
-        let close = bounds.row(area, bucket.close);
-        for row in high.min(low)..=high.max(low) {
-            buffer.set_string(wick_x, row, "│", style);
-        }
+        let high = bounds.point(area, bucket.high);
+        let low = bounds.point(area, bucket.low);
+        let open = bounds.point(area, bucket.open);
+        let close = bounds.point(area, bucket.close);
+        render_vertical_segment(buffer, wick_x, high, low, wick_symbol, style);
         if bucket.close_only {
-            buffer.set_string(body_x, close, close_only_symbol(geometry), style);
+            buffer.set_string(body_x, close.row, close_only_symbol(geometry), style);
         } else {
-            for row in open.min(close)..=open.max(close) {
-                buffer.set_string(body_x, row, body_symbol(bucket, geometry), style);
+            render_vertical_segment(buffer, body_x, open, close, body_symbol, style);
+        }
+    }
+}
+
+fn render_vertical_segment(
+    buffer: &mut Buffer,
+    x: u16,
+    start: PricePoint,
+    end: PricePoint,
+    symbol: fn(u8) -> &'static str,
+    style: Style,
+) {
+    let top_slot = start.slot().min(end.slot());
+    let bottom_slot = start.slot().max(end.slot());
+    let top_row = start.row.min(end.row);
+    let bottom_row = start.row.max(end.row);
+    for row in top_row..=bottom_row {
+        let row_top = u32::from(row) * 4;
+        let mask = (0..4).fold(0u8, |mask, slot| {
+            if (top_slot..=bottom_slot).contains(&(row_top + slot)) {
+                mask | (1 << slot)
+            } else {
+                mask
             }
+        });
+        if mask != 0 {
+            buffer.set_string(x, row, symbol(mask), style);
         }
     }
 }
@@ -209,13 +302,7 @@ fn render_reference_lines(
         buffer,
         area,
         bounds.row(area, last.close),
-        if mode == ChartMode::Workbench {
-            "last"
-        } else {
-            ""
-        },
         theme.neutral_style(),
-        theme,
     );
     if mode == ChartMode::Workbench
         && let Some(first) = buckets.first()
@@ -224,9 +311,7 @@ fn render_reference_lines(
             buffer,
             area,
             bounds.row(area, first.open),
-            "open",
             theme.accent_style(),
-            theme,
         );
         let high = buckets
             .iter()
@@ -240,36 +325,87 @@ fn render_reference_lines(
             buffer,
             area,
             bounds.row(area, high.high),
-            "high",
             theme.success_style(),
-            theme,
         );
         render_horizontal_reference_line(
             buffer,
             area,
             bounds.row(area, low.low),
-            "low",
             theme.danger_style(),
-            theme,
         );
     }
 }
 
-fn render_horizontal_reference_line(
-    buffer: &mut Buffer,
-    area: Rect,
-    row: u16,
-    label: &str,
-    style: Style,
-    theme: &ThemeConfig,
-) {
+fn render_horizontal_reference_line(buffer: &mut Buffer, area: Rect, row: u16, style: Style) {
     for x in area.x..area.x + area.width {
         if buffer[(x, row)].symbol() == " " {
             buffer.set_string(x, row, "·", style);
         }
     }
-    if area.width >= 18 && !label.is_empty() {
-        write_right_clipped(buffer, Rect { y: row, ..area }, label, theme.muted_style());
+}
+
+fn render_reference_labels(
+    buffer: &mut Buffer,
+    area: Rect,
+    bounds: PriceBounds,
+    buckets: &[CandleBucket],
+    mode: ChartMode,
+    theme: &ThemeConfig,
+) {
+    if mode != ChartMode::Workbench || area.width < 18 {
+        return;
+    }
+    let Some(first) = buckets.first() else {
+        return;
+    };
+    let Some(last) = buckets.last() else {
+        return;
+    };
+    write_right_clipped(
+        buffer,
+        Rect {
+            y: bounds.row(area, last.close),
+            ..area
+        },
+        "last",
+        theme.muted_style(),
+    );
+    write_right_clipped(
+        buffer,
+        Rect {
+            y: bounds.row(area, first.open),
+            ..area
+        },
+        "open",
+        theme.muted_style(),
+    );
+    if let Some(high) = buckets
+        .iter()
+        .max_by(|left, right| left.high.total_cmp(&right.high))
+    {
+        write_right_clipped(
+            buffer,
+            Rect {
+                y: bounds.row(area, high.high),
+                ..area
+            },
+            "high",
+            theme.muted_style(),
+        );
+    }
+    if let Some(low) = buckets
+        .iter()
+        .min_by(|left, right| left.low.total_cmp(&right.low))
+    {
+        write_right_clipped(
+            buffer,
+            Rect {
+                y: bounds.row(area, low.low),
+                ..area
+            },
+            "low",
+            theme.muted_style(),
+        );
     }
 }
 
@@ -459,6 +595,29 @@ fn render_workbench_legend(
     }
 }
 
+fn render_cursor(
+    buffer: &mut Buffer,
+    area: Rect,
+    cursor_bps: Option<u16>,
+    window: ChartWindow,
+    buckets: &[CandleBucket],
+    geometry: ChartGeometry,
+    theme: &ThemeConfig,
+) {
+    let Some(cursor_bps) = cursor_bps else {
+        return;
+    };
+    let Some(index) = window.cursor_bucket_index(cursor_bps, buckets.len()) else {
+        return;
+    };
+    let Some(column) = geometry.body_x(index) else {
+        return;
+    };
+    for row in area.y..area.bottom() {
+        buffer.set_string(column, row, "┃", theme.accent_style());
+    }
+}
+
 fn render_hover(
     buffer: &mut Buffer,
     area: Rect,
@@ -490,7 +649,9 @@ fn render_hover(
 
 fn render_crosshair(buffer: &mut Buffer, area: Rect, column: u16, theme: &ThemeConfig) {
     for row in area.y..area.bottom() {
-        buffer.set_string(column, row, "┊", theme.muted_style());
+        if buffer[(column, row)].symbol() == " " {
+            buffer.set_string(column, row, "┊", theme.muted_style());
+        }
     }
 }
 
@@ -595,15 +756,23 @@ fn bucket_end_time(bucket: &CandleBucket) -> &str {
     bucket.close_time.as_deref().unwrap_or(&bucket.open_time)
 }
 
-fn body_symbol(bucket: &CandleBucket, geometry: ChartGeometry) -> &'static str {
-    if geometry.candle_width > 1 {
-        return "█";
+fn body_symbol(mask: u8) -> &'static str {
+    match mask {
+        0b0001 => "▔",
+        0b0010 | 0b0100 | 0b0110 => "━",
+        0b1000 => "▁",
+        0b0011 | 0b0111 => "▀",
+        0b1100 | 0b1110 => "▄",
+        0b1111 => "█",
+        _ => "█",
     }
-    if bucket.close >= bucket.open {
-        "█"
-    } else {
-        "▓"
-    }
+}
+
+fn wick_symbol(mask: u8) -> &'static str {
+    const SYMBOLS: [&str; 16] = [
+        " ", "⠁", "⠂", "⠃", "⠄", "⠅", "⠆", "⠇", "⡀", "⡁", "⡂", "⡃", "⡄", "⡅", "⡆", "⡇",
+    ];
+    SYMBOLS[usize::from(mask & 0b1111)]
 }
 
 fn close_only_symbol(geometry: ChartGeometry) -> &'static str {
@@ -662,6 +831,64 @@ mod tests {
 
         assert_eq!(row_text(&buffer, 0), "2026  ");
         assert_eq!(row_text(&buffer, 1), "8:00  ");
+    }
+
+    #[test]
+    fn candle_renderer_separates_spike_wick_from_small_body() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 4));
+        let area = Rect::new(0, 0, 4, 4);
+        let bucket = CandleBucket {
+            open_time: "09:30".to_string(),
+            close_time: Some("09:35".to_string()),
+            open: 100.0,
+            high: 110.0,
+            low: 90.0,
+            close: 100.5,
+            volume: Some(1_000.0),
+            close_only: false,
+        };
+        let geometry = ChartGeometry {
+            area,
+            bucket_count: 1,
+            candle_width: 2,
+        };
+
+        render_candles(
+            &mut buffer,
+            area,
+            PriceBounds {
+                min: 90.0,
+                max: 110.0,
+            },
+            &[bucket],
+            geometry,
+            &ThemeConfig::default(),
+        );
+
+        assert_eq!(buffer[(2, 0)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 1)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 2)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 3)].symbol(), "⡇");
+        assert_eq!(buffer[(3, 1)].symbol(), "▁");
+        assert_eq!(buffer[(3, 2)].symbol(), "▔");
+    }
+
+    #[test]
+    fn hover_crosshair_does_not_erase_existing_chart_glyphs() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 3, 3));
+        buffer.set_string(1, 0, "⡇", Style::default());
+        buffer.set_string(1, 1, "█", Style::default());
+
+        render_crosshair(
+            &mut buffer,
+            Rect::new(0, 0, 3, 3),
+            1,
+            &ThemeConfig::default(),
+        );
+
+        assert_eq!(buffer[(1, 0)].symbol(), "⡇");
+        assert_eq!(buffer[(1, 1)].symbol(), "█");
+        assert_eq!(buffer[(1, 2)].symbol(), "┊");
     }
 
     fn row_text(buffer: &Buffer, y: u16) -> String {

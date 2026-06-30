@@ -760,6 +760,28 @@ fn history_workbench_matches_snapshot_at_120x32() {
 }
 
 #[test]
+fn history_workbench_cursor_zoom_matches_snapshot_at_120x32() {
+    let mut state = snapshot_state();
+    state.reduce(crate::state::Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(crate::state::Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Market,
+    )));
+    state.reduce(crate::state::Action::Focus(Panel::History));
+    state.reduce(crate::state::Action::ToggleFocusedZoom);
+    state.reduce(crate::state::Action::MoveChartCursor(-1));
+    state.reduce(crate::state::Action::ZoomChartWindow(1));
+
+    assert_workspace_snapshot("history_workbench_cursor_zoom_120x32", &state, 120, 32);
+}
+
+#[test]
 fn trade_workspace_matches_snapshot_at_140x36() {
     let mut state = snapshot_state();
     state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
@@ -1015,8 +1037,18 @@ fn history_bars() -> Vec<agent_finance_market::history_snapshot::HistoryBarSnaps
             };
             let open = base + wave;
             let close = base + if index % 5 == 0 { -0.8 } else { 0.7 };
-            let high = open.max(close) + 1.8 + (index % 3) as f64 * 0.15;
-            let low = open.min(close) - 1.4 - (index % 4) as f64 * 0.1;
+            let mut high = open.max(close) + 1.8 + (index % 3) as f64 * 0.15;
+            let mut low = open.min(close) - 1.4 - (index % 4) as f64 * 0.1;
+            if index == 10 {
+                high += 7.5;
+            }
+            if index == 24 {
+                low -= 7.0;
+            }
+            if index == 36 {
+                high += 4.2;
+                low -= 4.4;
+            }
             let volume = 9_000.0 + ((index * 379) % 11_000) as f64;
             let open_minutes = 30 + index * 5;
             let close_minutes = open_minutes + 5;

@@ -514,10 +514,14 @@ impl AppState {
     }
 
     fn select_watchlist_symbol(&mut self, index: usize) {
+        let before = self.selected_symbol;
         if self.watchlist.is_empty() {
             self.selected_symbol = 0;
         } else {
             self.selected_symbol = index.min(self.watchlist.len() - 1);
+        }
+        if self.selected_symbol != before {
+            self.chart.reset_view();
         }
     }
 
@@ -718,6 +722,9 @@ impl AppState {
         });
 
         if let Some(index) = selected {
+            if self.selected_symbol != index {
+                self.chart.reset_view();
+            }
             self.selected_symbol = index;
         }
         if added.is_empty() {
@@ -793,6 +800,7 @@ impl AppState {
                 let index = state.selected_symbol.min(state.watchlist.len() - 1);
                 let removed = state.watchlist.remove(index);
                 state.selected_symbol = index.min(state.watchlist.len() - 1);
+                state.chart.reset_view();
                 Some(LocalConfigEdit::new("watchlist", removed))
             })
             .expect("prevalidated watchlist delete must produce an edit");
@@ -814,6 +822,7 @@ impl AppState {
             let symbol = state.watchlist.remove(current);
             state.watchlist.insert(next, symbol);
             state.selected_symbol = next;
+            state.chart.reset_view();
             Some(LocalConfigEdit::new("watchlist", ()))
         });
     }
@@ -1030,6 +1039,9 @@ impl AppState {
             Action::RequestSymbolDataRefresh(kind) => self.request_symbol_data_refresh(kind),
             Action::SetChartPreset(preset) => self.set_chart_preset(preset),
             Action::ShiftChartPreset(direction) => self.shift_chart_preset(direction),
+            Action::MoveChartCursor(direction) => self.chart.move_cursor(direction),
+            Action::ZoomChartWindow(direction) => self.chart.zoom_window(direction),
+            Action::ResetChartView => self.chart.reset_view(),
             Action::RequestAccountRefresh => self.request_account_refresh(),
             Action::MoveStagedChangeSelection(direction) => {
                 self.staged_changes.move_selection(direction);
@@ -1560,6 +1572,9 @@ pub enum Action {
     },
     SetChartPreset(ChartPreset),
     ShiftChartPreset(isize),
+    MoveChartCursor(isize),
+    ZoomChartWindow(isize),
+    ResetChartView,
     RefreshStarted(u64),
     SnapshotLoaded {
         generation: u64,

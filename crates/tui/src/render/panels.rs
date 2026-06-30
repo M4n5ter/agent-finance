@@ -190,7 +190,14 @@ fn render_history(
     } else {
         history::ChartMode::Cockpit
     };
-    let chart = history::chart(bars, &state.theme, hover, mode);
+    let chart = history::chart(
+        bars,
+        &state.theme,
+        hover,
+        mode,
+        state.chart.window(),
+        state.chart.cursor_bps(),
+    );
     frame.render_widget(chart, chart_area);
 }
 

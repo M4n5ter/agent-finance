@@ -294,7 +294,11 @@ pub(crate) fn history_summary_lines(state: &AppState) -> Vec<Line<'_>> {
                 snapshot.fetched_at_local.as_deref().unwrap_or("-")
             )));
             if workbench {
-                lines.extend(history_workbench_lines(snapshot, &state.theme));
+                lines.extend(history_workbench_lines(
+                    snapshot,
+                    &state.chart,
+                    &state.theme,
+                ));
             }
             for error in snapshot.errors.iter().take(1) {
                 lines.push(Line::from(Span::styled(
@@ -311,7 +315,11 @@ pub(crate) fn history_summary_lines(state: &AppState) -> Vec<Line<'_>> {
     lines
 }
 
-fn history_workbench_lines(snapshot: &HistorySnapshot, theme: &ThemeConfig) -> Vec<Line<'static>> {
+fn history_workbench_lines(
+    snapshot: &HistorySnapshot,
+    chart: &crate::chart::ChartState,
+    theme: &ThemeConfig,
+) -> Vec<Line<'static>> {
     let Some(first) = snapshot.bars.first() else {
         return vec![Line::from(Span::styled(
             "workbench: no bars to inspect",
@@ -343,6 +351,20 @@ fn history_workbench_lines(snapshot: &HistorySnapshot, theme: &ThemeConfig) -> V
     } else {
         String::new()
     };
+    let window = chart.window();
+    let view = if window.full() {
+        "view=full".to_string()
+    } else {
+        format!(
+            "view={:.0}-{:.0}%",
+            window.start_bps() as f64 / 100.0,
+            window.end_bps() as f64 / 100.0
+        )
+    };
+    let cursor = chart
+        .cursor_bps()
+        .map(|value| format!("cursor={:.0}%", value as f64 / 100.0))
+        .unwrap_or_else(|| "cursor=off".to_string());
     vec![
         Line::from(format!(
             "range: {} -> {}  O={} H={} L={} C={}{}",
@@ -354,7 +376,9 @@ fn history_workbench_lines(snapshot: &HistorySnapshot, theme: &ThemeConfig) -> V
             format_price(last.close),
             ohlc_warning
         )),
-        Line::from("workbench: hover inspect  wheel/[ ] preset zoom  r refresh  z exit"),
+        Line::from(format!(
+            "{view}  {cursor}  h/l cursor  wheel/[ ] zoom  0-6 preset  r refresh  z exit"
+        )),
     ]
 }
 

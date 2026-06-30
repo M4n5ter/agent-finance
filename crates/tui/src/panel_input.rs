@@ -45,7 +45,7 @@ pub(crate) fn wheel_action_for_panel(
         Panel::TransferTicket => Some(Action::MoveTransferTicketField(direction)),
         Panel::FuturesState => Some(Action::MoveFuturesStateTicketField(direction)),
         Panel::Settings => Some(Action::MoveSettingsSelection(direction)),
-        Panel::History => Some(Action::ShiftChartPreset(direction)),
+        Panel::History => Some(Action::ZoomChartWindow(-direction)),
         Panel::ProfileRisk
         | Panel::Quote
         | Panel::Evidence
@@ -65,11 +65,18 @@ fn history_key_action(key: KeyEvent) -> Option<Action> {
         return None;
     }
     match (key.code, key.modifiers) {
-        (KeyCode::Char('['), KeyModifiers::NONE) => Some(Action::ShiftChartPreset(-1)),
-        (KeyCode::Char(']'), KeyModifiers::NONE) => Some(Action::ShiftChartPreset(1)),
+        (KeyCode::Left | KeyCode::Char('h'), KeyModifiers::NONE) => {
+            Some(Action::MoveChartCursor(-1))
+        }
+        (KeyCode::Right | KeyCode::Char('l'), KeyModifiers::NONE) => {
+            Some(Action::MoveChartCursor(1))
+        }
+        (KeyCode::Char('['), KeyModifiers::NONE) => Some(Action::ZoomChartWindow(-1)),
+        (KeyCode::Char(']'), KeyModifiers::NONE) => Some(Action::ZoomChartWindow(1)),
         (KeyCode::Char('r'), KeyModifiers::NONE) => {
             Some(Action::RequestSymbolDataRefresh(SymbolTaskKind::History))
         }
+        (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::ResetChartView),
         (KeyCode::Char(key), KeyModifiers::NONE) => {
             ChartPreset::from_key(key).map(Action::SetChartPreset)
         }
@@ -113,5 +120,45 @@ fn intent_review_key_action(key: KeyEvent) -> Option<Action> {
         KeyCode::Enter => Some(Action::ExecuteStagedChange),
         KeyCode::Char('d') | KeyCode::Backspace => Some(Action::CloseSelectedStagedChange),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyEvent;
+
+    #[test]
+    fn history_keys_drive_cursor_zoom_and_presets() {
+        let state = AppState::from_config(crate::config::TuiConfig::default());
+
+        assert_eq!(
+            wheel_action_for_panel(&state, Panel::History, -1),
+            Some(Action::ZoomChartWindow(1))
+        );
+        assert_eq!(
+            history_key_action(KeyEvent::from(KeyCode::Left)),
+            Some(Action::MoveChartCursor(-1))
+        );
+        assert_eq!(
+            history_key_action(KeyEvent::from(KeyCode::Char('l'))),
+            Some(Action::MoveChartCursor(1))
+        );
+        assert_eq!(
+            history_key_action(KeyEvent::from(KeyCode::Char('['))),
+            Some(Action::ZoomChartWindow(-1))
+        );
+        assert_eq!(
+            history_key_action(KeyEvent::from(KeyCode::Char(']'))),
+            Some(Action::ZoomChartWindow(1))
+        );
+        assert_eq!(
+            history_key_action(KeyEvent::from(KeyCode::Esc)),
+            Some(Action::ResetChartView)
+        );
+        assert_eq!(
+            history_key_action(KeyEvent::from(KeyCode::Char('2'))),
+            Some(Action::SetChartPreset(ChartPreset::FiveDays))
+        );
     }
 }

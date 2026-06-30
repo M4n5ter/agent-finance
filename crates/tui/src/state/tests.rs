@@ -1639,6 +1639,46 @@ fn pane_zoom_limits_visible_panels_without_trapping_focus_navigation() {
 }
 
 #[test]
+fn selected_symbol_changes_reset_chart_session_view() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string(), "BTCUSDT".to_string()],
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::MoveChartCursor(-1));
+    state.reduce(Action::ZoomChartWindow(1));
+    assert!(!state.chart.window().full());
+    assert!(state.chart.cursor_bps().is_some());
+
+    state.reduce(Action::SelectWatchlistSymbol(1));
+
+    assert!(state.chart.window().full());
+    assert_eq!(state.chart.cursor_bps(), None);
+}
+
+#[test]
+fn watchlist_add_symbol_selection_resets_chart_session_view() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        ..TuiConfig::default()
+    });
+    state.reduce(Action::MoveChartCursor(-1));
+    state.reduce(Action::ZoomChartWindow(1));
+    assert!(!state.chart.window().full());
+    assert!(state.chart.cursor_bps().is_some());
+
+    for character in "BTCUSDT".chars() {
+        state.reduce(Action::EditWatchlistAddQuery(
+            tui_input::InputRequest::InsertChar(character),
+        ));
+    }
+    state.reduce(Action::AcceptWatchlistAdd);
+
+    assert_eq!(state.selected_symbol(), Some("BTCUSDT"));
+    assert!(state.chart.window().full());
+    assert_eq!(state.chart.cursor_bps(), None);
+}
+
+#[test]
 fn zoom_does_not_turn_hidden_open_panels_into_focus_actions() {
     let mut state = AppState::from_config(TuiConfig::default());
 
