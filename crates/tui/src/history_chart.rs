@@ -54,10 +54,23 @@ impl PriceBounds {
     }
 
     pub(crate) fn from_buckets(buckets: &[CandleBucket]) -> Self {
+        Self::from_buckets_and_prices(buckets, std::iter::empty())
+    }
+
+    pub(crate) fn from_buckets_and_prices(
+        buckets: &[CandleBucket],
+        prices: impl IntoIterator<Item = f64>,
+    ) -> Self {
         let (min, max) = buckets
             .iter()
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), bucket| {
                 (min.min(bucket.low), max.max(bucket.high))
+            });
+        let (min, max) = prices
+            .into_iter()
+            .filter(|price| price.is_finite())
+            .fold((min, max), |(min, max), price| {
+                (min.min(price), max.max(price))
             });
         let scale = min.abs().max(max.abs()).max(f64::MIN_POSITIVE);
         let padding = ((max - min).abs() * 0.05).max(scale * 0.001);

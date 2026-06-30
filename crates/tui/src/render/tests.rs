@@ -9,6 +9,7 @@ use agent_finance_core::{Environment, Market, Provider, SignedReadRequest, Signe
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
 use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::research_snapshot::{ResearchContextSnapshot, ResearchNewsSnapshot};
+use agent_finance_market::snapshot::{MarketSnapshot, QuoteSnapshot, RegularBasisSnapshot};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -750,6 +751,7 @@ fn history_workbench_matches_snapshot_at_120x32() {
         generation: 1,
         snapshot: history_snapshot("CRDO"),
     });
+    load_history_chart_overlays(&mut state);
     state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
         WorkspaceKind::Market,
     )));
@@ -770,6 +772,7 @@ fn history_workbench_cursor_zoom_matches_snapshot_at_120x32() {
         generation: 1,
         snapshot: history_snapshot("CRDO"),
     });
+    load_history_chart_overlays(&mut state);
     state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
         WorkspaceKind::Market,
     )));
@@ -1021,6 +1024,77 @@ fn history_snapshot(symbol: &str) -> HistorySnapshot {
         bars,
         errors: Vec::new(),
     }
+}
+
+fn load_history_chart_overlays(state: &mut AppState) {
+    state.market_snapshot = Some(MarketSnapshot {
+        fetched_at_local: Some("2026-06-25 09:31:00".to_string()),
+        quotes: vec![QuoteSnapshot {
+            symbol: "CRDO".to_string(),
+            price: Some(109.5),
+            currency: Some("USD".to_string()),
+            provider: "test".to_string(),
+            session: Some("regular".to_string()),
+            market_time_local: Some("2026-06-25 13:30:00".to_string()),
+            change_pct: Some(4.2),
+            aliases: Vec::new(),
+            regular_basis: RegularBasisSnapshot {
+                previous_close: Some(105.0),
+                open: Some(101.0),
+                high: Some(112.0),
+                low: Some(96.0),
+                volume: Some(1_250_000),
+            },
+        }],
+        errors: Vec::new(),
+    });
+    state.account_snapshot = Some(crate::AccountSnapshot::new(
+        "mainnet".to_string(),
+        Provider::Binance,
+        Environment::Live,
+        crate::profile_snapshot::test_trading_profile_snapshot(),
+        vec![
+            SignedReadSnapshot::new(
+                "mainnet",
+                Provider::Binance,
+                Environment::Live,
+                SignedReadRequest::OpenOrders {
+                    market: Market::Spot,
+                    symbol: None,
+                },
+                serde_json::json!([
+                    {
+                        "symbol": "CRDO",
+                        "orderId": 101,
+                        "clientOrderId": "crdo-buy",
+                        "side": "BUY",
+                        "type": "LIMIT",
+                        "origQty": "0.10",
+                        "executedQty": "0",
+                        "price": "104"
+                    }
+                ]),
+            ),
+            SignedReadSnapshot::new(
+                "mainnet",
+                Provider::Binance,
+                Environment::Live,
+                SignedReadRequest::UsdsFuturesPositions,
+                serde_json::json!({
+                    "assets": [],
+                    "positions": [
+                        {
+                            "symbol": "CRDO",
+                            "positionSide": "LONG",
+                            "positionAmt": "0.20",
+                            "entryPrice": "99"
+                        }
+                    ]
+                }),
+            ),
+        ],
+        Vec::new(),
+    ));
 }
 
 fn history_bars() -> Vec<agent_finance_market::history_snapshot::HistoryBarSnapshot> {

@@ -184,6 +184,7 @@ fn render_history(
     let bars = snapshot
         .map(|snapshot| snapshot.bars.as_slice())
         .unwrap_or_default();
+    let chart_overlays = crate::chart_overlay::lines_for_state(state, symbol);
     let hover = mouse_target.and_then(|target| target.panel_chart_hovered(Panel::History));
     let mode = if workbench {
         history::ChartMode::Workbench
@@ -197,6 +198,7 @@ fn render_history(
         mode,
         state.chart.window(),
         state.chart.cursor_bps(),
+        &chart_overlays,
     );
     frame.render_widget(chart, chart_area);
 }

@@ -65,6 +65,7 @@ pub(crate) struct FuturesPositionSummary {
     pub symbol: String,
     pub position_side: Option<String>,
     pub position_amount: String,
+    pub entry_price: Option<String>,
     pub notional: Option<String>,
     pub isolated_margin: Option<String>,
     pub isolated_wallet: Option<String>,
@@ -143,6 +144,7 @@ fn futures_position_item(item: &serde_json::Value) -> Option<FuturesPositionSumm
         symbol: string_field(item, "symbol")?,
         position_side: string_field(item, "positionSide"),
         position_amount: string_field(item, "positionAmt")?,
+        entry_price: string_field(item, "entryPrice"),
         notional: string_field(item, "notional"),
         isolated_margin: string_field(item, "isolatedMargin"),
         isolated_wallet: string_field(item, "isolatedWallet"),
@@ -217,6 +219,7 @@ mod tests {
                             "symbol": "BTCUSDT",
                             "positionSide": "LONG",
                             "positionAmt": "0.002",
+                            "entryPrice": "64000",
                             "notional": "130",
                             "isolatedMargin": "0",
                             "isolatedWallet": "0",
@@ -265,6 +268,10 @@ mod tests {
         assert_eq!(
             summary.futures_positions[0].position_side.as_deref(),
             Some("LONG")
+        );
+        assert_eq!(
+            summary.futures_positions[0].entry_price.as_deref(),
+            Some("64000")
         );
         assert_eq!(summary.futures_positions[1].position_amount, "-0.001");
         assert_eq!(

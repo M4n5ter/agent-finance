@@ -6,6 +6,7 @@ use ratatui::widgets::Widget;
 
 use crate::chart::ChartWindow;
 use crate::chart::series::{CandleBucket, compressed_bars, moving_average, vwap};
+use crate::chart_overlay::{ChartOverlayKind, ChartOverlayLine};
 use crate::history_chart::{ChartAreas, PriceBounds, PricePoint, bucket_capacity, visible_bars};
 use crate::mouse_target::MousePosition;
 use crate::theme::ThemeConfig;
@@ -17,6 +18,7 @@ pub(super) fn chart<'a>(
     mode: ChartMode,
     window: ChartWindow,
     cursor_bps: Option<u16>,
+    overlays: &'a [ChartOverlayLine],
 ) -> CandlestickChart<'a> {
     CandlestickChart {
         bars,
@@ -25,6 +27,7 @@ pub(super) fn chart<'a>(
         mode,
         window,
         cursor_bps,
+        overlays,
     }
 }
 
@@ -36,6 +39,7 @@ pub(super) struct CandlestickChart<'a> {
     mode: ChartMode,
     window: ChartWindow,
     cursor_bps: Option<u16>,
+    overlays: &'a [ChartOverlayLine],
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -57,12 +61,24 @@ impl Widget for CandlestickChart<'_> {
         let geometry = ChartGeometry::for_buckets(area, buckets.len());
 
         let areas = ChartAreas::from(area);
-        let bounds = PriceBounds::from_buckets(&buckets);
+        let bounds = PriceBounds::from_buckets_and_prices(
+            &buckets,
+            self.overlays.iter().map(|line| line.price),
+        );
         render_reference_lines(buffer, areas.price, bounds, &buckets, self.mode, self.theme);
+        render_chart_overlay_lines(buffer, areas.price, bounds, self.overlays, self.theme);
         render_overlays(buffer, areas.price, bounds, &buckets, geometry, self.theme);
         render_candles(buffer, areas.price, bounds, &buckets, geometry, self.theme);
         render_volume(buffer, areas.volume, &buckets, geometry, self.theme);
         render_reference_labels(buffer, areas.price, bounds, &buckets, self.mode, self.theme);
+        render_chart_overlay_labels(
+            buffer,
+            areas.price,
+            bounds,
+            self.overlays,
+            self.mode,
+            self.theme,
+        );
         render_price_labels(buffer, areas.price, bounds, self.theme);
         render_time_labels(buffer, areas.time, &buckets, self.theme);
         render_workbench_legend(buffer, area, &buckets, self.mode, self.theme);
@@ -313,6 +329,64 @@ fn render_reference_labels(
             "low",
             theme.muted_style(),
         );
+    }
+}
+
+fn render_chart_overlay_lines(
+    buffer: &mut Buffer,
+    area: Rect,
+    bounds: PriceBounds,
+    overlays: &[ChartOverlayLine],
+    theme: &ThemeConfig,
+) {
+    for overlay in overlays {
+        render_horizontal_reference_line(
+            buffer,
+            area,
+            bounds.row(area, overlay.price),
+            overlay_style(overlay.kind, theme),
+        );
+    }
+}
+
+fn render_chart_overlay_labels(
+    buffer: &mut Buffer,
+    area: Rect,
+    bounds: PriceBounds,
+    overlays: &[ChartOverlayLine],
+    mode: ChartMode,
+    theme: &ThemeConfig,
+) {
+    if mode != ChartMode::Workbench || area.width < 32 {
+        return;
+    }
+    for overlay in overlays.iter().take(8) {
+        let label = format!(
+            "{} {}",
+            overlay.label,
+            super::widgets::format_price(overlay.price)
+        );
+        write_left_clipped(
+            buffer,
+            Rect {
+                y: bounds.row(area, overlay.price),
+                ..area
+            },
+            &label,
+            overlay_style(overlay.kind, theme),
+        );
+    }
+}
+
+fn overlay_style(kind: ChartOverlayKind, theme: &ThemeConfig) -> Style {
+    match kind {
+        ChartOverlayKind::Current => theme.accent_style(),
+        ChartOverlayKind::PreviousClose
+        | ChartOverlayKind::DayOpen
+        | ChartOverlayKind::DayHigh
+        | ChartOverlayKind::DayLow => theme.muted_style(),
+        ChartOverlayKind::BuyOrder | ChartOverlayKind::LongPosition => theme.success_style(),
+        ChartOverlayKind::SellOrder | ChartOverlayKind::ShortPosition => theme.danger_style(),
     }
 }
 

@@ -7,6 +7,7 @@ mod account_panel_view;
 mod action_line_view;
 mod app;
 mod chart;
+mod chart_overlay;
 mod command;
 mod config;
 mod confirmation_dialog;
