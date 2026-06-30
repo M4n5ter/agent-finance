@@ -1,0 +1,40 @@
+---
+source: crates/tui/src/render/tests.rs
+expression: "render_to_text_grid(state, width, height)"
+---
+┌Watchlist [fresh]───────────────┐┌Quote / Sessions [partial]────────────────────────────────────┐┌Crypto Evidence [empty]─────────────────┐
+│> CRDO -                        ││actions  [refresh]                                            ││actions  [refresh]                      │
+│  BTCUSDT -                     ││CRDO market snapshot                                          ││CRDO evidence                           │
+│                                ││No quote loaded yet. Waiting for the next refresh.            ││No crypto evidence loaded yet. Waiting  │
+│a add  d delete  left/right move││                                                              ││for the selected symbol.                │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              │└────────────────────────────────────────┘
+│                                ││                                                              │┌Polymarket [partial]────────────────────┐
+│                                ││                                                              ││actions  [refresh]                      │
+│                                ││                                                              ││CRDO prediction signals                 │
+│                                ││                                                              ││No prediction market context loaded yet.│
+│                                ││                                                              ││Waiting for research refresh.           │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              │└────────────────────────────────────────┘
+│                                ││                                                              │┌News / Research [partial]───────────────┐
+│                                ││                                                              ││actions  [refresh]                      │
+│                                ││                                                              ││CRDO research                           │
+└────────────────────────────────┘│                                                              ││No research context loaded yet. Waiting │
+┌Task Log [empty]────────────────┐│                                                              ││for the selected symbol.                │
+│status     event                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+│                                ││                                                              ││                                        │
+└────────────────────────────────┘└──────────────────────────────────────────────────────────────┘└────────────────────────────────────────┘
+ Market | Trade | Account | Research | Settings  CRDO | mode: normal | live:off | dry-run | focus: Watchlist | ready | e:0

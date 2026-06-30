@@ -1,0 +1,40 @@
+---
+source: crates/tui/src/render/tests.rs
+expression: "render_to_text_grid(state, width, height)"
+---
+┌Watchlist [fresh]─────────────────────────────┐┌Order Ticket [fresh]──────────────────────────────────────────────────────────────────────┐
+│> CRDO -                                      ││staged order  live:off / dry-run                                                          │
+│  BTCUSDT -                                   ││symbol: CRDO  profile: -                                                                  │
+│                                              ││> market: spot                                                               [prev] [next]│
+│a add  d delete  left/right move  u undo      ││  side: buy                                                                  [prev] [next]│
+│                                              ││  kind: limit-maker                                                          [prev] [next]│
+│                                              ││  quantity: -                                                                [prev] [next]│
+│                                              ││  price: -                                                                   [prev] [next]│
+│                                              ││  time in force: GTC                                                         [prev] [next]│
+│                                              ││  reduce only: false                                                         [prev] [next]│
+│                                              ││blocked: trading profile is required                                                      │
+│                                              │└──────────────────────────────────────────────────────────────────────────────────────────┘
+│                                              │┌Open Orders [partial]─────────────────────────────────────────────────────────────────────┐
+│                                              ││Start the TUI with --profile <name> to load open orders.                                  │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+└──────────────────────────────────────────────┘│                                                                                          │
+┌Provider Health [partial]─────────────────────┐└──────────────────────────────────────────────────────────────────────────────────────────┘
+│provi stat detail             freshness       │┌Intent Review [fresh]─────────────────────────────────────────────────────────────────────┐
+│auto  capa Default router; se -               ││operation queue  live:off / effective:dry-run                                             │
+│yahoo capa Broadest no-key re -               ││No staged changes.                                                                        │
+│sec-e capa Official filings,  -               ││Stage order tickets from Order Ticket.                                                    │
+│stooq capa Delayed quotes, no -               ││Stage cancels from Open Orders; transfers and futures state from Account.                 │
+│cnbc- capa pre/post extended  -               ││                                                                                          │
+│cnbc  capa CNBC quote payload -               ││order candidate blocked                                                                   │
+└──────────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘
+┌Task Log [empty]──────────────────────────────┐┌Risk / Audit [partial]────────────────────────────────────────────────────────────────────┐
+│status     event                              ││trading gate  live:off / effective:dry-run                                                │
+│                                              ││profile validation: no profile                                                            │
+│                                              ││risk policy: unavailable until profile validation completes                               │
+│                                              ││                                                                                          │
+│                                              ││staged queue: empty                                                                       │
+└──────────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘
+ Market | Trade | Account | Research | Settings  CRDO | mode: normal | live:off | dry-run | focus: Watchlist | ready | e:0

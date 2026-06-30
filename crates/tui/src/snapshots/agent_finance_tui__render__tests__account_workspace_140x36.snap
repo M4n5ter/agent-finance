@@ -1,0 +1,40 @@
+---
+source: crates/tui/src/render/tests.rs
+expression: "render_to_text_grid(state, width, height)"
+---
+┌Watchlist [fresh]─────────────────────────────┐┌Account [empty]───────────────────────────────────────────────────────────────────────────┐
+│> CRDO -                                      ││No trading profile selected.                                                              │
+│  BTCUSDT -                                   ││Start the TUI with --profile <name> to enable signed account reads.                       │
+│                                              ││                                                                                          │
+│a add  d delete  left/right move  u undo      ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              ││                                                                                          │
+│                                              │└──────────────────────────────────────────────────────────────────────────────────────────┘
+│                                              │┌Transfer Ticket [stale]───────────────────────────────────────────────────────────────────┐
+│                                              ││transfer ticket  live:off / dry-run                                                       │
+└──────────────────────────────────────────────┘│> direction: spot-to-usds-futures                                            [prev] [next]│
+┌Provider Health [partial]─────────────────────┐│  asset: USDT                                                                [prev] [next]│
+│provi stat detail             freshness       ││  amount: -                                                                  [prev] [next]│
+│auto  capa Default router; se -               ││blocked: trading profile is required                                                      │
+│yahoo capa Broadest no-key re -               ││blocked: amount is required                                                               │
+│sec-e capa Official filings,  -               ││[edit field]                                                                              │
+│stooq capa Delayed quotes, no -               │└──────────────────────────────────────────────────────────────────────────────────────────┘
+│cnbc- capa pre/post extended  -               │┌Futures State [stale]─────────────────────────────────────────────────────────────────────┐
+│cnbc  capa CNBC quote payload -               ││futures state ticket  live:off / dry-run                                                  │
+└──────────────────────────────────────────────┘│> kind: leverage                                                             [prev] [next]│
+┌Task Log [empty]──────────────────────────────┐│  scope: -                                                                   [prev] [next]│
+│status     event                              ││  value: -                                                                   [prev] [next]│
+│                                              ││blocked: trading profile is required                                                      │
+│                                              ││blocked: USD-M futures symbol is required                                                 │
+│                                              ││[edit field]                                                                              │
+│                                              ││e edit field  u futures field  i futures adjust  f stage state                            │
+└──────────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘
+ Market | Trade | Account | Research | Settings  CRDO | mode: normal | live:off | dry-run | focus: Watchlist | ready | e:0

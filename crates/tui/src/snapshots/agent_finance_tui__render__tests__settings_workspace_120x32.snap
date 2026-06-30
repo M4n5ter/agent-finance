@@ -1,0 +1,36 @@
+---
+source: crates/tui/src/render/tests.rs
+expression: "render_to_text_grid(state, width, height)"
+---
+┌Watchlist [fresh]──────────────────────┐┌Settings [fresh]─────────────────────────────────────────────────────────────┐
+│> CRDO -                               ││configuration cockpit                                                        │
+│  BTCUSDT -                            ││workspace: settings                                                          │
+│                                       ││dirty config: clean                                                          │
+│a add  d delete  left/right move  u und││watchlist: 2 symbols  selected=CRDO                                          │
+│                                       ││trading profile: -  live writes=off                                          │
+│                                       ││default submit mode: dry-run  effective=dry-run                              │
+│                                       ││provider preferences: equity=auto  crypto=auto                               │
+│                                       ││theme: accent=cyan  selection=cyan/black                                     │
+│                                       ││provider capability profiles: 13                                             │
+│                                       ││normal key bindings: 25                                                      │
+│                                       ││                                                                             │
+│                                       ││settings editor                                                              │
+│                                       ││actions  [add symbols]  [set profile]  [profile/risk]  [save]  [undo]        │
+│                                       ││> equity provider: auto  [prev] [next]                                       │
+│                                       ││  crypto provider: auto  [prev] [next]                                       │
+└───────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────┘
+┌Provider Health [partial]──────────────┐┌Profile / Risk [partial]─────────────────────────────────────────────────────┐
+│p s detail             freshness       ││profile and risk policy                                                      │
+│a c Default router; se -               ││selected profile: -                                                          │
+│y c Broadest no-key re -               ││validation: no profile selected                                              │
+│s c Official filings,  -               ││                                                                             │
+│s c Delayed quotes, no -               ││e profile                                                                    │
+│c c pre/post extended  -               ││v validate                                                                   │
+└───────────────────────────────────────┘│t stage risk                                                                 │
+┌Task Log [empty]───────────────────────┐│                                                                             │
+│status     event                       ││                                                                             │
+│                                       ││                                                                             │
+│                                       ││                                                                             │
+│                                       ││                                                                             │
+└───────────────────────────────────────┘└─────────────────────────────────────────────────────────────────────────────┘
+ Market | Trade | Account | Research | Settings  CRDO | mode: normal | live:off | dry-run | ready

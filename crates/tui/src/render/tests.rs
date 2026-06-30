@@ -699,12 +699,47 @@ fn market_workspace_matches_snapshot_at_100x30() {
         WorkspaceKind::Market,
     )));
 
-    insta::with_settings!({ snapshot_path => "../snapshots" }, {
-        insta::assert_snapshot!(
-            "market_workspace_100x30",
-            render_to_text_grid(&state, 100, 30)
-        );
-    });
+    assert_workspace_snapshot("market_workspace_100x30", &state, 100, 30);
+}
+
+#[test]
+fn trade_workspace_matches_snapshot_at_140x36() {
+    let mut state = snapshot_state();
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Trade,
+    )));
+
+    assert_workspace_snapshot("trade_workspace_140x36", &state, 140, 36);
+}
+
+#[test]
+fn account_workspace_matches_snapshot_at_140x36() {
+    let mut state = snapshot_state();
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Account,
+    )));
+
+    assert_workspace_snapshot("account_workspace_140x36", &state, 140, 36);
+}
+
+#[test]
+fn research_workspace_matches_snapshot_at_140x36() {
+    let mut state = snapshot_state();
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Research,
+    )));
+
+    assert_workspace_snapshot("research_workspace_140x36", &state, 140, 36);
+}
+
+#[test]
+fn settings_workspace_matches_snapshot_at_120x32() {
+    let mut state = snapshot_state();
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Settings,
+    )));
+
+    assert_workspace_snapshot("settings_workspace_120x32", &state, 120, 32);
 }
 
 #[test]
@@ -1001,4 +1036,10 @@ fn render_to_text(state: &AppState, width: u16, height: u16) -> String {
         .iter()
         .map(|cell| cell.symbol())
         .collect::<String>()
+}
+
+fn assert_workspace_snapshot(name: &str, state: &AppState, width: u16, height: u16) {
+    insta::with_settings!({ snapshot_path => "../snapshots" }, {
+        insta::assert_snapshot!(name, render_to_text_grid(state, width, height));
+    });
 }
