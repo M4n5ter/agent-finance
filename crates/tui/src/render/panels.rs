@@ -160,7 +160,8 @@ fn render_history(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let chart_area = read_only_panel_view::history_chart_area(area);
+    let workbench = read_only_panel_view::history_workbench_active(state);
+    let chart_area = read_only_panel_view::history_chart_area(area, workbench);
     let text_area = Rect {
         height: chart_area.y.saturating_sub(inner.y),
         ..inner
@@ -184,7 +185,12 @@ fn render_history(
         .map(|snapshot| snapshot.bars.as_slice())
         .unwrap_or_default();
     let hover = mouse_target.and_then(|target| target.panel_chart_hovered(Panel::History));
-    let chart = history::chart(bars, &state.theme, hover);
+    let mode = if workbench {
+        history::ChartMode::Workbench
+    } else {
+        history::ChartMode::Cockpit
+    };
+    let chart = history::chart(bars, &state.theme, hover, mode);
     frame.render_widget(chart, chart_area);
 }
 

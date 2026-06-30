@@ -733,10 +733,30 @@ fn market_workspace_history_hover_matches_snapshot_at_100x30() {
     let history = layout
         .panel_rect(Panel::History)
         .expect("history panel is visible");
-    let chart = crate::read_only_panel_view::history_chart_area(history);
+    let chart = crate::read_only_panel_view::history_chart_area(history, false);
     state.mouse_position = Some(MousePosition::new(chart.x + chart.width / 2, chart.y + 2));
 
     assert_workspace_snapshot("market_workspace_history_hover_100x30", &state, 100, 30);
+}
+
+#[test]
+fn history_workbench_matches_snapshot_at_120x32() {
+    let mut state = snapshot_state();
+    state.reduce(crate::state::Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(crate::state::Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Market,
+    )));
+    state.reduce(crate::state::Action::Focus(Panel::History));
+    state.reduce(crate::state::Action::ToggleFocusedZoom);
+
+    assert_workspace_snapshot("history_workbench_120x32", &state, 120, 32);
 }
 
 #[test]
@@ -998,8 +1018,11 @@ fn history_bars() -> Vec<agent_finance_market::history_snapshot::HistoryBarSnaps
             let high = open.max(close) + 1.8 + (index % 3) as f64 * 0.15;
             let low = open.min(close) - 1.4 - (index % 4) as f64 * 0.1;
             let volume = 9_000.0 + ((index * 379) % 11_000) as f64;
+            let open_minutes = 30 + index * 5;
+            let close_minutes = open_minutes + 5;
             history_bar(
-                &format!("{}:{:02}", 9 + (30 + index * 5) / 60, (30 + index * 5) % 60),
+                &format!("{}:{:02}", 9 + open_minutes / 60, open_minutes % 60),
+                &format!("{}:{:02}", 9 + close_minutes / 60, close_minutes % 60),
                 open,
                 high,
                 low,
@@ -1012,6 +1035,7 @@ fn history_bars() -> Vec<agent_finance_market::history_snapshot::HistoryBarSnaps
 
 fn history_bar(
     open_time: &str,
+    close_time: &str,
     open: f64,
     high: f64,
     low: f64,
@@ -1020,7 +1044,7 @@ fn history_bar(
 ) -> agent_finance_market::history_snapshot::HistoryBarSnapshot {
     agent_finance_market::history_snapshot::HistoryBarSnapshot {
         open_time: open_time.to_string(),
-        close_time: None,
+        close_time: Some(close_time.to_string()),
         open: Some(open),
         high: Some(high),
         low: Some(low),

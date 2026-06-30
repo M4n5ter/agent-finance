@@ -2091,7 +2091,7 @@ fn mouse_click_on_history_chart_only_focuses_and_tracks_hover() {
     )
     .panel_rect(Panel::History)
     .expect("history panel is visible");
-    let chart = crate::read_only_panel_view::history_chart_area(panel);
+    let chart = crate::read_only_panel_view::history_chart_area(panel, false);
     let click_position = MousePosition::new(chart.x + 2, chart.y + 2);
     let previous_log_count = state.task_log.iter().count();
     let mut drag = MouseDrag::default();
@@ -2115,6 +2115,78 @@ fn mouse_click_on_history_chart_only_focuses_and_tracks_hover() {
     assert!(state.take_pending_staged_execution().is_none());
     assert_eq!(state.floating.last().map(|pane| pane.kind), None);
     assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
+fn mouse_movement_over_zoomed_history_chart_uses_workbench_area() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    state.reduce(Action::Focus(Panel::History));
+    state.reduce(Action::ToggleFocusedZoom);
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::History)
+    .expect("zoomed history panel is visible");
+    let chart = crate::read_only_panel_view::history_chart_area(panel, true);
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::Moved, chart.x + 4, chart.y + 4),
+    );
+
+    assert_eq!(
+        current_mouse_target(area, &state),
+        Some(MouseTarget::PanelAction {
+            panel: Panel::History,
+            action: PanelMouseAction::InspectChart {
+                position: MousePosition::new(chart.x + 4, chart.y + 4),
+            },
+        })
+    );
+}
+
+#[test]
+fn mouse_movement_over_zoomed_history_header_does_not_inspect_chart() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    state.reduce(Action::Focus(Panel::History));
+    state.reduce(Action::ToggleFocusedZoom);
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::History)
+    .expect("zoomed history panel is visible");
+    let chart = crate::read_only_panel_view::history_chart_area(panel, true);
+    let header_row = chart.y.saturating_sub(1);
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(MouseEventKind::Moved, chart.x + 4, header_row),
+    );
+
+    assert!(
+        !matches!(
+            current_mouse_target(area, &state),
+            Some(MouseTarget::PanelAction {
+                panel: Panel::History,
+                action: PanelMouseAction::InspectChart { .. },
+            })
+        ),
+        "workbench summary rows must not be hit-tested as chart cells"
+    );
 }
 
 #[test]

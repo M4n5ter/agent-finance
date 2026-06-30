@@ -12,8 +12,14 @@ pub(super) fn chart<'a>(
     bars: &'a [HistoryBarSnapshot],
     theme: &'a ThemeConfig,
     hover: Option<MousePosition>,
+    mode: ChartMode,
 ) -> CandlestickChart<'a> {
-    CandlestickChart { bars, theme, hover }
+    CandlestickChart {
+        bars,
+        theme,
+        hover,
+        mode,
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -21,6 +27,13 @@ pub(super) struct CandlestickChart<'a> {
     bars: &'a [HistoryBarSnapshot],
     theme: &'a ThemeConfig,
     hover: Option<MousePosition>,
+    mode: ChartMode,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) enum ChartMode {
+    Cockpit,
+    Workbench,
 }
 
 impl Widget for CandlestickChart<'_> {
@@ -55,12 +68,13 @@ impl Widget for CandlestickChart<'_> {
             ..area
         };
         let bounds = PriceBounds::from_buckets(&buckets);
-        render_current_price_line(buffer, price_area, bounds, &buckets, self.theme);
+        render_reference_lines(buffer, price_area, bounds, &buckets, self.mode, self.theme);
         render_overlays(buffer, price_area, bounds, &buckets, geometry, self.theme);
         render_candles(buffer, price_area, bounds, &buckets, geometry, self.theme);
         render_volume(buffer, volume_area, &buckets, geometry, self.theme);
         render_price_labels(buffer, price_area, bounds, self.theme);
         render_time_labels(buffer, time_area, &buckets, self.theme);
+        render_workbench_legend(buffer, area, &buckets, self.mode, self.theme);
         render_hover(buffer, area, self.hover, &buckets, geometry, self.theme);
     }
 }
@@ -180,21 +194,82 @@ fn render_candles(
     }
 }
 
-fn render_current_price_line(
+fn render_reference_lines(
     buffer: &mut Buffer,
     area: Rect,
     bounds: PriceBounds,
     buckets: &[CandleBucket],
+    mode: ChartMode,
     theme: &ThemeConfig,
 ) {
     let Some(last) = buckets.last() else {
         return;
     };
-    let row = bounds.row(area, last.close);
+    render_horizontal_reference_line(
+        buffer,
+        area,
+        bounds.row(area, last.close),
+        if mode == ChartMode::Workbench {
+            "last"
+        } else {
+            ""
+        },
+        theme.neutral_style(),
+        theme,
+    );
+    if mode == ChartMode::Workbench
+        && let Some(first) = buckets.first()
+    {
+        render_horizontal_reference_line(
+            buffer,
+            area,
+            bounds.row(area, first.open),
+            "open",
+            theme.accent_style(),
+            theme,
+        );
+        let high = buckets
+            .iter()
+            .max_by(|left, right| left.high.total_cmp(&right.high))
+            .expect("buckets are non-empty");
+        let low = buckets
+            .iter()
+            .min_by(|left, right| left.low.total_cmp(&right.low))
+            .expect("buckets are non-empty");
+        render_horizontal_reference_line(
+            buffer,
+            area,
+            bounds.row(area, high.high),
+            "high",
+            theme.success_style(),
+            theme,
+        );
+        render_horizontal_reference_line(
+            buffer,
+            area,
+            bounds.row(area, low.low),
+            "low",
+            theme.danger_style(),
+            theme,
+        );
+    }
+}
+
+fn render_horizontal_reference_line(
+    buffer: &mut Buffer,
+    area: Rect,
+    row: u16,
+    label: &str,
+    style: Style,
+    theme: &ThemeConfig,
+) {
     for x in area.x..area.x + area.width {
         if buffer[(x, row)].symbol() == " " {
-            buffer.set_string(x, row, "·", theme.neutral_style());
+            buffer.set_string(x, row, "·", style);
         }
+    }
+    if area.width >= 18 && !label.is_empty() {
+        write_right_clipped(buffer, Rect { y: row, ..area }, label, theme.muted_style());
     }
 }
 
@@ -320,6 +395,67 @@ fn render_time_labels(
     }
     if let Some(last) = buckets.last() {
         write_right_clipped(buffer, area, bucket_end_time(last), theme.muted_style());
+    }
+}
+
+fn render_workbench_legend(
+    buffer: &mut Buffer,
+    area: Rect,
+    buckets: &[CandleBucket],
+    mode: ChartMode,
+    theme: &ThemeConfig,
+) {
+    if mode != ChartMode::Workbench || area.width < 72 || area.height < 12 {
+        return;
+    }
+    let Some(first) = buckets.first() else {
+        return;
+    };
+    let Some(last) = buckets.last() else {
+        return;
+    };
+    let high = buckets
+        .iter()
+        .map(|bucket| bucket.high)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let low = buckets
+        .iter()
+        .map(|bucket| bucket.low)
+        .fold(f64::INFINITY, f64::min);
+    let volume = buckets
+        .iter()
+        .filter_map(|bucket| bucket.volume)
+        .sum::<f64>();
+    let change = if first.open.abs() > f64::EPSILON {
+        Some((last.close / first.open - 1.0) * 100.0)
+    } else {
+        None
+    };
+    let lines = [
+        format!(
+            "O {}  H {}  L {}  C {}",
+            super::widgets::format_price(first.open),
+            super::widgets::format_price(high),
+            super::widgets::format_price(low),
+            super::widgets::format_price(last.close)
+        ),
+        format!(
+            "change {}  volume {}  overlays MA20 MA50 VWAP",
+            change
+                .map(|value| format!("{value:+.2}%"))
+                .unwrap_or_else(|| "-".to_string()),
+            super::widgets::format_volume(volume)
+        ),
+    ];
+    for (offset, line) in lines.into_iter().enumerate() {
+        let width = line.chars().count().min(area.width as usize);
+        let text = clipped_prefix(&line, width);
+        buffer.set_string(
+            area.x,
+            area.y + offset as u16,
+            format!("{text:<width$}"),
+            theme.selected_style(),
+        );
     }
 }
 

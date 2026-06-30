@@ -17,7 +17,7 @@ expression: "render_to_text_grid(state, width, height)"
 │                                ││provider: test  preset=auto  interval=5m  bars=48               │
 │                                ││latest: 109.16 at 13:25  return=10.04%                          │
 │                                ││volume: 15.81K  freshness: 2026-06-25 09:30:00                  │
-└────────────────────────────────┘│    12:10-12:15 O106.86 H108.96  ┊            │           112.55│
+└────────────────────────────────┘│    12:10-12:20 O106.86 H108.96  ┊            │           112.55│
 ┌Provider Health [fresh]─────────┐│    L103.94 C106.64 V20.64K      ┊│   │ │ │ │ │█                │
 │  detail             freshness  ││··························│·│·│·│┊│█│·│█│█│█│█│█················│
 │  history=CRDO 48 ba 2026-06-25 ││              │ │ │ │ │ │ │█│█│█│┊│█│█│ │ │█│█│                 │
@@ -29,6 +29,6 @@ expression: "render_to_text_grid(state, width, height)"
 │status     event                ││             █ █ █ █ █ █ █ █ █   ┊       █ █ █ █                │
 │succeeded  CRDO history loaded  ││ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ ┊ █ █ █ █ █ █ █                │
 │                                ││ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ ┊ █ █ █ █ █ █ █                │
-│                                ││9:30                             ┊                         13:25│
+│                                ││9:30                             ┊                         13:30│
 └────────────────────────────────┘└────────────────────────────────────────────────────────────────┘
  Market | Trade | Account | Research | Settings  CRDO | mode: normal | live:off | dry-run | ready

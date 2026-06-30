@@ -296,8 +296,9 @@ fn history_hit_at(state: &AppState, area: Rect, column: u16, row: u16) -> Option
     ) {
         return Some(PanelHit::from_panel_action(action));
     }
+    let workbench = crate::read_only_panel_view::history_workbench_active(state);
     if rect_contains(
-        crate::read_only_panel_view::history_chart_area(area),
+        crate::read_only_panel_view::history_chart_area(area, workbench),
         column,
         row,
     ) {

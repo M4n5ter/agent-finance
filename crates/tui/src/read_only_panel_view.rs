@@ -1,4 +1,5 @@
 use agent_finance_market::crypto_evidence_snapshot::CryptoQuoteEvidenceSnapshot;
+use agent_finance_market::history_snapshot::HistorySnapshot;
 use agent_finance_market::research_snapshot::{PredictionMarketSnapshot, ResearchContextSnapshot};
 
 use ratatui::layout::Rect;
@@ -133,30 +134,31 @@ fn history_info_row_at_content_row(
         Panel::History,
         area.height.saturating_sub(2),
     ))?;
-    let text_height = history_text_area_height(area);
+    let text_height = history_text_area_height(area, history_workbench_active(state));
     if content_row >= text_height {
         return None;
     }
     info_line_at_content_row(&history_summary_lines(state), area, content_row)
 }
 
-pub(crate) fn history_chart_area(panel_area: Rect) -> Rect {
+pub(crate) fn history_chart_area(panel_area: Rect, workbench: bool) -> Rect {
     let inner = Rect {
         x: panel_area.x.saturating_add(1),
         y: panel_area.y.saturating_add(1),
         width: panel_area.width.saturating_sub(2),
         height: panel_area.height.saturating_sub(2),
     };
+    let text_height = history_text_area_height(panel_area, workbench) as u16;
     Rect {
         x: inner.x,
-        y: inner
-            .y
-            .saturating_add(history_text_area_height(panel_area) as u16),
+        y: inner.y.saturating_add(text_height),
         width: inner.width,
-        height: inner
-            .height
-            .saturating_sub(history_text_area_height(panel_area) as u16),
+        height: inner.height.saturating_sub(text_height),
     }
+}
+
+pub(crate) fn history_workbench_active(state: &AppState) -> bool {
+    state.zoomed && state.panels.focused() == Panel::History
 }
 
 fn info_line_at_content_row_after_actions(
@@ -246,6 +248,7 @@ pub(crate) fn quote_lines(state: &AppState) -> Vec<Line<'_>> {
 pub(crate) fn history_summary_lines(state: &AppState) -> Vec<Line<'_>> {
     let symbol = state.selected_symbol().unwrap_or("N/A");
     let snapshot = state.history.selected_snapshot(symbol);
+    let workbench = history_workbench_active(state);
     let mut lines = vec![Line::from(vec![
         Span::styled(
             symbol,
@@ -290,6 +293,9 @@ pub(crate) fn history_summary_lines(state: &AppState) -> Vec<Line<'_>> {
                     .unwrap_or_else(|| "-".to_string()),
                 snapshot.fetched_at_local.as_deref().unwrap_or("-")
             )));
+            if workbench {
+                lines.extend(history_workbench_lines(snapshot, &state.theme));
+            }
             for error in snapshot.errors.iter().take(1) {
                 lines.push(Line::from(Span::styled(
                     format!("history warning: {error}"),
@@ -305,8 +311,56 @@ pub(crate) fn history_summary_lines(state: &AppState) -> Vec<Line<'_>> {
     lines
 }
 
-fn history_text_area_height(area: Rect) -> usize {
-    area.height.saturating_sub(2).min(5).into()
+fn history_workbench_lines(snapshot: &HistorySnapshot, theme: &ThemeConfig) -> Vec<Line<'static>> {
+    let Some(first) = snapshot.bars.first() else {
+        return vec![Line::from(Span::styled(
+            "workbench: no bars to inspect",
+            theme.warning_style(),
+        ))];
+    };
+    let Some(last) = snapshot.bars.last() else {
+        return Vec::new();
+    };
+    let open = first.open.unwrap_or(first.close);
+    let high = snapshot
+        .bars
+        .iter()
+        .filter_map(|bar| bar.high.or(Some(bar.close)))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let low = snapshot
+        .bars
+        .iter()
+        .filter_map(|bar| bar.low.or(Some(bar.close)))
+        .fold(f64::INFINITY, f64::min);
+    let missing_ohlc = snapshot
+        .bars
+        .iter()
+        .filter(|bar| bar.open.is_none() || bar.high.is_none() || bar.low.is_none())
+        .count();
+    let close_time = last.close_time.as_deref().unwrap_or(&last.open_time);
+    let ohlc_warning = if missing_ohlc > 0 {
+        format!("  close-only bars={missing_ohlc}")
+    } else {
+        String::new()
+    };
+    vec![
+        Line::from(format!(
+            "range: {} -> {}  O={} H={} L={} C={}{}",
+            first.open_time,
+            close_time,
+            format_price(open),
+            format_price(high),
+            format_price(low),
+            format_price(last.close),
+            ohlc_warning
+        )),
+        Line::from("workbench: hover inspect  wheel/[ ] preset zoom  r refresh  z exit"),
+    ]
+}
+
+fn history_text_area_height(area: Rect, workbench: bool) -> usize {
+    let max = if workbench { 8 } else { 5 };
+    area.height.saturating_sub(2).min(max).into()
 }
 
 pub(crate) fn evidence_panel_lines(state: &AppState) -> Vec<Line<'static>> {
