@@ -8,7 +8,7 @@ Market intelligence for AI agents that need evidence, not guesswork.
 
 It also includes `agent-finance tui`, a live market cockpit for watching symbols, provider health, research context, crypto evidence, and prediction-market signals in one terminal.
 
-![agent-finance TUI market cockpit](assets/tui-cockpit.svg)
+![agent-finance TUI market cockpit](assets/tui-market-cockpit.png)
 
 Install once, then let agents discover the command surface from the CLI itself.
 
