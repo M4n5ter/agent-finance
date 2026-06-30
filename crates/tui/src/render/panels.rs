@@ -179,17 +179,10 @@ fn render_history(
 
     let symbol = state.selected_symbol().unwrap_or("N/A");
     let snapshot = state.history.selected_snapshot(symbol);
-    let closes = snapshot
-        .map(|snapshot| {
-            snapshot
-                .bars
-                .iter()
-                .map(|bar| bar.close)
-                .collect::<Vec<_>>()
-        })
+    let bars = snapshot
+        .map(|snapshot| snapshot.bars.as_slice())
         .unwrap_or_default();
-    let points = history::chart_points(&closes);
-    let chart = history::chart(&points, &state.theme);
+    let chart = history::chart(bars, &state.theme);
     frame.render_widget(chart, chunks[1]);
 }
 

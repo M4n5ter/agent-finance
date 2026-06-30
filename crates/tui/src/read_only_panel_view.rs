@@ -245,8 +245,9 @@ pub(crate) fn history_summary_lines(state: &AppState) -> Vec<Line<'_>> {
     match snapshot {
         Some(snapshot) => {
             lines.push(Line::from(format!(
-                "provider: {}  interval={}  bars={}",
+                "provider: {}  preset={}  interval={}  bars={}",
                 snapshot.provider,
+                state.chart.preset(),
                 snapshot.interval,
                 snapshot.bars.len()
             )));

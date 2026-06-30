@@ -464,7 +464,21 @@ fn request_symbol_load(
         return;
     };
 
-    if let Err(error) = scheduler.request_symbol_task(kind, request.generation, request.symbol) {
+    let result = match kind {
+        SymbolTaskKind::History => scheduler.request_history(
+            request.generation,
+            request.symbol.clone(),
+            state.chart.preset().request_for(&request.symbol),
+        ),
+        SymbolTaskKind::Evidence => {
+            scheduler.request_evidence(request.generation, request.symbol.clone())
+        }
+        SymbolTaskKind::Research => {
+            scheduler.request_research(request.generation, request.symbol.clone())
+        }
+    };
+
+    if let Err(error) = result {
         state.reduce(Action::SchedulerFailed(error.to_string()));
     }
 }

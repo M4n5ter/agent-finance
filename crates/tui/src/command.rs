@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use tui_input::InputRequest;
 
+use crate::chart::ChartPreset;
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
 use crate::search::{SearchListState, fuzzy_indices};
 
@@ -82,10 +83,10 @@ fn command_indices_for_query(query: &str) -> Vec<usize> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CommandSpec {
-    pub title: &'static str,
-    pub description: &'static str,
+    pub title: Cow<'static, str>,
+    pub description: Cow<'static, str>,
     pub action: ActionId,
 }
 
@@ -108,6 +109,8 @@ pub enum ActionId {
     RefreshSelectedHistory,
     RefreshSelectedEvidence,
     RefreshSelectedResearch,
+    SetChartPreset(ChartPreset),
+    ShiftChartPreset(isize),
     CaptureOrderReferencePrice,
     OpenTicketTextInput,
     StageOrderTicket,
@@ -134,18 +137,18 @@ pub struct ActionSpec {
 
 impl ActionSpec {
     pub fn command(&self) -> Option<CommandSpec> {
-        self.command.map(|command| CommandSpec {
-            title: command.title,
-            description: command.description,
+        self.command.as_ref().map(|command| CommandSpec {
+            title: command.title.clone(),
+            description: command.description.clone(),
             action: self.action,
         })
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct CommandPresentation {
-    title: &'static str,
-    description: &'static str,
+    title: Cow<'static, str>,
+    description: Cow<'static, str>,
 }
 
 pub fn action_by_id(id: &str) -> Option<ActionId> {
@@ -168,11 +171,22 @@ macro_rules! action {
             id: Cow::Borrowed($id),
             action: $action,
             command: Some(CommandPresentation {
-                title: $title,
-                description: $description,
+                title: Cow::Borrowed($title),
+                description: Cow::Borrowed($description),
             }),
         }
     };
+}
+
+fn chart_preset_action(preset: ChartPreset) -> ActionSpec {
+    ActionSpec {
+        id: Cow::Owned(preset.command_id()),
+        action: ActionId::SetChartPreset(preset),
+        command: Some(CommandPresentation {
+            title: Cow::Owned(preset.command_title()),
+            description: Cow::Borrowed(preset.command_description()),
+        }),
+    }
 }
 
 pub static ACTION_REGISTRY: LazyLock<Vec<ActionSpec>> = LazyLock::new(|| {
@@ -418,6 +432,18 @@ pub static ACTION_REGISTRY: LazyLock<Vec<ActionSpec>> = LazyLock::new(|| {
             "Reload historical bars for the selected symbol now"
         ),
         action!(
+            "chart-next-preset",
+            ActionId::ShiftChartPreset(1),
+            "Chart next preset",
+            "Move the history chart to the next time range preset"
+        ),
+        action!(
+            "chart-previous-preset",
+            ActionId::ShiftChartPreset(-1),
+            "Chart previous preset",
+            "Move the history chart to the previous time range preset"
+        ),
+        action!(
             "refresh-selected-evidence",
             ActionId::RefreshSelectedEvidence,
             "Refresh selected evidence",
@@ -430,6 +456,7 @@ pub static ACTION_REGISTRY: LazyLock<Vec<ActionSpec>> = LazyLock::new(|| {
             "Reload research context and prediction signals for the selected symbol now"
         ),
     ];
+    actions.extend(ChartPreset::ALL.map(chart_preset_action));
     actions.extend(panel_action_specs());
     actions.push(action!(
         "close-command-palette",
@@ -449,16 +476,16 @@ fn panel_action_specs() -> Vec<ActionSpec> {
                     id: panel_command_id("focus", panel),
                     action: ActionId::FocusPanel(panel),
                     command: Some(CommandPresentation {
-                        title: panel.focus_command_title(),
-                        description: panel.focus_command_description(),
+                        title: Cow::Borrowed(panel.focus_command_title()),
+                        description: Cow::Borrowed(panel.focus_command_description()),
                     }),
                 },
                 ActionSpec {
                     id: panel_command_id("toggle", panel),
                     action: ActionId::TogglePanel(panel),
                     command: Some(CommandPresentation {
-                        title: panel.toggle_command_title(),
-                        description: panel.toggle_command_description(),
+                        title: Cow::Borrowed(panel.toggle_command_title()),
+                        description: Cow::Borrowed(panel.toggle_command_description()),
                     }),
                 },
             ]
@@ -484,10 +511,10 @@ mod tests {
 
         let visible = (0..palette.len())
             .filter_map(|index| palette.command_at(index))
-            .map(|command| command.title)
+            .map(|command| command.title.into_owned())
             .collect::<Vec<_>>();
-        assert!(visible.contains(&"Open provider details"));
-        assert!(visible.contains(&"Workspace market"));
+        assert!(visible.contains(&"Open provider details".to_string()));
+        assert!(visible.contains(&"Workspace market".to_string()));
     }
 
     #[test]
@@ -574,10 +601,10 @@ mod tests {
         );
         let visible = (0..palette.len())
             .filter_map(|index| palette.command_at(index))
-            .map(|command| command.title)
+            .map(|command| command.title.into_owned())
             .collect::<Vec<_>>();
-        assert!(visible.contains(&"Focus settings"));
-        assert!(visible.contains(&"Toggle settings"));
+        assert!(visible.contains(&"Focus settings".to_string()));
+        assert!(visible.contains(&"Toggle settings".to_string()));
     }
 
     #[test]

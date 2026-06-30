@@ -15,6 +15,7 @@ pub struct HistorySnapshotRequest {
     pub symbol: String,
     pub provider: Provider,
     pub crypto_provider: CryptoProvider,
+    pub session: HistorySession,
     pub interval: String,
     pub range: String,
     pub limit: usize,
@@ -38,8 +39,15 @@ pub struct HistorySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HistoryBarSnapshot {
     pub open_time: String,
+    pub close_time: Option<String>,
+    pub open: Option<f64>,
+    pub high: Option<f64>,
+    pub low: Option<f64>,
     pub close: f64,
     pub volume: Option<f64>,
+    pub quote_volume: Option<f64>,
+    pub trades: Option<u64>,
+    pub repaired: bool,
 }
 
 pub async fn fetch_history_snapshot(
@@ -60,7 +68,7 @@ pub async fn fetch_history_snapshot(
             instrument: CryptoInstrument::Auto,
             crypto_provider: request.crypto_provider,
             provider: request.provider,
-            session: HistorySession::Regular,
+            session: request.session,
             adjustment: HistoryAdjustment::Auto,
             no_actions: false,
             repair: false,
@@ -116,8 +124,15 @@ fn snapshot_from_batch(
 fn bar_snapshot(bar: OhlcBar) -> HistoryBarSnapshot {
     HistoryBarSnapshot {
         open_time: bar.open_time,
+        close_time: bar.close_time,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
         close: bar.close,
         volume: bar.volume,
+        quote_volume: bar.quote_volume,
+        trades: bar.trades,
+        repaired: bar.repaired,
     }
 }
 
@@ -148,6 +163,12 @@ mod tests {
         assert_eq!(snapshot.latest_close, Some(125.0));
         assert_eq!(snapshot.latest_time.as_deref(), Some("2026-06-25"));
         assert_eq!(snapshot.volume, Some(12_000.0));
+        assert_eq!(snapshot.bars[1].open, Some(124.0));
+        assert_eq!(snapshot.bars[1].high, Some(130.0));
+        assert_eq!(snapshot.bars[1].low, Some(120.0));
+        assert_eq!(snapshot.bars[1].quote_volume, Some(1_500_000.0));
+        assert_eq!(snapshot.bars[1].trades, Some(42));
+        assert!(snapshot.bars[1].repaired);
         assert_eq!(snapshot.return_pct, Some(25.0));
         assert!(snapshot.errors.is_empty());
     }
@@ -157,19 +178,19 @@ mod tests {
             symbol: "CRDO".to_string(),
             provider: "yahoo".to_string(),
             open_time: open_time.to_string(),
-            close_time: None,
-            open: Some(close),
-            high: Some(close),
-            low: Some(close),
+            close_time: Some(format!("{open_time} close")),
+            open: Some(close - 1.0),
+            high: Some(close + 5.0),
+            low: Some(close - 5.0),
             close,
             adj_close: None,
             volume: Some(volume),
-            quote_volume: None,
-            trades: None,
+            quote_volume: Some(volume * close),
+            trades: Some(42),
             dividend: None,
             stock_split: None,
             capital_gain: None,
-            repaired: false,
+            repaired: true,
         }
     }
 }

@@ -110,6 +110,7 @@ impl AppState {
             panels,
             floating,
             refresh: _,
+            chart,
             providers,
             trading,
             theme,
@@ -145,6 +146,7 @@ impl AppState {
         self.floating.extend(floating.panes);
         self.keymap = keymap;
         self.providers = providers;
+        self.chart.set_preset(chart.preset);
         self.theme = theme;
         self.trading_profile = trading.default_profile;
         self.trading_profile_edited = snapshot.trading_profile_edited;

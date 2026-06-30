@@ -695,6 +695,14 @@ fn settings_workspace_renders_configuration_cockpit() {
 #[test]
 fn market_workspace_matches_snapshot_at_100x30() {
     let mut state = snapshot_state();
+    state.reduce(crate::state::Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(crate::state::Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
     state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
         WorkspaceKind::Market,
     )));
@@ -926,18 +934,72 @@ fn snapshot_state() -> AppState {
 }
 
 fn history_snapshot(symbol: &str) -> HistorySnapshot {
+    let bars = history_bars();
+    let latest = bars.last().expect("fixture has bars");
+    let first = bars.first().expect("fixture has bars");
     HistorySnapshot {
         requested_symbol: symbol.to_string(),
         symbol: symbol.to_string(),
         provider: "test".to_string(),
-        interval: "1d".to_string(),
+        interval: "5m".to_string(),
         fetched_at_local: Some("2026-06-25 09:30:00".to_string()),
-        latest_close: Some(100.0),
-        latest_time: Some("2026-06-25".to_string()),
-        return_pct: Some(1.0),
-        volume: Some(10_000.0),
-        bars: Vec::new(),
+        latest_close: Some(latest.close),
+        latest_time: Some(latest.open_time.clone()),
+        return_pct: Some((latest.close / first.close - 1.0) * 100.0),
+        volume: latest.volume,
+        bars,
         errors: Vec::new(),
+    }
+}
+
+fn history_bars() -> Vec<agent_finance_market::history_snapshot::HistoryBarSnapshot> {
+    (0..48)
+        .map(|index| {
+            let base = 100.0 + index as f64 * 0.18;
+            let wave = match index % 6 {
+                0 => -1.2,
+                1 => 0.4,
+                2 => 1.1,
+                3 => -0.5,
+                4 => 1.6,
+                _ => -0.2,
+            };
+            let open = base + wave;
+            let close = base + if index % 5 == 0 { -0.8 } else { 0.7 };
+            let high = open.max(close) + 1.8 + (index % 3) as f64 * 0.15;
+            let low = open.min(close) - 1.4 - (index % 4) as f64 * 0.1;
+            let volume = 9_000.0 + ((index * 379) % 11_000) as f64;
+            history_bar(
+                &format!("{}:{:02}", 9 + (30 + index * 5) / 60, (30 + index * 5) % 60),
+                open,
+                high,
+                low,
+                close,
+                volume,
+            )
+        })
+        .collect()
+}
+
+fn history_bar(
+    open_time: &str,
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,
+    volume: f64,
+) -> agent_finance_market::history_snapshot::HistoryBarSnapshot {
+    agent_finance_market::history_snapshot::HistoryBarSnapshot {
+        open_time: open_time.to_string(),
+        close_time: None,
+        open: Some(open),
+        high: Some(high),
+        low: Some(low),
+        close,
+        volume: Some(volume),
+        quote_volume: None,
+        trades: None,
+        repaired: false,
     }
 }
 

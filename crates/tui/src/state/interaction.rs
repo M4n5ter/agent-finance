@@ -63,6 +63,14 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::RequestSymbolDataRefresh(SymbolTaskKind::History));
             }
+            ActionId::SetChartPreset(preset) => {
+                self.close_text_input_floatings();
+                self.reduce(Action::SetChartPreset(preset));
+            }
+            ActionId::ShiftChartPreset(direction) => {
+                self.close_text_input_floatings();
+                self.reduce(Action::ShiftChartPreset(direction));
+            }
             ActionId::RefreshSelectedEvidence => {
                 self.close_text_input_floatings();
                 self.reduce(Action::RequestSymbolDataRefresh(SymbolTaskKind::Evidence));

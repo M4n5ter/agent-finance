@@ -8,6 +8,7 @@ use agent_finance_market::service;
 use agent_finance_market::snapshot::MarketSnapshot;
 
 use crate::account::AccountSnapshot;
+use crate::chart::{ChartPreset, ChartState};
 use crate::command::{ActionId, CommandPaletteState};
 use crate::config::{
     FloatingConfig, LayoutConfig, PanelConfig, ProviderConfig, TuiConfig, WorkspaceConfig,
@@ -79,6 +80,7 @@ pub struct AppState {
     pub ticket_text_input: TicketTextInputState,
     pub keymap: crate::keymap::KeymapConfig,
     pub providers: ProviderConfig,
+    pub chart: ChartState,
     pub settings_editor: SettingsEditorState,
     pub task_log: TaskLog,
     pub provider_profiles: Vec<ProviderProfile>,
@@ -147,6 +149,7 @@ impl AppState {
             ticket_text_input: TicketTextInputState::default(),
             keymap: config.keymap,
             providers: config.providers,
+            chart: ChartState::new(config.chart.preset),
             settings_editor: SettingsEditorState::default(),
             task_log: TaskLog::default(),
             provider_profiles: service::provider_profiles(),
@@ -206,6 +209,7 @@ impl AppState {
         };
         config.keymap = self.keymap.clone();
         config.providers = self.providers.clone();
+        config.chart.preset = self.chart.preset();
         config.theme = self.theme.clone();
         config.trading.default_profile = self.trading_profile.clone();
         config.normalize();
@@ -814,6 +818,42 @@ impl AppState {
         });
     }
 
+    fn set_chart_preset(&mut self, preset: ChartPreset) {
+        let Some((before, after)) = self.edit_local_config(|state| {
+            let before = state.chart.preset();
+            if !state.chart.set_preset(preset) {
+                return None;
+            }
+            Some(LocalConfigEdit::new(
+                "chart",
+                (before, state.chart.preset()),
+            ))
+        }) else {
+            return;
+        };
+        self.task_log
+            .info(format!("chart preset changed from {before} to {after}"));
+        self.request_symbol_data_refresh(SymbolTaskKind::History);
+    }
+
+    fn shift_chart_preset(&mut self, direction: isize) {
+        let Some((before, after)) = self.edit_local_config(|state| {
+            let before = state.chart.preset();
+            if !state.chart.shift_preset(direction) {
+                return None;
+            }
+            Some(LocalConfigEdit::new(
+                "chart",
+                (before, state.chart.preset()),
+            ))
+        }) else {
+            return;
+        };
+        self.task_log
+            .info(format!("chart preset changed from {before} to {after}"));
+        self.request_symbol_data_refresh(SymbolTaskKind::History);
+    }
+
     fn stage_selected_open_order_cancel(&mut self) {
         let Some(profile) = self.trading_profile.clone() else {
             self.task_log
@@ -988,6 +1028,8 @@ impl AppState {
             Action::StageSelectedOpenOrderCancel => self.stage_selected_open_order_cancel(),
             Action::RequestMarketRefresh => self.request_market_refresh(),
             Action::RequestSymbolDataRefresh(kind) => self.request_symbol_data_refresh(kind),
+            Action::SetChartPreset(preset) => self.set_chart_preset(preset),
+            Action::ShiftChartPreset(direction) => self.shift_chart_preset(direction),
             Action::RequestAccountRefresh => self.request_account_refresh(),
             Action::MoveStagedChangeSelection(direction) => {
                 self.staged_changes.move_selection(direction);
@@ -1516,6 +1558,8 @@ pub enum Action {
         left_ratio: u16,
         main_ratio: u16,
     },
+    SetChartPreset(ChartPreset),
+    ShiftChartPreset(isize),
     RefreshStarted(u64),
     SnapshotLoaded {
         generation: u64,

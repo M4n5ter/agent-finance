@@ -5,7 +5,7 @@ use std::thread;
 
 use agent_finance_core::ProfileStore;
 use agent_finance_market::{
-    args::CryptoInstrument,
+    args::{CryptoInstrument, HistorySession, Provider as MarketDataProvider},
     crypto_evidence_snapshot::{
         self, CryptoQuoteEvidenceSnapshot, CryptoQuoteEvidenceSnapshotRequest,
     },
@@ -18,6 +18,7 @@ use agent_finance_trading::TradingRuntime;
 use anyhow::{Result, anyhow};
 
 use crate::account::{ACCOUNT_READ_PLAN, AccountReadError, AccountSnapshot};
+use crate::chart::ChartHistoryRequest;
 use crate::config::{EquityProvider, ProviderConfig, TuiLaunch};
 use crate::profile_snapshot::{ProfileValidationSnapshot, TradingProfileSnapshot};
 use crate::state::{StagedChangeEvent, StagedSubmitRequest};
@@ -136,28 +137,31 @@ impl Scheduler {
             .map_err(|error| anyhow!("failed to request TUI refresh: {error}"))
     }
 
-    pub fn request_symbol_task(
+    pub fn request_history(
         &self,
-        kind: SymbolTaskKind,
         generation: u64,
         symbol: String,
+        request: ChartHistoryRequest,
     ) -> Result<()> {
-        let result = match kind {
-            SymbolTaskKind::History => self
-                .history_commands
-                .send(HistoryCommand { generation, symbol })
-                .map_err(|error| error.to_string()),
-            SymbolTaskKind::Evidence => self
-                .evidence_commands
-                .send(EvidenceCommand { generation, symbol })
-                .map_err(|error| error.to_string()),
-            SymbolTaskKind::Research => self
-                .research_commands
-                .send(ResearchCommand { generation, symbol })
-                .map_err(|error| error.to_string()),
-        };
+        self.history_commands
+            .send(HistoryCommand {
+                generation,
+                symbol,
+                request,
+            })
+            .map_err(|error| anyhow!("failed to request TUI history: {error}"))
+    }
 
-        result.map_err(|error| anyhow!("failed to request TUI {}: {error}", kind.label()))
+    pub fn request_evidence(&self, generation: u64, symbol: String) -> Result<()> {
+        self.evidence_commands
+            .send(EvidenceCommand { generation, symbol })
+            .map_err(|error| anyhow!("failed to request TUI evidence: {error}"))
+    }
+
+    pub fn request_research(&self, generation: u64, symbol: String) -> Result<()> {
+        self.research_commands
+            .send(ResearchCommand { generation, symbol })
+            .map_err(|error| anyhow!("failed to request TUI research: {error}"))
     }
 
     pub fn request_account(&self, generation: u64, profile: String) -> Result<()> {
@@ -222,6 +226,7 @@ struct RefreshCommand {
 struct HistoryCommand {
     generation: u64,
     symbol: String,
+    request: ChartHistoryRequest,
 }
 
 #[derive(Debug)]
@@ -257,14 +262,6 @@ pub enum SymbolTaskKind {
 
 impl SymbolTaskKind {
     pub const ALL: [Self; 3] = [Self::History, Self::Evidence, Self::Research];
-
-    const fn label(self) -> &'static str {
-        match self {
-            Self::History => "history",
-            Self::Evidence => "evidence",
-            Self::Research => "research",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -429,8 +426,12 @@ fn handle_history_command(
     command: HistoryCommand,
     policy: &TuiProviderPolicy,
 ) -> SchedulerEvent {
-    let HistoryCommand { generation, symbol } = command;
-    match tokio.block_on(fetch_history(runtime, symbol.clone(), policy)) {
+    let HistoryCommand {
+        generation,
+        symbol,
+        request,
+    } = command;
+    match tokio.block_on(fetch_history(runtime, symbol.clone(), policy, request)) {
         Ok(snapshot) => SchedulerEvent::History {
             generation,
             snapshot,
@@ -551,8 +552,9 @@ async fn fetch_history(
     runtime: &MarketRuntime,
     symbol: String,
     policy: &TuiProviderPolicy,
+    request: ChartHistoryRequest,
 ) -> Result<HistorySnapshot> {
-    history_snapshot::fetch_history_snapshot(runtime, policy.history_request(symbol)).await
+    history_snapshot::fetch_history_snapshot(runtime, policy.history_request(symbol, request)).await
 }
 
 async fn fetch_evidence(
@@ -639,14 +641,20 @@ impl TuiProviderPolicy {
         }
     }
 
-    fn history_request(&self, symbol: String) -> HistorySnapshotRequest {
+    fn history_request(
+        &self,
+        symbol: String,
+        request: ChartHistoryRequest,
+    ) -> HistorySnapshotRequest {
+        let request = self.adapt_history_request(request);
         HistorySnapshotRequest {
             symbol,
-            provider: self.equity.provider(),
+            provider: request.provider,
             crypto_provider: self.crypto,
-            interval: "1d".to_string(),
-            range: "6mo".to_string(),
-            limit: 90,
+            session: request.session,
+            interval: request.interval,
+            range: request.range,
+            limit: request.limit,
         }
     }
 
@@ -656,6 +664,70 @@ impl TuiProviderPolicy {
             provider: self.crypto,
             instrument: CryptoInstrument::Auto,
         }
+    }
+
+    fn adapt_history_request(&self, request: ChartHistoryRequest) -> ProviderHistoryRequest {
+        let provider = self.equity.provider();
+        match provider {
+            MarketDataProvider::Robinhood => ProviderHistoryRequest {
+                provider,
+                session: request.session,
+                interval: adapt_robinhood_interval(&request.interval).to_string(),
+                range: request.range,
+                limit: request.limit,
+            },
+            MarketDataProvider::Stooq => ProviderHistoryRequest {
+                provider,
+                session: HistorySession::Regular,
+                interval: adapt_stooq_interval(&request.interval).to_string(),
+                limit: adapt_stooq_limit(&request.range, request.limit),
+                range: request.range,
+            },
+            provider => ProviderHistoryRequest {
+                provider,
+                session: request.session,
+                interval: request.interval,
+                range: request.range,
+                limit: request.limit,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct ProviderHistoryRequest {
+    provider: MarketDataProvider,
+    session: HistorySession,
+    interval: String,
+    range: String,
+    limit: usize,
+}
+
+fn adapt_robinhood_interval(interval: &str) -> &str {
+    match interval {
+        "1m" => "5m",
+        "5m" | "10m" | "1h" | "1d" | "1w" => interval,
+        _ => "1d",
+    }
+}
+
+fn adapt_stooq_interval(interval: &str) -> &str {
+    match interval {
+        "1w" => "1w",
+        "1mo" => "1mo",
+        _ => "1d",
+    }
+}
+
+fn adapt_stooq_limit(range: &str, fallback: usize) -> usize {
+    match range {
+        "1d" => 1,
+        "5d" => 5,
+        "1mo" => 31,
+        "3mo" => 66,
+        "6mo" => 132,
+        "1y" => 252,
+        _ => fallback,
     }
 }
 
@@ -673,14 +745,61 @@ mod tests {
         });
 
         let quote = policy.public_quote_request(vec!["CRDO".to_string(), "BTCUSDT".to_string()]);
-        let history = policy.history_request("CRDO".to_string());
+        let history = policy.history_request(
+            "CRDO".to_string(),
+            crate::chart::ChartPreset::FiveDays.request_for("CRDO"),
+        );
         let evidence = policy.crypto_evidence_request("BTCUSDT".to_string());
 
         assert_eq!(quote.equity_provider, MarketDataProvider::Robinhood);
         assert_eq!(quote.crypto_provider, CryptoProvider::Okx);
         assert_eq!(history.provider, MarketDataProvider::Robinhood);
+        assert_eq!(history.session, HistorySession::Extended);
+        assert_eq!(history.interval, "5m");
         assert_eq!(history.crypto_provider, CryptoProvider::Okx);
         assert_eq!(evidence.provider, CryptoProvider::Okx);
+
+        let regular_history = policy.history_request(
+            "CRDO".to_string(),
+            crate::chart::ChartPreset::OneMonth.request_for("CRDO"),
+        );
+        assert_eq!(regular_history.provider, MarketDataProvider::Robinhood);
+        assert_eq!(regular_history.interval, "1d");
+    }
+
+    #[test]
+    fn history_request_adapts_precision_to_provider_capabilities() {
+        let robinhood = TuiProviderPolicy::from(ProviderConfig {
+            equity: EquityProvider::Robinhood,
+            crypto: CryptoProvider::Auto,
+        });
+        let robinhood_day = robinhood.history_request(
+            "CRDO".to_string(),
+            crate::chart::ChartPreset::OneDay.request_for("CRDO"),
+        );
+        assert_eq!(robinhood_day.provider, MarketDataProvider::Robinhood);
+        assert_eq!(robinhood_day.session, HistorySession::Extended);
+        assert_eq!(robinhood_day.interval, "5m");
+
+        let stooq = TuiProviderPolicy::from(ProviderConfig {
+            equity: EquityProvider::Stooq,
+            crypto: CryptoProvider::Auto,
+        });
+        let stooq_day = stooq.history_request(
+            "CRDO".to_string(),
+            crate::chart::ChartPreset::OneDay.request_for("CRDO"),
+        );
+        assert_eq!(stooq_day.provider, MarketDataProvider::Stooq);
+        assert_eq!(stooq_day.session, HistorySession::Regular);
+        assert_eq!(stooq_day.interval, "1d");
+        assert_eq!(stooq_day.limit, 1);
+
+        let stooq_auto = stooq.history_request(
+            "CRDO".to_string(),
+            crate::chart::ChartPreset::Auto.request_for("CRDO"),
+        );
+        assert_eq!(stooq_auto.interval, "1d");
+        assert_eq!(stooq_auto.limit, 5);
     }
 
     #[test]

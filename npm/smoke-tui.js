@@ -68,7 +68,15 @@ try {
   ]);
 
   const screen = waitForScreen(
-    ["Market", "Research", "Watchlist", "Quote / Sessions", "provider: yahoo", "interval=1d"],
+    [
+      "Market",
+      "Research",
+      "Watchlist",
+      "Quote / Sessions",
+      "provider: yahoo",
+      "preset=auto",
+      "interval=5m",
+    ],
     20_000,
   );
   if (!screen) {

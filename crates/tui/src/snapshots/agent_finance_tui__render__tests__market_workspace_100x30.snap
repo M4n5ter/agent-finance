@@ -1,6 +1,7 @@
 ---
 source: crates/tui/src/render/tests.rs
-expression: "render_to_text_grid(&state, 100, 30)"
+assertion_line: 1105
+expression: "render_to_text_grid(state, width, height)"
 ---
 ┌Watchlist [fresh]───────────────┐┌Quote / Sessions [partial]──────────────────────────────────────┐
 │> CRDO -                        ││actions  [refresh]                                              │
@@ -11,24 +12,24 @@ expression: "render_to_text_grid(&state, 100, 30)"
 │                                ││                                                                │
 │                                ││                                                                │
 │                                │└────────────────────────────────────────────────────────────────┘
-│                                │┌History Chart [partial]─────────────────────────────────────────┐
+│                                │┌History Chart [fresh]───────────────────────────────────────────┐
 │                                ││actions  [refresh]                                              │
 │                                ││CRDO history                                                    │
-│                                ││No history loaded yet. Waiting for the selected symbol.         │
-│                                ││                                                                │
-│                                ││                                                                │
-└────────────────────────────────┘│                                                         ┌─────┐│
-┌Provider Health [partial]───────┐│                                                         │close││
-│  detail             freshness  ││                                                         └─────┘│
-│  Default router; se -          ││                                                                │
-│  Broadest no-key re -          ││                                                                │
-│  Official filings,  -          ││                                                                │
-│  Delayed quotes, no -          ││                                                                │
-└────────────────────────────────┘│                                                                │
-┌Task Log [empty]────────────────┐│                                                                │
-│status     event                ││                                                                │
-│                                ││                                                                │
-│                                ││                                                                │
-│                                ││                                                                │
+│                                ││provider: test  preset=auto  interval=5m  bars=48               │
+│                                ││latest: 109.16 at 13:25  return=10.04%                          │
+│                                ││volume: 15.81K  freshness: 2026-06-25 09:30:00                  │
+└────────────────────────────────┘│                                              ⡄           112.55│
+┌Provider Health [fresh]─────────┐│                                  ⡄   ⡄ ⡇⡆⡆⡆⡇ ⢣⢇                │
+│  detail             freshness  ││··························⡄·⡆⡄·⡄⡇⡆⢇⡄⡇⢇⢣⢇⢸⢣⢱⡱⡜⢇⡎⡜················│
+│  history=CRDO 48 ba 2026-06-25 ││              ⡀ ⡆⡀⡀⡄⡆⡄⢇⡇⡆⡆⢇⢇⢱⢇⡄⡣⡕⢱⡜⢣⢸⡎⡇⡜⡸⡎⡸⠃⠁⡎∙⠃                │
+│                                ││    ⡄  ⡀⡆⡀⡇⡆⡆⡆⡇⡀⢣⢇⢇⢇⢱⢣⡜⢱⢱⢱⡎⡸⠇⡜⡣⠇⠃⡎⠁⡎⡎××⠃⠃×⠃×××××                │
+│                                ││ ⡆⡇⡆⢇⡄⡇⢇⢣⢇⢸⢣⢱⡱⡜⢇⡎⡜⢸⡇⡸⡎⠃⡇⡜⡎×⠇×⠁⠇××                               │
+│                                ││⡆⡣⡜⢱⡜⢣⢸⡎⠇⡜⡜⡎⡸⠃⠁⡇ ⠃⡇ ⠃                                           │
+└────────────────────────────────┘│⡱⠇⠃⡎ ⡇⡎  ⠃⠃ ⠃                                                   │
+┌Task Log [fresh]────────────────┐│⠃                                                          96.68│
+│status     event                ││            ██████████████████           ███████                │
+│succeeded  CRDO history loaded  ││████████████████████████████████████████████████                │
+│                                ││████████████████████████████████████████████████                │
+│                                ││9:30                                                       13:25│
 └────────────────────────────────┘└────────────────────────────────────────────────────────────────┘
  Market | Trade | Account | Research | Settings  CRDO | mode: normal | live:off | dry-run | ready

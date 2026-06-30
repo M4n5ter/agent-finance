@@ -1,12 +1,15 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::chart::ChartPreset;
 use crate::command::ActionId;
 use crate::model::{FloatingKind, Panel};
+use crate::scheduler::SymbolTaskKind;
 use crate::state::{Action, AppState};
 
 pub(crate) fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
     match state.panels.focused() {
         Panel::Watchlist => watchlist_key_action(key),
+        Panel::History => history_key_action(key),
         Panel::OrderTicket => crate::order_ticket_controls::order_ticket_key_action(key),
         Panel::OpenOrders => crate::open_order_controls::open_order_key_action(key),
         Panel::Account => crate::account_controls::account_key_action(key),
@@ -16,7 +19,6 @@ pub(crate) fn key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
         Panel::Settings => crate::settings_controls::settings_key_action(key),
         Panel::IntentReview => intent_review_key_action(key),
         Panel::Quote
-        | Panel::History
         | Panel::Evidence
         | Panel::Polymarket
         | Panel::Research
@@ -43,15 +45,35 @@ pub(crate) fn wheel_action_for_panel(
         Panel::TransferTicket => Some(Action::MoveTransferTicketField(direction)),
         Panel::FuturesState => Some(Action::MoveFuturesStateTicketField(direction)),
         Panel::Settings => Some(Action::MoveSettingsSelection(direction)),
+        Panel::History => Some(Action::ShiftChartPreset(direction)),
         Panel::ProfileRisk
         | Panel::Quote
-        | Panel::History
         | Panel::Evidence
         | Panel::Polymarket
         | Panel::Research
         | Panel::RiskAudit
         | Panel::ProviderHealth
         | Panel::TaskLog => None,
+    }
+}
+
+fn history_key_action(key: KeyEvent) -> Option<Action> {
+    if key.modifiers.contains(KeyModifiers::CONTROL)
+        || key.modifiers.contains(KeyModifiers::ALT)
+        || key.modifiers.contains(KeyModifiers::SUPER)
+    {
+        return None;
+    }
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('['), KeyModifiers::NONE) => Some(Action::ShiftChartPreset(-1)),
+        (KeyCode::Char(']'), KeyModifiers::NONE) => Some(Action::ShiftChartPreset(1)),
+        (KeyCode::Char('r'), KeyModifiers::NONE) => {
+            Some(Action::RequestSymbolDataRefresh(SymbolTaskKind::History))
+        }
+        (KeyCode::Char(key), KeyModifiers::NONE) => {
+            ChartPreset::from_key(key).map(Action::SetChartPreset)
+        }
+        _ => None,
     }
 }
 

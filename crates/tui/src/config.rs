@@ -9,6 +9,7 @@ use agent_finance_market::args::{CryptoProvider, Provider};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::chart::ChartPreset;
 use crate::keymap::KeymapConfig;
 use crate::model::{DockedPanels, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 use crate::theme::ThemeConfig;
@@ -167,6 +168,8 @@ pub struct TuiConfig {
     #[serde(default)]
     pub refresh: RefreshConfig,
     #[serde(default)]
+    pub chart: ChartConfig,
+    #[serde(default)]
     pub providers: ProviderConfig,
     #[serde(default, skip_serializing_if = "TradingConfig::is_empty")]
     pub trading: TradingConfig,
@@ -185,6 +188,7 @@ impl Default for TuiConfig {
             panels: PanelConfig::default(),
             floating: FloatingConfig::default(),
             refresh: RefreshConfig::default(),
+            chart: ChartConfig::default(),
             providers: ProviderConfig::default(),
             trading: TradingConfig::default(),
             theme: ThemeConfig::default(),
@@ -224,6 +228,7 @@ impl TuiConfig {
         self.panels.normalize();
         self.floating.normalize();
         self.refresh.normalize();
+        self.chart.normalize();
         self.trading.normalize();
         self.theme.normalize();
         self.keymap.normalize();
@@ -413,6 +418,24 @@ impl RefreshConfig {
         self.price_seconds = self.price_seconds.clamp(2, 300);
         self.research_seconds = self.research_seconds.clamp(60, 86_400);
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct ChartConfig {
+    #[serde(default)]
+    pub preset: ChartPreset,
+}
+
+impl Default for ChartConfig {
+    fn default() -> Self {
+        Self {
+            preset: ChartPreset::Auto,
+        }
+    }
+}
+
+impl ChartConfig {
+    fn normalize(&mut self) {}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -771,6 +794,9 @@ mod tests {
                 price_seconds: 1,
                 research_seconds: 10,
             },
+            chart: ChartConfig {
+                preset: ChartPreset::FiveDays,
+            },
             providers: ProviderConfig {
                 equity: EquityProvider::Yahoo,
                 crypto: CryptoProvider::Binance,
@@ -799,6 +825,7 @@ mod tests {
         );
         assert_eq!(decoded.refresh.price_seconds, 2);
         assert_eq!(decoded.refresh.research_seconds, 60);
+        assert_eq!(decoded.chart.preset, ChartPreset::FiveDays);
         assert_eq!(decoded.providers.equity, EquityProvider::Yahoo);
         assert_eq!(decoded.providers.crypto, CryptoProvider::Binance);
         assert_eq!(decoded.trading.default_profile.as_deref(), Some("mainnet"));

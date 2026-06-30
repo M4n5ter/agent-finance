@@ -6,6 +6,7 @@ mod account_load;
 mod account_panel_view;
 mod action_line_view;
 mod app;
+mod chart;
 mod command;
 mod config;
 mod confirmation_dialog;
