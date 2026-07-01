@@ -389,6 +389,70 @@ fn capture_selected_chart_reference_can_prepare_protective_order_drafts_without_
 }
 
 #[test]
+fn capture_selected_chart_reference_can_prepare_oco_draft_without_staging_or_order_mutation() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Market,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.market_snapshot = Some(snapshot(1, "CRDO"));
+    state
+        .order_ticket
+        .set_quantity_text(Some("0.05".to_string()));
+    state.order_ticket.set_price_text(Some("204".to_string()));
+
+    state.reduce(Action::MoveChartReferenceLine {
+        direction: 1,
+        line_count: 2,
+    });
+    state.reduce(Action::Execute(
+        ActionId::CaptureSelectedChartReferenceForProtectiveDraft(
+            crate::order_ticket::ProtectiveDraftSlot::StopLoss,
+        ),
+    ));
+    state.reduce(Action::MoveChartReferenceLine {
+        direction: 1,
+        line_count: 2,
+    });
+    state.reduce(Action::Execute(
+        ActionId::CaptureSelectedChartReferenceForProtectiveDraft(
+            crate::order_ticket::ProtectiveDraftSlot::TakeProfit,
+        ),
+    ));
+
+    let preview = state.order_ticket_preview();
+    assert_eq!(state.panels.focused(), Panel::OrderTicket);
+    assert_eq!(preview.kind, agent_finance_core::OrderKind::PostOnlyLimit);
+    assert_eq!(preview.price.as_deref(), Some("204"));
+    assert_eq!(
+        preview.protective_draft.stop_loss.as_deref(),
+        Some("250.00")
+    );
+    assert_eq!(
+        preview.protective_draft.take_profit.as_deref(),
+        Some("247.00")
+    );
+    assert_eq!(state.staged_change_count(), 0);
+    assert!(state.pending_staged_confirmation().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
+    assert!(matches!(
+        preview.order_spec,
+        Some(OrderSpec::PostOnlyLimit { ref price }) if price.to_string() == "204"
+    ));
+    assert!(state.task_log.iter().any(|entry| {
+        entry.status == TaskStatus::Info
+            && entry
+                .message
+                .starts_with("added take-profit chart reference")
+    }));
+}
+
+#[test]
 fn capture_selected_chart_reference_price_without_selection_only_warns() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["CRDO".to_string()],

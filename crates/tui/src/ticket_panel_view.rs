@@ -1,5 +1,6 @@
 use crate::action_line_view::{ActionLine, ActionSpan, right_aligned_action_line};
 use crate::command::ActionId;
+use crate::order_ticket::OrderTicketPreview;
 use crate::panel_action_line_view::{PanelActionLine, PanelActionSpan};
 use crate::state::AppState;
 
@@ -121,12 +122,32 @@ impl TicketPanelRows {
 pub(crate) fn order_ticket_rows(state: &AppState) -> TicketPanelRows {
     let preview = state.order_ticket_preview();
     TicketPanelRows {
-        detail_count: 1,
+        detail_count: order_ticket_detail_lines(&preview).len(),
         actions: crate::order_ticket_controls::ORDER_TICKET_ACTIONS,
         field_adjustable: vec![true; crate::order_ticket::OrderTicketField::COUNT],
         ready: preview.ready,
         blocker_count: preview.blockers.len(),
     }
+}
+
+pub(crate) fn order_ticket_detail_lines(preview: &OrderTicketPreview) -> Vec<String> {
+    let mut lines = vec![format!(
+        "symbol: {}  profile: {}",
+        preview.symbol.as_deref().unwrap_or("-"),
+        preview.profile.as_deref().unwrap_or("-")
+    )];
+    if !preview.protective_draft.is_empty() {
+        lines.push(format!(
+            "protective draft: stop-loss={}  take-profit={}  draft-only",
+            preview.protective_draft.stop_loss.as_deref().unwrap_or("-"),
+            preview
+                .protective_draft
+                .take_profit
+                .as_deref()
+                .unwrap_or("-")
+        ));
+    }
+    lines
 }
 
 pub(crate) fn transfer_ticket_rows(state: &AppState) -> TicketPanelRows {
@@ -274,6 +295,23 @@ mod tests {
         );
         assert_eq!(rows.action_at_content_cell(80, 4, 15), None);
         assert_eq!(rows.action_at_content_cell(3, 4, 0), None);
+    }
+
+    #[test]
+    fn order_ticket_rows_include_protective_draft_detail_line() {
+        let mut state = crate::state::AppState::from_config(crate::config::TuiConfig::default());
+        state
+            .order_ticket
+            .capture_protective_reference(90.0, crate::order_ticket::ProtectiveDraftSlot::StopLoss);
+
+        let preview = state.order_ticket_preview();
+        let detail_lines = order_ticket_detail_lines(&preview);
+        let rows = order_ticket_rows(&state);
+
+        assert_eq!(detail_lines.len(), 2);
+        assert_eq!(rows.detail_count, detail_lines.len());
+        assert!(detail_lines[1].contains("protective draft: stop-loss=90.0000"));
+        assert!(rows.rows().contains(&TicketPanelRow::Detail(1)));
     }
 
     #[test]

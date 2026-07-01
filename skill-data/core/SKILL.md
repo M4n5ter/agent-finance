@@ -21,7 +21,7 @@ For an interactive live cockpit, use:
 agent-finance tui --symbols AAPL,CRDO,BTCUSDT
 ```
 
-Prefer structured `market ... --json` commands for agent data collection. The TUI is an interactive cockpit for live monitoring and guided exploration, with quote, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, an executable command palette, and an OHLCV chart workbench with draft-only ticket fills plus stop-loss or take-profit ticket drafts from selected reference lines; it is not a machine extraction surface.
+Prefer structured `market ... --json` commands for agent data collection. The TUI is an interactive cockpit for live monitoring and guided exploration, with quote, history, crypto evidence, research, Polymarket, provider health, task log, mouse focus, docked-column drag resize, floating-corner resize, close/restore panel controls, an executable command palette, and an OHLCV chart workbench with draft-only ticket fills, single-leg protective ticket drafts, and draft-only protective OCO planning slots from selected reference lines; it is not a machine extraction surface.
 The TUI persists watchlist and layout state to TOML by default; use `--no-persist` for one-off sessions.
 
 ## Task Router

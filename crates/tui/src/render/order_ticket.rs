@@ -26,11 +26,7 @@ pub(super) fn render_order_ticket(
             heading: "staged order",
             live_writes_enabled: preview.live_writes_enabled,
             effective_mode: preview.effective_mode.to_string(),
-            detail_lines: vec![format!(
-                "symbol: {}  profile: {}",
-                preview.symbol.as_deref().unwrap_or("-"),
-                preview.profile.as_deref().unwrap_or("-")
-            )],
+            detail_lines: crate::ticket_panel_view::order_ticket_detail_lines(&preview),
             rows: crate::ticket_panel_view::order_ticket_rows(state),
             fields: vec![
                 TicketField::new("market", ticket.market().to_string(), selected),

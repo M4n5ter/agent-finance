@@ -16,7 +16,7 @@ use crate::state::{AppState, StagedChangeView, StagedExecutionRequest, TypedConf
 use crate::theme::ThemeConfig;
 use crate::transfer_ticket::TransferTicketPreview;
 
-const TUI_DUMP_SCHEMA_VERSION: u32 = 26;
+const TUI_DUMP_SCHEMA_VERSION: u32 = 27;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TuiDump {
@@ -857,12 +857,38 @@ mod tests {
         assert_eq!(value["order_ticket"]["quantity"], "0.05");
         assert_eq!(value["order_ticket"]["price"], "204");
         assert_eq!(value["order_ticket"]["ready"], true);
+        assert!(value["order_ticket"]["protective_draft"]["stop_loss"].is_null());
+        assert!(value["order_ticket"]["protective_draft"]["take_profit"].is_null());
         assert!(
             value["panes"]
                 .as_array()
                 .expect("panes")
                 .iter()
                 .any(|pane| pane["panel"] == "order-ticket" && pane["visible"] == true)
+        );
+    }
+
+    #[test]
+    fn dump_exposes_order_ticket_protective_draft_for_agents() {
+        let mut state = AppState::from_config(TuiConfig::default());
+        state
+            .order_ticket
+            .capture_protective_reference(90.0, crate::order_ticket::ProtectiveDraftSlot::StopLoss);
+        state.order_ticket.capture_protective_reference(
+            120.0,
+            crate::order_ticket::ProtectiveDraftSlot::TakeProfit,
+        );
+
+        let value = serde_json::to_value(TuiDump::from_state(&state, true)).expect("serialize");
+
+        assert_eq!(value["schema_version"], 27);
+        assert_eq!(
+            value["order_ticket"]["protective_draft"]["stop_loss"],
+            "90.0000"
+        );
+        assert_eq!(
+            value["order_ticket"]["protective_draft"]["take_profit"],
+            "120.00"
         );
     }
 

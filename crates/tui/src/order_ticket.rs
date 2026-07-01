@@ -15,6 +15,7 @@ pub struct OrderTicket {
     kind: OrderKind,
     quantity: Option<String>,
     price: Option<String>,
+    protective_draft: ProtectiveDraft,
     time_in_force: TimeInForce,
     reduce_only: bool,
 }
@@ -28,6 +29,7 @@ impl Default for OrderTicket {
             kind: OrderKind::PostOnlyLimit,
             quantity: None,
             price: None,
+            protective_draft: ProtectiveDraft::default(),
             time_in_force: TimeInForce::Gtc,
             reduce_only: false,
         }
@@ -87,6 +89,14 @@ impl OrderTicket {
         self.kind = kind;
         self.capture_reference_price(price);
         self.normalize_for_kind();
+    }
+
+    pub fn capture_protective_reference(&mut self, price: f64, slot: ProtectiveDraftSlot) {
+        let price = format_reference_price(price);
+        match slot {
+            ProtectiveDraftSlot::StopLoss => self.protective_draft.stop_loss = Some(price),
+            ProtectiveDraftSlot::TakeProfit => self.protective_draft.take_profit = Some(price),
+        }
     }
 
     pub fn adjust_selected_field(&mut self, direction: isize, reference_price: Option<f64>) {
@@ -173,6 +183,7 @@ impl OrderTicket {
             kind: self.kind,
             quantity: self.quantity.clone(),
             price: self.effective_price(reference_price),
+            protective_draft: self.protective_draft.clone(),
             time_in_force: self.time_in_force,
             reduce_only: self.reduce_only,
             parsed_quantity: quantity.clone(),
@@ -328,6 +339,7 @@ pub struct OrderTicketPreview {
     pub kind: OrderKind,
     pub quantity: Option<String>,
     pub price: Option<String>,
+    pub protective_draft: ProtectiveDraft,
     pub time_in_force: TimeInForce,
     pub reduce_only: bool,
     pub parsed_quantity: Option<DecimalValue>,
@@ -336,6 +348,33 @@ pub struct OrderTicketPreview {
     pub effective_mode: SubmitMode,
     pub ready: bool,
     pub blockers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq, Serialize)]
+pub struct ProtectiveDraft {
+    pub stop_loss: Option<String>,
+    pub take_profit: Option<String>,
+}
+
+impl ProtectiveDraft {
+    pub fn is_empty(&self) -> bool {
+        self.stop_loss.is_none() && self.take_profit.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ProtectiveDraftSlot {
+    StopLoss,
+    TakeProfit,
+}
+
+impl std::fmt::Display for ProtectiveDraftSlot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StopLoss => formatter.write_str("stop-loss"),
+            Self::TakeProfit => formatter.write_str("take-profit"),
+        }
+    }
 }
 
 const QUANTITY_PRESETS: [&str; 5] = ["0.001", "0.01", "0.05", "0.1", "1"];
@@ -528,5 +567,37 @@ mod tests {
                 .iter()
                 .any(|blocker| blocker.contains("stop-loss order requires stop price"))
         );
+    }
+
+    #[test]
+    fn protective_draft_captures_stop_loss_and_take_profit_without_changing_order_spec() {
+        let mut ticket = OrderTicket::default();
+        ticket.set_quantity_text(Some("0.1".to_string()));
+        ticket.set_price_text(Some("100".to_string()));
+
+        ticket.capture_protective_reference(90.0, ProtectiveDraftSlot::StopLoss);
+        ticket.capture_protective_reference(120.0, ProtectiveDraftSlot::TakeProfit);
+
+        let preview = ticket.preview(
+            Some("BTCUSDT"),
+            Some("mainnet"),
+            false,
+            SubmitMode::DryRun,
+            None,
+        );
+
+        assert_eq!(preview.kind, OrderKind::PostOnlyLimit);
+        assert_eq!(
+            preview.protective_draft.stop_loss.as_deref(),
+            Some("90.0000")
+        );
+        assert_eq!(
+            preview.protective_draft.take_profit.as_deref(),
+            Some("120.00")
+        );
+        assert!(matches!(
+            preview.order_spec,
+            Some(OrderSpec::PostOnlyLimit { ref price }) if price.to_string() == "100"
+        ));
     }
 }

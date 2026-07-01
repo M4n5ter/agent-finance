@@ -107,6 +107,12 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::CaptureSelectedChartReferenceAs(kind));
             }
+            ActionId::CaptureSelectedChartReferenceForProtectiveDraft(kind) => {
+                self.close_text_input_floatings();
+                self.reduce(Action::CaptureSelectedChartReferenceForProtectiveDraft(
+                    kind,
+                ));
+            }
             ActionId::OpenTicketTextInput => {
                 self.close_text_input_floatings();
                 self.reduce(Action::OpenTicketTextInput);

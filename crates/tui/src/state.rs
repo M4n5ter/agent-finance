@@ -17,7 +17,7 @@ use crate::config::{
 use crate::futures_state_ticket::{FuturesStateTicket, FuturesStateTicketPreview};
 use crate::model::{DockedPanels, FloatingKind, FloatingPane, FloatingSize, Panel, WorkspaceKind};
 use crate::mouse_target::MousePosition;
-use crate::order_ticket::{OrderTicket, OrderTicketPreview};
+use crate::order_ticket::{OrderTicket, OrderTicketPreview, ProtectiveDraftSlot};
 use crate::profile_editor::ProfileEditorState;
 use crate::profile_snapshot::{ProfileValidationSnapshot, ProfileValidationState};
 use crate::scheduler::SymbolTaskKind;
@@ -479,6 +479,28 @@ impl AppState {
             line.label,
             self.order_ticket_preview().price.as_deref().unwrap_or("-"),
             symbol
+        ));
+    }
+
+    fn capture_selected_chart_reference_for_protective_draft(&mut self, slot: ProtectiveDraftSlot) {
+        let (symbol, line) = match self.selected_chart_reference_line() {
+            Ok(selection) => selection,
+            Err(reason) => {
+                self.task_log.warning_event(reason.warning().to_string());
+                return;
+            }
+        };
+        self.order_ticket
+            .capture_protective_reference(line.price, slot);
+        self.focus_panel(Panel::OrderTicket);
+        let draft = &self.order_ticket_preview().protective_draft;
+        self.task_log.info(format!(
+            "added {} chart reference {} to protective draft for {} (stop-loss={} take-profit={})",
+            slot,
+            line.label,
+            symbol,
+            draft.stop_loss.as_deref().unwrap_or("-"),
+            draft.take_profit.as_deref().unwrap_or("-")
         ));
     }
 
@@ -1130,6 +1152,9 @@ impl AppState {
             Action::CaptureSelectedChartReferenceAs(kind) => {
                 self.capture_selected_chart_reference_as(kind);
             }
+            Action::CaptureSelectedChartReferenceForProtectiveDraft(kind) => {
+                self.capture_selected_chart_reference_for_protective_draft(kind);
+            }
             Action::OpenTicketTextInput => self.open_ticket_text_input(),
             Action::MoveTransferTicketField(direction) => {
                 self.transfer_ticket.move_field(direction);
@@ -1670,6 +1695,7 @@ pub enum Action {
     CaptureOrderReferencePrice,
     CaptureSelectedChartReferencePrice,
     CaptureSelectedChartReferenceAs(OrderKind),
+    CaptureSelectedChartReferenceForProtectiveDraft(ProtectiveDraftSlot),
     CaptureChartPrice {
         price: f64,
     },

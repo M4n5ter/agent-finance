@@ -7,6 +7,7 @@ use agent_finance_core::OrderKind;
 
 use crate::chart::{ChartGlyphMode, ChartInterval, ChartPreset};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
+use crate::order_ticket::ProtectiveDraftSlot;
 use crate::search::{SearchListState, fuzzy_indices};
 
 #[derive(Debug, Clone)]
@@ -120,6 +121,7 @@ pub enum ActionId {
     CaptureOrderReferencePrice,
     CaptureSelectedChartReferencePrice,
     CaptureSelectedChartReferenceAs(OrderKind),
+    CaptureSelectedChartReferenceForProtectiveDraft(ProtectiveDraftSlot),
     OpenTicketTextInput,
     StageOrderTicket,
     StageTransferTicket,
@@ -510,6 +512,22 @@ pub static ACTION_REGISTRY: LazyLock<Vec<ActionSpec>> = LazyLock::new(|| {
             "Prepare a take-profit order ticket from the selected chart reference line"
         ),
         action!(
+            "chart-oco-stop-loss",
+            ActionId::CaptureSelectedChartReferenceForProtectiveDraft(
+                ProtectiveDraftSlot::StopLoss
+            ),
+            "Chart OCO stop loss",
+            "Add the selected chart reference line to the protective OCO draft as stop loss"
+        ),
+        action!(
+            "chart-oco-take-profit",
+            ActionId::CaptureSelectedChartReferenceForProtectiveDraft(
+                ProtectiveDraftSlot::TakeProfit
+            ),
+            "Chart OCO take profit",
+            "Add the selected chart reference line to the protective OCO draft as take profit"
+        ),
+        action!(
             "refresh-selected-evidence",
             ActionId::RefreshSelectedEvidence,
             "Refresh selected evidence",
@@ -700,6 +718,30 @@ mod tests {
             palette.selected_action(),
             Some(ActionId::CaptureSelectedChartReferenceAs(
                 OrderKind::TakeProfit
+            ))
+        );
+
+        palette.reset();
+        for character in "chart oco stop loss".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::CaptureSelectedChartReferenceForProtectiveDraft(
+                ProtectiveDraftSlot::StopLoss
+            ))
+        );
+
+        palette.reset();
+        for character in "chart oco take profit".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::CaptureSelectedChartReferenceForProtectiveDraft(
+                ProtectiveDraftSlot::TakeProfit
             ))
         );
     }
