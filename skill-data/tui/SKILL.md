@@ -25,6 +25,7 @@ The TUI persists the watchlist, focused panel, docked panel set, column layout, 
 - The chart uses OHLCV candles when the provider returns open/high/low/close data.
 - If only close prices are available, treat the chart as degraded and verify the provider/session before drawing trading conclusions.
 - The workbench shows volume, MA20, MA50, VWAP, current price, previous close, day open, day high, day low, open-order lines, and position entry lines when the local snapshots contain them.
+- Visible reference lines are selectable trading aids. Use `j` / `k` to select a line such as current price, previous close, day open, day high, day low, an open order, or a position entry; press `Enter` to copy that line price into the order ticket draft.
 - The title and warnings are part of the evidence: read provider, session, interval, range, fetched time, and fallback notes before acting.
 
 ## Mouse
@@ -39,10 +40,11 @@ The TUI persists the watchlist, focused panel, docked panel set, column layout, 
 
 - `h` / `l` or left / right moves the chart cursor.
 - `j` / `k` or down / up cycles through visible price, order, and position reference lines.
+- `Enter` copies the selected reference line price into the order ticket draft. It does not stage, submit, or enable live writes.
 - `[` / `]` zooms the chart window.
 - Number preset actions switch chart ranges.
 - `r` refreshes history for the selected symbol.
-- Open the command palette to search chart actions such as preset changes, chart refresh, reset zoom, toggle overlays, and copy price to ticket.
+- Open the command palette to search chart actions such as preset changes, chart refresh, reset zoom, toggle overlays, and copying the selected chart reference price to the ticket.
 
 ## Trading Boundary
 
