@@ -28,6 +28,7 @@ The TUI persists the watchlist, focused panel, docked panel set, column layout, 
 - Visible reference lines are selectable trading aids. Use `j` / `k` to select a line such as current price, previous close, day open, day high, day low, an open order, or a position entry; press `Enter` to copy that line price into the order ticket draft.
 - The command palette can turn the selected chart reference line into a stop-loss or take-profit ticket draft. These actions only prepare the ticket kind and price; they do not stage or submit an order.
 - The title and warnings are part of the evidence: read provider, session, interval, range, fetched time, and fallback notes before acting.
+- Chart presets are provider-aware. Crypto auto starts from a 24h/1m view; aggregator-style providers can be reduced to a coarser provider window such as 7d/provider-auto-7d, so rely on the displayed source line rather than the preset label alone.
 
 ## Mouse
 

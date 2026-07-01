@@ -54,6 +54,7 @@ pub async fn fetch_history(
     client: &Client,
     symbol: &str,
     interval: &str,
+    range: &str,
     limit: usize,
 ) -> Result<HistoryBatch> {
     let coin_id = coin_id(symbol);
@@ -61,10 +62,7 @@ pub async fn fetch_history(
     let payload = get_json(
         client,
         &format!("/coins/{coin_id}/ohlc"),
-        vec![
-            ("vs_currency", vs_currency),
-            ("days", days_for_interval(interval, limit).to_string()),
-        ],
+        history_params(vs_currency, range, interval, limit),
     )
     .await?;
     let mut bars = payload
@@ -81,7 +79,7 @@ pub async fn fetch_history(
     Ok(HistoryBatch {
         symbol: coin_id.to_uppercase(),
         provider: PROVIDER.to_string(),
-        interval: interval.to_string(),
+        interval: effective_history_interval(range, interval).to_string(),
         adjustment: "raw".to_string(),
         actions_included: false,
         repair_requested: false,
@@ -355,6 +353,43 @@ fn days_for_interval(interval: &str, limit: usize) -> &'static str {
     }
 }
 
+fn days_for_range(range: &str, interval: &str, limit: usize) -> &'static str {
+    match range {
+        "24h" | "1d" => "1",
+        "5d" | "7d" => "7",
+        "1mo" => "30",
+        "3mo" => "90",
+        "6mo" => "180",
+        "1y" => "365",
+        "auto" | "" => days_for_interval(interval, limit),
+        _ => days_for_interval(interval, limit),
+    }
+}
+
+fn history_params(
+    vs_currency: String,
+    range: &str,
+    interval: &str,
+    limit: usize,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("vs_currency", vs_currency),
+        ("days", days_for_range(range, interval, limit).to_string()),
+    ]
+}
+
+fn effective_history_interval(range: &str, interval: &str) -> &'static str {
+    match days_for_range(range, interval, usize::MAX) {
+        "1" => "provider-auto-1d",
+        "7" => "provider-auto-7d",
+        "30" => "provider-auto-30d",
+        "90" => "provider-auto-90d",
+        "180" => "provider-auto-180d",
+        "365" => "provider-auto-365d",
+        _ => "provider-auto",
+    }
+}
+
 fn ohlc_to_bar(coin_id: &str, row: &Value) -> Option<OhlcBar> {
     let row = row.as_array()?;
     let close_time = value_i64(row.first())?;
@@ -395,5 +430,42 @@ fn value_f64(value: Option<&Value>) -> Option<f64> {
         Value::String(value) => parse_optional_f64(Some(value)),
         Value::Number(value) => value.as_f64(),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_params_use_requested_range_for_provider_window() {
+        let params = history_params("usd".to_string(), "7d", "5m", 2_016);
+
+        assert_eq!(
+            params,
+            vec![
+                ("vs_currency", "usd".to_string()),
+                ("days", "7".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_params_fall_back_to_interval_window_when_range_is_automatic() {
+        let params = history_params("usd".to_string(), "auto", "5m", 288);
+
+        assert_eq!(
+            params,
+            vec![
+                ("vs_currency", "usd".to_string()),
+                ("days", "1".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn effective_history_interval_does_not_claim_request_granularity() {
+        assert_eq!(effective_history_interval("7d", "5m"), "provider-auto-7d");
+        assert_eq!(effective_history_interval("24h", "1m"), "provider-auto-1d");
     }
 }

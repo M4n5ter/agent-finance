@@ -12,8 +12,8 @@ use crate::args::{
 };
 use crate::crypto_capability::{CryptoCapability, resolve_instrument};
 use crate::crypto_market_data::{
-    CryptoIndicatorOptions, CryptoPriceBatch, fetch_history as fetch_crypto_history,
-    fetch_price_batch,
+    CryptoHistoryQuery, CryptoIndicatorOptions, CryptoPriceBatch,
+    fetch_history as fetch_crypto_history, fetch_price_batch,
 };
 use crate::crypto_runtime::{
     CryptoEvidenceSources, EvidenceEngine, EvidenceRequest, evidence_report,
@@ -216,11 +216,14 @@ pub async fn history(runtime: &MarketRuntime, request: HistoryRequest) -> Result
         return fetch_crypto_history(
             &client,
             &config,
-            provider_crypto_provider(request.provider, request.crypto_provider),
-            provider_instrument(request.provider, request.instrument),
-            &request.symbol,
-            &request.interval,
-            request.limit,
+            CryptoHistoryQuery {
+                provider: provider_crypto_provider(request.provider, request.crypto_provider),
+                instrument: provider_instrument(request.provider, request.instrument),
+                symbol: request.symbol,
+                interval: request.interval,
+                range: request.range,
+                limit: request.limit,
+            },
         )
         .await;
     }

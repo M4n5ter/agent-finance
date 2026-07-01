@@ -108,11 +108,11 @@ impl ChartPreset {
     pub fn request_for(self, symbol: &str) -> ChartHistoryRequest {
         let crypto = is_likely_crypto_pair(symbol);
         match (self, crypto) {
-            (Self::Auto, true) => ChartHistoryRequest::new("1d", "1m", 288),
+            (Self::Auto, true) => ChartHistoryRequest::new("24h", "1m", 288),
             (Self::Auto, false) => {
                 ChartHistoryRequest::new("5d", "5m", 1_000).with_session(HistorySession::Extended)
             }
-            (Self::OneDay, true) => ChartHistoryRequest::new("1d", "1m", 288),
+            (Self::OneDay, true) => ChartHistoryRequest::new("24h", "1m", 288),
             (Self::OneDay, false) => {
                 ChartHistoryRequest::new("1d", "1m", 960).with_session(HistorySession::Extended)
             }
@@ -334,7 +334,9 @@ fn history_limit_for(range: &str, interval: &str, session: HistorySession, symbo
 fn range_trading_days(range: &str) -> usize {
     match range {
         "1d" => 1,
+        "24h" => 1,
         "5d" => 5,
+        "7d" => 7,
         "1mo" => 31,
         "3mo" => 66,
         "6mo" => 132,
@@ -639,7 +641,7 @@ mod tests {
         assert_eq!(day.session, HistorySession::Extended);
 
         let crypto = ChartPreset::Auto.request_for("BTCUSDT");
-        assert_eq!(crypto.range, "1d");
+        assert_eq!(crypto.range, "24h");
         assert_eq!(crypto.interval, "1m");
         assert_eq!(crypto.session, HistorySession::Regular);
 

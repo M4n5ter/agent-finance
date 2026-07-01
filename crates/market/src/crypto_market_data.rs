@@ -22,17 +22,15 @@ pub async fn fetch_indicator_batch(
     let mut indicators = Vec::new();
     let mut errors = BTreeMap::new();
     for symbol in options.symbols {
-        match fetch_history(
-            client,
-            config,
-            resolved_provider,
-            resolved_instrument,
-            &symbol,
-            options.interval,
-            options.limit,
-        )
-        .await
-        {
+        let query = CryptoHistoryQuery {
+            provider: resolved_provider,
+            instrument: resolved_instrument,
+            symbol: symbol.clone(),
+            interval: options.interval.to_string(),
+            range: "auto".to_string(),
+            limit: options.limit,
+        };
+        match fetch_history(client, config, query).await {
             Ok(history) => indicators.push(compute_indicator(&history)),
             Err(error) => {
                 errors.insert(symbol, format!("{error:#}"));
@@ -120,65 +118,72 @@ async fn fetch_quote_one(
 pub async fn fetch_history(
     client: &wreq::Client,
     config: &binance::BinanceConfig,
-    provider: CryptoProvider,
-    instrument: CryptoInstrument,
-    symbol: &str,
-    interval: &str,
-    limit: usize,
+    query: CryptoHistoryQuery,
 ) -> Result<HistoryBatch> {
-    if !provider_supports(provider, instrument, CryptoCapability::Candles)
-        && provider != CryptoProvider::Auto
+    if !provider_supports(query.provider, query.instrument, CryptoCapability::Candles)
+        && query.provider != CryptoProvider::Auto
     {
         return Err(anyhow!(
             "provider {} does not support capability=candles instrument={}",
-            provider.label(),
-            instrument.label()
+            query.provider.label(),
+            query.instrument.label()
         ));
     }
-    match provider {
+    match query.provider {
         CryptoProvider::Auto => {
             let mut errors = Vec::new();
-            for provider in selected_providers(provider, instrument, CryptoCapability::Candles) {
-                match fetch_history_one(
-                    client, config, provider, instrument, symbol, interval, limit,
-                )
-                .await
-                {
+            for provider in
+                selected_providers(query.provider, query.instrument, CryptoCapability::Candles)
+            {
+                match fetch_history_one(client, config, query.for_provider(provider)).await {
                     Ok(history) => return Ok(history),
                     Err(error) => errors.push(format!("{}: {error:#}", provider.label())),
                 }
             }
             Err(anyhow!("{}", errors.join("; ")))
         }
-        provider => {
-            fetch_history_one(
-                client, config, provider, instrument, symbol, interval, limit,
-            )
-            .await
-        }
+        _ => fetch_history_one(client, config, query).await,
     }
 }
 
 async fn fetch_history_one(
     client: &wreq::Client,
     config: &binance::BinanceConfig,
-    provider: CryptoProvider,
-    instrument: CryptoInstrument,
-    symbol: &str,
-    interval: &str,
-    limit: usize,
+    query: CryptoHistoryQuery,
 ) -> Result<HistoryBatch> {
-    match provider {
+    match query.provider {
         CryptoProvider::Binance => {
-            binance::fetch_history(config, binance_market(instrument), symbol, interval, limit)
-                .await
+            binance::fetch_history(
+                config,
+                binance_market(query.instrument),
+                &query.symbol,
+                &query.interval,
+                query.limit,
+            )
+            .await
         }
-        CryptoProvider::Coinbase => coinbase::fetch_history(client, symbol, interval, limit).await,
+        CryptoProvider::Coinbase => {
+            coinbase::fetch_history(client, &query.symbol, &query.interval, query.limit).await
+        }
         CryptoProvider::Okx => {
-            okx::fetch_history(client, symbol, instrument, interval, limit).await
+            okx::fetch_history(
+                client,
+                &query.symbol,
+                query.instrument,
+                &query.interval,
+                query.limit,
+            )
+            .await
         }
         CryptoProvider::Coingecko => {
-            coingecko::fetch_history(client, symbol, interval, limit).await
+            coingecko::fetch_history(
+                client,
+                &query.symbol,
+                &query.interval,
+                &query.range,
+                query.limit,
+            )
+            .await
         }
         CryptoProvider::Auto => unreachable!("auto must be expanded before provider dispatch"),
     }
@@ -203,6 +208,25 @@ fn provider_crypto_provider(provider: Provider, crypto_provider: CryptoProvider)
 pub struct CryptoPriceBatch {
     pub points: Vec<PricePoint>,
     pub errors: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CryptoHistoryQuery {
+    pub provider: CryptoProvider,
+    pub instrument: CryptoInstrument,
+    pub symbol: String,
+    pub interval: String,
+    pub range: String,
+    pub limit: usize,
+}
+
+impl CryptoHistoryQuery {
+    fn for_provider(&self, provider: CryptoProvider) -> Self {
+        Self {
+            provider,
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]

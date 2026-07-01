@@ -673,6 +673,7 @@ impl TuiProviderPolicy {
         request: ChartHistoryRequest,
     ) -> ProviderHistoryRequest {
         if is_likely_crypto_pair(symbol) {
+            let request = adapt_crypto_history_request(self.crypto, request);
             return ProviderHistoryRequest {
                 provider: MarketDataProvider::Auto,
                 session: HistorySession::Regular,
@@ -742,6 +743,24 @@ fn adapt_stooq_limit(range: &str, fallback: usize) -> usize {
         "6mo" => 132,
         "1y" => 252,
         _ => fallback,
+    }
+}
+
+fn adapt_crypto_history_request(
+    provider: agent_finance_market::args::CryptoProvider,
+    request: ChartHistoryRequest,
+) -> ChartHistoryRequest {
+    use agent_finance_market::args::CryptoProvider;
+
+    if provider != CryptoProvider::Coingecko || request.interval == "1d" {
+        return request;
+    }
+
+    ChartHistoryRequest {
+        range: "7d".to_string(),
+        interval: "5m".to_string(),
+        limit: 2_016,
+        session: HistorySession::Regular,
     }
 }
 
@@ -835,6 +854,26 @@ mod tests {
         assert_eq!(history.session, HistorySession::Regular);
         assert_eq!(history.interval, "15m");
         assert_eq!(history.limit, 96);
+    }
+
+    #[test]
+    fn crypto_chart_request_adapts_aggregator_precision_to_provider_shape() {
+        let policy = TuiProviderPolicy::from(ProviderConfig {
+            equity: EquityProvider::Stooq,
+            crypto: CryptoProvider::Coingecko,
+        });
+
+        let history = policy.history_request(
+            "BTCUSDT".to_string(),
+            crate::chart::ChartPreset::Auto.request_for("BTCUSDT"),
+        );
+
+        assert_eq!(history.provider, MarketDataProvider::Auto);
+        assert_eq!(history.crypto_provider, CryptoProvider::Coingecko);
+        assert_eq!(history.session, HistorySession::Regular);
+        assert_eq!(history.range, "7d");
+        assert_eq!(history.interval, "5m");
+        assert_eq!(history.limit, 2_016);
     }
 
     #[test]
