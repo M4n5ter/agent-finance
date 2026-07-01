@@ -116,6 +116,7 @@ pub enum ActionId {
     ResetChartView,
     ToggleChartOverlays,
     CaptureOrderReferencePrice,
+    CaptureSelectedChartReferencePrice,
     OpenTicketTextInput,
     StageOrderTicket,
     StageTransferTicket,
@@ -488,6 +489,12 @@ pub static ACTION_REGISTRY: LazyLock<Vec<ActionSpec>> = LazyLock::new(|| {
             "Show or hide history chart price, order, and position reference lines"
         ),
         action!(
+            "chart-copy-selected-price",
+            ActionId::CaptureSelectedChartReferencePrice,
+            "Chart copy selected price",
+            "Copy the selected history chart reference line price into the order ticket"
+        ),
+        action!(
             "refresh-selected-evidence",
             ActionId::RefreshSelectedEvidence,
             "Refresh selected evidence",
@@ -637,6 +644,20 @@ mod tests {
         assert_eq!(
             palette.selected_action(),
             Some(ActionId::ToggleChartOverlays)
+        );
+    }
+
+    #[test]
+    fn command_palette_can_copy_selected_chart_price() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "chart copy selected price".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::CaptureSelectedChartReferencePrice)
         );
     }
 

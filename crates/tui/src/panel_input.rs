@@ -82,6 +82,7 @@ fn history_key_action(state: &AppState, key: KeyEvent) -> Option<Action> {
         (KeyCode::Char('r'), KeyModifiers::NONE) => {
             Some(Action::RequestSymbolDataRefresh(SymbolTaskKind::History))
         }
+        (KeyCode::Enter, KeyModifiers::NONE) => Some(Action::CaptureSelectedChartReferencePrice),
         (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::ResetChartView),
         (KeyCode::Char(key), KeyModifiers::NONE) => {
             ChartPreset::from_key(key).map(Action::SetChartPreset)
@@ -228,6 +229,10 @@ mod tests {
                 direction: -1,
                 line_count: 5
             })
+        );
+        assert_eq!(
+            history_key_action(&state, KeyEvent::from(KeyCode::Enter)),
+            Some(Action::CaptureSelectedChartReferencePrice)
         );
 
         state.reduce(Action::ToggleChartOverlays);

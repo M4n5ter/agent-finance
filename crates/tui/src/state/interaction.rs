@@ -99,6 +99,10 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::CaptureOrderReferencePrice);
             }
+            ActionId::CaptureSelectedChartReferencePrice => {
+                self.close_text_input_floatings();
+                self.reduce(Action::CaptureSelectedChartReferencePrice);
+            }
             ActionId::OpenTicketTextInput => {
                 self.close_text_input_floatings();
                 self.reduce(Action::OpenTicketTextInput);

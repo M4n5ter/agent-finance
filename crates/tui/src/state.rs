@@ -130,6 +130,25 @@ struct TrackedLayoutSnapshot {
     persistent_floatings: Vec<FloatingPane>,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum ChartReferenceSelectionFailure {
+    NoSelectedSymbol,
+    HiddenOverlays,
+    NoSelectedLine,
+    StaleSelection,
+}
+
+impl ChartReferenceSelectionFailure {
+    const fn warning(self) -> &'static str {
+        match self {
+            Self::NoSelectedSymbol => "no selected symbol for chart price capture",
+            Self::HiddenOverlays => "chart reference lines are hidden",
+            Self::NoSelectedLine => "no chart reference line selected",
+            Self::StaleSelection => "selected chart reference line is no longer available",
+        }
+    }
+}
+
 impl AppState {
     pub fn from_config(config: TuiConfig) -> Self {
         let mut state = Self {
@@ -422,6 +441,46 @@ impl AppState {
             self.order_ticket_preview().price.as_deref().unwrap_or("-"),
             symbol.as_deref().unwrap_or("selected symbol")
         ));
+    }
+
+    fn capture_selected_chart_reference_price(&mut self) {
+        let (symbol, line) = match self.selected_chart_reference_line() {
+            Ok(selection) => selection,
+            Err(reason) => {
+                self.task_log.warning_event(reason.warning().to_string());
+                return;
+            }
+        };
+        self.order_ticket.capture_reference_price(line.price);
+        self.focus_panel(Panel::OrderTicket);
+        self.task_log.info(format!(
+            "captured chart reference {} {} for {}",
+            line.label,
+            self.order_ticket_preview().price.as_deref().unwrap_or("-"),
+            symbol
+        ));
+    }
+
+    fn selected_chart_reference_line(
+        &self,
+    ) -> Result<(String, crate::chart_overlay::ChartOverlayLine), ChartReferenceSelectionFailure>
+    {
+        let symbol = self
+            .selected_symbol()
+            .map(ToString::to_string)
+            .ok_or(ChartReferenceSelectionFailure::NoSelectedSymbol)?;
+        if !self.chart.overlays_visible() {
+            return Err(ChartReferenceSelectionFailure::HiddenOverlays);
+        }
+        let index = self
+            .chart
+            .selected_reference_line()
+            .ok_or(ChartReferenceSelectionFailure::NoSelectedLine)?;
+        let line = crate::chart_overlay::lines_for_state(self, &symbol)
+            .get(index)
+            .cloned()
+            .ok_or(ChartReferenceSelectionFailure::StaleSelection)?;
+        Ok((symbol, line))
     }
 
     fn stage_transfer_ticket(&mut self) {
@@ -1044,6 +1103,9 @@ impl AppState {
             }
             Action::CaptureOrderReferencePrice => self.capture_order_reference_price(),
             Action::CaptureChartPrice { price } => self.capture_chart_price(price),
+            Action::CaptureSelectedChartReferencePrice => {
+                self.capture_selected_chart_reference_price();
+            }
             Action::OpenTicketTextInput => self.open_ticket_text_input(),
             Action::MoveTransferTicketField(direction) => {
                 self.transfer_ticket.move_field(direction);
@@ -1582,6 +1644,7 @@ pub enum Action {
         direction: isize,
     },
     CaptureOrderReferencePrice,
+    CaptureSelectedChartReferencePrice,
     CaptureChartPrice {
         price: f64,
     },

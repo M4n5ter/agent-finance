@@ -300,6 +300,162 @@ fn capture_chart_price_fills_order_ticket_without_staging() {
 }
 
 #[test]
+fn capture_selected_chart_reference_price_fills_order_ticket_without_staging() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Market,
+        },
+        trading: crate::config::TradingConfig {
+            default_profile: Some("mainnet".to_string()),
+        },
+        ..TuiConfig::default()
+    });
+    state.market_snapshot = Some(snapshot(1, "CRDO"));
+    state.reduce(Action::MoveChartReferenceLine {
+        direction: 1,
+        line_count: 2,
+    });
+
+    state.reduce(Action::Execute(
+        ActionId::CaptureSelectedChartReferencePrice,
+    ));
+
+    let preview = state.order_ticket_preview();
+    assert_eq!(state.panels.focused(), Panel::OrderTicket);
+    assert_eq!(preview.symbol.as_deref(), Some("CRDO"));
+    assert_eq!(preview.price.as_deref(), Some("250.00"));
+    assert_eq!(state.staged_change_count(), 0);
+    assert!(state.pending_staged_confirmation().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
+    assert!(state.task_log.iter().any(|entry| {
+        entry.status == TaskStatus::Info && entry.message.starts_with("captured chart reference")
+    }));
+}
+
+#[test]
+fn capture_selected_chart_reference_price_without_selection_only_warns() {
+    let mut state = AppState::from_config(TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        workspace: WorkspaceConfig {
+            current: WorkspaceKind::Market,
+        },
+        ..TuiConfig::default()
+    });
+    state.market_snapshot = Some(snapshot(1, "CRDO"));
+    state.order_ticket.set_price_text(Some("204".to_string()));
+    state.reduce(Action::Focus(Panel::History));
+
+    state.reduce(Action::Execute(
+        ActionId::CaptureSelectedChartReferencePrice,
+    ));
+
+    assert_eq!(state.panels.focused(), Panel::History);
+    assert_eq!(state.order_ticket_preview().price.as_deref(), Some("204"));
+    assert_eq!(state.staged_change_count(), 0);
+    assert!(state.pending_staged_confirmation().is_none());
+    assert!(state.take_pending_staged_execution().is_none());
+    assert!(state.task_log.iter().any(|entry| {
+        entry.status == TaskStatus::Warning && entry.message == "no chart reference line selected"
+    }));
+}
+
+#[test]
+fn capture_selected_chart_reference_price_warning_paths_do_not_mutate_ticket_or_stage() {
+    struct Case {
+        name: &'static str,
+        warning: &'static str,
+        configure: fn(&mut AppState),
+    }
+
+    let cases = [
+        Case {
+            name: "hidden overlays",
+            warning: "chart reference lines are hidden",
+            configure: |state| {
+                state.market_snapshot = Some(snapshot(1, "CRDO"));
+                state.reduce(Action::MoveChartReferenceLine {
+                    direction: 1,
+                    line_count: 2,
+                });
+                state.reduce(Action::ToggleChartOverlays);
+            },
+        },
+        Case {
+            name: "no selected symbol",
+            warning: "no selected symbol for chart price capture",
+            configure: |state| {
+                state.watchlist.clear();
+                state.market_snapshot = Some(snapshot(1, "CRDO"));
+                state.reduce(Action::MoveChartReferenceLine {
+                    direction: 1,
+                    line_count: 2,
+                });
+            },
+        },
+        Case {
+            name: "stale selected line",
+            warning: "selected chart reference line is no longer available",
+            configure: |state| {
+                state.market_snapshot = Some(snapshot(1, "CRDO"));
+                state.reduce(Action::MoveChartReferenceLine {
+                    direction: 1,
+                    line_count: 2,
+                });
+                state.market_snapshot = Some(MarketSnapshot {
+                    fetched_at_local: None,
+                    quotes: Vec::new(),
+                    errors: Vec::new(),
+                });
+            },
+        },
+    ];
+
+    for case in cases {
+        let mut state = AppState::from_config(TuiConfig {
+            watchlist: vec!["CRDO".to_string()],
+            workspace: WorkspaceConfig {
+                current: WorkspaceKind::Market,
+            },
+            ..TuiConfig::default()
+        });
+        state.order_ticket.set_price_text(Some("204".to_string()));
+        state.reduce(Action::Focus(Panel::History));
+        (case.configure)(&mut state);
+
+        state.reduce(Action::Execute(
+            ActionId::CaptureSelectedChartReferencePrice,
+        ));
+
+        assert_eq!(state.panels.focused(), Panel::History, "{}", case.name);
+        assert_eq!(
+            state.order_ticket_preview().price.as_deref(),
+            Some("204"),
+            "{}",
+            case.name
+        );
+        assert_eq!(state.staged_change_count(), 0, "{}", case.name);
+        assert!(
+            state.pending_staged_confirmation().is_none(),
+            "{}",
+            case.name
+        );
+        assert!(
+            state.take_pending_staged_execution().is_none(),
+            "{}",
+            case.name
+        );
+        assert!(
+            state.task_log.iter().any(|entry| {
+                entry.status == TaskStatus::Warning && entry.message == case.warning
+            }),
+            "{}",
+            case.name
+        );
+    }
+}
+
+#[test]
 fn submitting_ready_order_change_queues_submit_request() {
     let mut state = AppState::from_config(TuiConfig {
         watchlist: vec!["CRDO".to_string()],
