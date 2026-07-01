@@ -984,6 +984,63 @@ fn mouse_click_on_history_chart_interval_changes_request_and_refreshes_history()
 }
 
 #[test]
+fn mouse_click_on_history_chart_glyph_mode_changes_renderer_only() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
+    let mut drag = MouseDrag::default();
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::History)
+    .expect("history panel is visible");
+
+    let click = clickable_panel_action(
+        &mut state,
+        area,
+        panel,
+        Panel::History,
+        ActionId::SetChartGlyphMode(crate::chart::ChartGlyphMode::Readable),
+    );
+    let previous_log_count = state.task_log.iter().count();
+    handle_mouse_event(area, &mut state, &mut drag, click);
+
+    assert_eq!(
+        state.chart.glyph_mode(),
+        crate::chart::ChartGlyphMode::Readable
+    );
+    assert!(
+        state
+            .task_log
+            .iter()
+            .skip(previous_log_count)
+            .any(|entry| entry.message == "chart glyph changed from hybrid to readable")
+    );
+    assert!(
+        !state
+            .task_log
+            .iter()
+            .skip(previous_log_count)
+            .any(|entry| entry.message == "history refresh requested for CRDO")
+    );
+    assert_eq!(state.panels.focused(), Panel::History);
+    assert_eq!(drag, MouseDrag::default());
+}
+
+#[test]
 fn mouse_cannot_click_hidden_history_chart_preset_without_history_snapshot() {
     let area = Rect::new(0, 0, 120, 32);
     let mut state = AppState::from_config(crate::config::TuiConfig::default());
@@ -2225,22 +2282,22 @@ fn mouse_movement_over_history_chart_reports_chart_hover() {
     )
     .panel_rect(Panel::History)
     .expect("history panel is visible");
+    let chart = crate::read_only_panel_view::history_chart_area(panel, false);
+    let position = MousePosition::new(chart.x + 2, chart.y + 1);
     let mut drag = MouseDrag::default();
 
     handle_mouse_event(
         area,
         &mut state,
         &mut drag,
-        mouse_event(MouseEventKind::Moved, panel.x + 2, panel.y + 8),
+        mouse_event(MouseEventKind::Moved, position.column, position.row),
     );
 
     assert_eq!(
         current_mouse_target(area, &state),
         Some(MouseTarget::PanelAction {
             panel: Panel::History,
-            action: PanelMouseAction::InspectChart {
-                position: MousePosition::new(panel.x + 2, panel.y + 8),
-            },
+            action: PanelMouseAction::InspectChart { position },
         })
     );
 }

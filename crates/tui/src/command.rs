@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use tui_input::InputRequest;
 
-use crate::chart::{ChartInterval, ChartPreset};
+use crate::chart::{ChartGlyphMode, ChartInterval, ChartPreset};
 use crate::model::{FloatingKind, Panel, WorkspaceKind};
 use crate::search::{SearchListState, fuzzy_indices};
 
@@ -111,6 +111,7 @@ pub enum ActionId {
     RefreshSelectedResearch,
     SetChartPreset(ChartPreset),
     SetChartInterval(ChartInterval),
+    SetChartGlyphMode(ChartGlyphMode),
     ShiftChartPreset(isize),
     ResetChartView,
     ToggleChartOverlays,
@@ -202,6 +203,20 @@ fn chart_interval_action(interval: ChartInterval) -> ActionSpec {
                 interval.label().to_ascii_uppercase()
             )),
             description: Cow::Borrowed("Override the selected history chart preset interval"),
+        }),
+    }
+}
+
+fn chart_glyph_mode_action(glyph_mode: ChartGlyphMode) -> ActionSpec {
+    ActionSpec {
+        id: Cow::Owned(format!("chart-glyph-{}", glyph_mode.label())),
+        action: ActionId::SetChartGlyphMode(glyph_mode),
+        command: Some(CommandPresentation {
+            title: Cow::Owned(format!(
+                "Chart glyph {}",
+                glyph_mode.label().to_ascii_uppercase()
+            )),
+            description: Cow::Borrowed("Switch the history chart terminal glyph rendering mode"),
         }),
     }
 }
@@ -487,6 +502,7 @@ pub static ACTION_REGISTRY: LazyLock<Vec<ActionSpec>> = LazyLock::new(|| {
     ];
     actions.extend(ChartPreset::ALL.map(chart_preset_action));
     actions.extend(ChartInterval::ALL.map(chart_interval_action));
+    actions.extend(ChartGlyphMode::ALL.map(chart_glyph_mode_action));
     actions.extend(panel_action_specs());
     actions.push(action!(
         "close-command-palette",
@@ -704,6 +720,20 @@ mod tests {
         assert_eq!(
             palette.selected_action(),
             Some(ActionId::SetChartInterval(ChartInterval::FifteenMinutes))
+        );
+    }
+
+    #[test]
+    fn command_palette_can_find_chart_glyph_actions() {
+        let mut palette = CommandPaletteState::default();
+
+        for character in "chart glyph readable".chars() {
+            palette.edit_query(InputRequest::InsertChar(character));
+        }
+
+        assert_eq!(
+            palette.selected_action(),
+            Some(ActionId::SetChartGlyphMode(ChartGlyphMode::Readable))
         );
     }
 

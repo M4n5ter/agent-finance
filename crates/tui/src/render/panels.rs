@@ -202,6 +202,7 @@ fn render_history(
         theme: &state.theme,
         hover,
         mode,
+        glyph_mode: state.chart.glyph_mode(),
         view: history::ChartView {
             window: state.chart.window(),
             cursor_bps: state.chart.cursor_bps(),

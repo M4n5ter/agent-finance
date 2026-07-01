@@ -353,6 +353,11 @@ fn history_summary_rows(
                 width,
                 mouse_target,
             )));
+            rows.push(HistorySummaryRow::Action(history_glyph_toolbar_line(
+                state,
+                width,
+                mouse_target,
+            )));
             if workbench {
                 for line in history_workbench_lines(snapshot, &state.chart, &state.theme) {
                     push_history_info_row(&mut rows, line);
@@ -477,6 +482,22 @@ fn history_interval_toolbar_line(
     render_panel_action_line(&line, &state.theme, Panel::History, mouse_target)
 }
 
+fn history_glyph_toolbar_line(
+    state: &AppState,
+    width: u16,
+    mouse_target: Option<MouseTarget>,
+) -> RenderedPanelActionLine {
+    let mut line = PanelActionLine::new(format!("glyph={}  ", state.chart.glyph_mode()), width);
+    for glyph_mode in crate::chart::ChartGlyphMode::ALL {
+        line.push_visible_action(
+            glyph_mode.action_label(),
+            ActionId::SetChartGlyphMode(glyph_mode),
+        );
+        line.push_visible_text(" ");
+    }
+    render_panel_action_line(&line, &state.theme, Panel::History, mouse_target)
+}
+
 fn history_workbench_lines(
     snapshot: &HistorySnapshot,
     chart: &crate::chart::ChartState,
@@ -539,13 +560,13 @@ fn history_workbench_lines(
             ohlc_warning
         )),
         Line::from(format!(
-            "{view}  {cursor}  h/l cursor  wheel/[ ]/drag zoom  0-6 preset  r refresh  z exit"
+            "{view}  {cursor}  h/l cursor  wheel/[ ]/drag zoom  0-6 preset  glyph toolbar  r refresh  z exit"
         )),
     ]
 }
 
 fn history_text_area_height(area: Rect, workbench: bool) -> usize {
-    let max = if workbench { 10 } else { 7 };
+    let max = if workbench { 11 } else { 8 };
     area.height.saturating_sub(2).min(max).into()
 }
 

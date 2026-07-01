@@ -254,6 +254,40 @@ impl fmt::Display for ChartInterval {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub enum ChartGlyphMode {
+    #[default]
+    Hybrid,
+    Precision,
+    Readable,
+}
+
+impl ChartGlyphMode {
+    pub const ALL: [Self; 3] = [Self::Hybrid, Self::Precision, Self::Readable];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Hybrid => "hybrid",
+            Self::Precision => "precision",
+            Self::Readable => "readable",
+        }
+    }
+
+    pub const fn action_label(self) -> &'static str {
+        match self {
+            Self::Hybrid => "[hybrid]",
+            Self::Precision => "[precision]",
+            Self::Readable => "[readable]",
+        }
+    }
+}
+
+impl fmt::Display for ChartGlyphMode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ChartHistoryRequest {
     pub range: String,
@@ -323,6 +357,7 @@ fn interval_minutes(interval: &str) -> Option<usize> {
 pub struct ChartState {
     preset: ChartPreset,
     interval: ChartInterval,
+    glyph_mode: ChartGlyphMode,
     window: ChartWindow,
     cursor_bps: Option<u16>,
     overlays_visible: bool,
@@ -340,6 +375,7 @@ impl ChartState {
         Self {
             preset,
             interval: ChartInterval::Auto,
+            glyph_mode: ChartGlyphMode::Hybrid,
             window: ChartWindow::FULL,
             cursor_bps: None,
             overlays_visible: true,
@@ -353,6 +389,10 @@ impl ChartState {
 
     pub const fn interval(&self) -> ChartInterval {
         self.interval
+    }
+
+    pub const fn glyph_mode(&self) -> ChartGlyphMode {
+        self.glyph_mode
     }
 
     pub fn request_for_provider(
@@ -435,6 +475,12 @@ impl ChartState {
         if changed {
             self.reset_view();
         }
+        changed
+    }
+
+    pub fn set_glyph_mode(&mut self, glyph_mode: ChartGlyphMode) -> bool {
+        let changed = self.glyph_mode != glyph_mode;
+        self.glyph_mode = glyph_mode;
         changed
     }
 

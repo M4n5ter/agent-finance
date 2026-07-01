@@ -335,6 +335,7 @@ fn history_chart_price_at(state: &AppState, panel_area: Rect, row: u16) -> Optio
             crate::history_chart::chart_price_at_row(
                 &snapshot.bars,
                 state.chart.window(),
+                state.chart.glyph_mode(),
                 chart_area,
                 row,
             )

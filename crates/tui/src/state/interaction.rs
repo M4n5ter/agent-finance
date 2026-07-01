@@ -71,6 +71,10 @@ impl AppState {
                 self.close_text_input_floatings();
                 self.reduce(Action::SetChartInterval(interval));
             }
+            ActionId::SetChartGlyphMode(glyph_mode) => {
+                self.close_text_input_floatings();
+                self.reduce(Action::SetChartGlyphMode(glyph_mode));
+            }
             ActionId::ShiftChartPreset(direction) => {
                 self.close_text_input_floatings();
                 self.reduce(Action::ShiftChartPreset(direction));

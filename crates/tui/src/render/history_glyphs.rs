@@ -1,7 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::style::Style;
 
-use crate::history_chart::PricePoint;
+use crate::history_chart::{CandleWickStyle, PricePoint};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct CandleShape {
@@ -16,13 +16,32 @@ pub(super) fn render_split_candle(
     wick_x: u16,
     body_x: u16,
     shape: CandleShape,
+    wick_style: CandleWickStyle,
     style: Style,
 ) {
-    render_vertical_segment(buffer, wick_x, shape.high, shape.low, wick_symbol, style);
-    render_vertical_segment(buffer, body_x, shape.open, shape.close, body_symbol, style);
+    match wick_style {
+        CandleWickStyle::StableCell => {
+            render_cell_segment(buffer, wick_x, shape.high, shape.low, "│", style);
+            render_vertical_segment(buffer, body_x, shape.open, shape.close, body_symbol, style);
+        }
+        CandleWickStyle::Subcell => {
+            render_vertical_segment(buffer, wick_x, shape.high, shape.low, wick_symbol, style);
+            render_vertical_segment(buffer, body_x, shape.open, shape.close, body_symbol, style);
+        }
+    }
 }
 
-pub(super) fn render_dense_candle(buffer: &mut Buffer, x: u16, shape: CandleShape, style: Style) {
+pub(super) fn render_dense_candle(
+    buffer: &mut Buffer,
+    x: u16,
+    shape: CandleShape,
+    wick_style: CandleWickStyle,
+    style: Style,
+) {
+    if wick_style == CandleWickStyle::StableCell {
+        render_readable_dense_candle(buffer, x, shape, style);
+        return;
+    }
     let wick = SegmentSlots::between(shape.high, shape.low);
     let body = SegmentSlots::between(shape.open, shape.close);
     let top_row = shape
@@ -51,9 +70,14 @@ pub(super) fn render_close_only_candle(
     marker_x: u16,
     shape: CandleShape,
     candle_width: u16,
+    wick_style: CandleWickStyle,
     style: Style,
 ) {
-    render_vertical_segment(buffer, wick_x, shape.high, shape.low, wick_symbol, style);
+    if wick_style == CandleWickStyle::StableCell {
+        render_cell_segment(buffer, wick_x, shape.high, shape.low, "│", style);
+    } else {
+        render_vertical_segment(buffer, wick_x, shape.high, shape.low, wick_symbol, style);
+    }
     buffer.set_string(
         marker_x,
         shape.close.row,
@@ -69,6 +93,39 @@ pub(super) fn close_only_symbol(candle_width: u16) -> &'static str {
 pub(super) fn volume_symbol(eighths: u8) -> &'static str {
     const SYMBOLS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
     SYMBOLS[usize::from(eighths.min(8))]
+}
+
+fn render_cell_segment(
+    buffer: &mut Buffer,
+    x: u16,
+    start: PricePoint,
+    end: PricePoint,
+    symbol: &str,
+    style: Style,
+) {
+    let top_row = start.row.min(end.row);
+    let bottom_row = start.row.max(end.row);
+    for row in top_row..=bottom_row {
+        buffer.set_string(x, row, symbol, style);
+    }
+}
+
+fn render_readable_dense_candle(buffer: &mut Buffer, x: u16, shape: CandleShape, style: Style) {
+    render_cell_segment(buffer, x, shape.high, shape.low, "│", style);
+    let body = SegmentSlots::between(shape.open, shape.close);
+    for row in shape.open.row.min(shape.close.row)..=shape.open.row.max(shape.close.row) {
+        let row_top = u32::from(row) * 4;
+        let mask = (0..4).fold(0u8, |mask, slot| {
+            if body.contains(row_top + slot) {
+                mask | (1 << slot)
+            } else {
+                mask
+            }
+        });
+        if mask != 0 {
+            buffer.set_string(x, row, body_symbol(mask), style);
+        }
+    }
 }
 
 fn render_vertical_segment(
@@ -180,4 +237,101 @@ fn wick_symbol(mask: u8) -> &'static str {
         " ", "⠁", "⠂", "⠃", "⠄", "⠅", "⠆", "⠇", "⡀", "⡁", "⡂", "⡃", "⡄", "⡅", "⡆", "⡇",
     ];
     SYMBOLS[usize::from(mask & 0b1111)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::history_chart::PriceBounds;
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn split_candle_separates_spike_wick_from_small_body() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 4));
+
+        render_split_candle(
+            &mut buffer,
+            2,
+            3,
+            candle_shape(100.0, 110.0, 90.0, 100.5),
+            CandleWickStyle::Subcell,
+            Style::default(),
+        );
+
+        assert_eq!(buffer[(2, 0)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 1)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 2)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 3)].symbol(), "⡇");
+        assert_eq!(buffer[(3, 1)].symbol(), "▁");
+        assert_eq!(buffer[(3, 2)].symbol(), "▔");
+    }
+
+    #[test]
+    fn readable_split_candle_uses_stable_wick_without_losing_body_shape() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 4));
+
+        render_split_candle(
+            &mut buffer,
+            2,
+            3,
+            candle_shape(100.0, 110.0, 90.0, 100.5),
+            CandleWickStyle::StableCell,
+            Style::default(),
+        );
+
+        assert_eq!(buffer[(2, 0)].symbol(), "│");
+        assert_eq!(buffer[(2, 1)].symbol(), "│");
+        assert_eq!(buffer[(2, 2)].symbol(), "│");
+        assert_eq!(buffer[(2, 3)].symbol(), "│");
+        assert_eq!(buffer[(3, 1)].symbol(), "▁");
+        assert_eq!(buffer[(3, 2)].symbol(), "▔");
+    }
+
+    #[test]
+    fn dense_candle_combines_wick_and_body_in_one_cell() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 4));
+
+        render_dense_candle(
+            &mut buffer,
+            2,
+            candle_shape(100.0, 110.0, 90.0, 105.0),
+            CandleWickStyle::Subcell,
+            Style::default(),
+        );
+
+        assert_eq!(buffer[(2, 0)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 1)].symbol(), "⣿");
+        assert_eq!(buffer[(2, 2)].symbol(), "⡏");
+        assert_eq!(buffer[(2, 3)].symbol(), "⡇");
+    }
+
+    #[test]
+    fn close_only_candle_keeps_intrabar_range_visible() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 4));
+
+        render_close_only_candle(
+            &mut buffer,
+            2,
+            3,
+            candle_shape(100.0, 110.0, 90.0, 100.0),
+            2,
+            CandleWickStyle::Subcell,
+            Style::default(),
+        );
+
+        assert_eq!(buffer[(2, 0)].symbol(), "⡇");
+        assert_eq!(buffer[(2, 3)].symbol(), "⡇");
+        assert_eq!(buffer[(3, 2)].symbol(), "◆");
+    }
+
+    fn candle_shape(open: f64, high: f64, low: f64, close: f64) -> CandleShape {
+        let bounds = PriceBounds::new(90.0, 110.0);
+        let area = Rect::new(0, 0, 4, 4);
+        CandleShape {
+            high: bounds.point(area, high),
+            low: bounds.point(area, low),
+            open: bounds.point(area, open),
+            close: bounds.point(area, close),
+        }
+    }
 }

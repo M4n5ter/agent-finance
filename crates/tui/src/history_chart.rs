@@ -1,8 +1,8 @@
 use agent_finance_market::history_snapshot::{HistoryBarSnapshot, HistorySnapshot};
 use ratatui::layout::Rect;
 
-use crate::chart::ChartWindow;
 use crate::chart::series::{CandleBucket, compressed_bars};
+use crate::chart::{ChartGlyphMode, ChartWindow};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ChartAreas {
@@ -135,6 +135,7 @@ impl PricePoint {
 pub(crate) fn chart_price_at_row(
     bars: &[HistoryBarSnapshot],
     window: ChartWindow,
+    glyph_mode: ChartGlyphMode,
     area: Rect,
     row: u16,
 ) -> Option<f64> {
@@ -146,7 +147,7 @@ pub(crate) fn chart_price_at_row(
         return None;
     }
     let visible = visible_bars(bars, window);
-    let buckets = compressed_bars(visible, bucket_capacity(area));
+    let buckets = compressed_bars(visible, bucket_capacity(area, glyph_mode));
     (!buckets.is_empty())
         .then(|| PriceBounds::from_buckets(&buckets).price_at_row(areas.price, row))
 }
@@ -231,8 +232,43 @@ pub(crate) fn chart_warnings(
     warnings
 }
 
-pub(crate) fn bucket_capacity(area: Rect) -> usize {
-    CandleLayout::for_area(area).bucket_capacity(area)
+pub(crate) fn bucket_capacity(area: Rect, glyph_mode: ChartGlyphMode) -> usize {
+    CandleRenderProfile::for_area(area, glyph_mode)
+        .layout
+        .bucket_capacity(area)
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) struct CandleRenderProfile {
+    pub(crate) layout: CandleLayout,
+    pub(crate) wick_style: CandleWickStyle,
+}
+
+impl CandleRenderProfile {
+    pub(crate) fn for_area(area: Rect, glyph_mode: ChartGlyphMode) -> Self {
+        match glyph_mode {
+            ChartGlyphMode::Precision => Self {
+                layout: CandleLayout::Dense,
+                wick_style: CandleWickStyle::Subcell,
+            },
+            ChartGlyphMode::Readable => Self {
+                layout: if area.width >= 32 {
+                    CandleLayout::Split
+                } else {
+                    CandleLayout::Dense
+                },
+                wick_style: CandleWickStyle::StableCell,
+            },
+            ChartGlyphMode::Hybrid => Self {
+                layout: if area.width >= 64 {
+                    CandleLayout::Split
+                } else {
+                    CandleLayout::Dense
+                },
+                wick_style: CandleWickStyle::Subcell,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -242,12 +278,9 @@ pub(crate) enum CandleLayout {
 }
 
 impl CandleLayout {
-    pub(crate) fn for_area(area: Rect) -> Self {
-        if area.width >= 64 {
-            Self::Split
-        } else {
-            Self::Dense
-        }
+    #[cfg(test)]
+    pub(crate) fn for_area(area: Rect, glyph_mode: ChartGlyphMode) -> Self {
+        CandleRenderProfile::for_area(area, glyph_mode).layout
     }
 
     pub(crate) const fn candle_width(self) -> u16 {
@@ -269,6 +302,12 @@ impl CandleLayout {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum CandleWickStyle {
+    Subcell,
+    StableCell,
+}
+
 pub(crate) fn volume_height(height: u16) -> u16 {
     match height {
         0..=7 => 0,
@@ -280,7 +319,7 @@ pub(crate) fn volume_height(height: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chart::{ChartPreset, ChartState};
+    use crate::chart::{ChartGlyphMode, ChartPreset, ChartState};
 
     #[test]
     fn chart_price_hit_test_maps_rows_to_visible_price_range() {
@@ -298,15 +337,18 @@ mod tests {
         }];
         let area = Rect::new(0, 0, 80, 20);
 
-        let top =
-            chart_price_at_row(&bars, ChartWindow::FULL, area, 0).expect("top row maps to price");
-        let bottom =
-            chart_price_at_row(&bars, ChartWindow::FULL, area, 14).expect("bottom maps to price");
+        let top = chart_price_at_row(&bars, ChartWindow::FULL, ChartGlyphMode::Hybrid, area, 0)
+            .expect("top row maps to price");
+        let bottom = chart_price_at_row(&bars, ChartWindow::FULL, ChartGlyphMode::Hybrid, area, 14)
+            .expect("bottom maps to price");
 
         assert!(top > bottom);
         assert!(top <= 111.0);
         assert!(bottom >= 89.0);
-        assert_eq!(chart_price_at_row(&bars, ChartWindow::FULL, area, 19), None);
+        assert_eq!(
+            chart_price_at_row(&bars, ChartWindow::FULL, ChartGlyphMode::Hybrid, area, 19),
+            None
+        );
     }
 
     #[test]
@@ -326,17 +368,32 @@ mod tests {
     }
 
     #[test]
-    fn candle_layout_switches_from_dense_to_split_at_chart_width_boundary() {
+    fn candle_layout_follows_glyph_mode_and_width() {
         let narrow = Rect::new(0, 0, 63, 20);
         let wide = Rect::new(0, 0, 64, 20);
 
-        assert_eq!(CandleLayout::for_area(narrow), CandleLayout::Dense);
-        assert_eq!(bucket_capacity(narrow), 63);
-        assert!(!CandleLayout::for_area(narrow).shows_overlays());
+        assert_eq!(
+            CandleLayout::for_area(narrow, ChartGlyphMode::Hybrid),
+            CandleLayout::Dense
+        );
+        assert_eq!(bucket_capacity(narrow, ChartGlyphMode::Hybrid), 63);
+        assert!(!CandleLayout::for_area(narrow, ChartGlyphMode::Hybrid).shows_overlays());
 
-        assert_eq!(CandleLayout::for_area(wide), CandleLayout::Split);
-        assert_eq!(bucket_capacity(wide), 32);
-        assert!(CandleLayout::for_area(wide).shows_overlays());
+        assert_eq!(
+            CandleLayout::for_area(wide, ChartGlyphMode::Hybrid),
+            CandleLayout::Split
+        );
+        assert_eq!(bucket_capacity(wide, ChartGlyphMode::Hybrid), 32);
+        assert!(CandleLayout::for_area(wide, ChartGlyphMode::Hybrid).shows_overlays());
+        assert_eq!(
+            CandleLayout::for_area(wide, ChartGlyphMode::Precision),
+            CandleLayout::Dense
+        );
+        assert_eq!(bucket_capacity(wide, ChartGlyphMode::Precision), 64);
+        assert_eq!(
+            CandleLayout::for_area(narrow, ChartGlyphMode::Readable),
+            CandleLayout::Split
+        );
     }
 
     #[test]

@@ -785,6 +785,30 @@ fn history_workbench_cursor_zoom_matches_snapshot_at_120x32() {
 }
 
 #[test]
+fn history_workbench_readable_glyph_matches_snapshot_at_120x32() {
+    let mut state = snapshot_state();
+    state.reduce(crate::state::Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(crate::state::Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
+    load_history_chart_overlays(&mut state);
+    state.reduce(crate::state::Action::Execute(ActionId::SetWorkspace(
+        WorkspaceKind::Market,
+    )));
+    state.reduce(crate::state::Action::Focus(Panel::History));
+    state.reduce(crate::state::Action::ToggleFocusedZoom);
+    state.reduce(crate::state::Action::SetChartGlyphMode(
+        crate::chart::ChartGlyphMode::Readable,
+    ));
+
+    assert_workspace_snapshot("history_workbench_readable_glyph_120x32", &state, 120, 32);
+}
+
+#[test]
 fn history_chart_warns_when_visible_data_is_close_only_or_partial() {
     let mut state = snapshot_state();
     let mut snapshot = history_snapshot("CRDO");

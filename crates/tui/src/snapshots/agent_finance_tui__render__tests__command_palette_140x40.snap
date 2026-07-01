@@ -1,6 +1,6 @@
 ---
 source: crates/tui/src/render/tests.rs
-assertion_line: 766
+assertion_line: 919
 expression: "render_to_text_grid(&state, 140, 40)"
 ---
 ┌Watchlist [fresh]─────────────────────────────┐┌Quote / Sessions [partial]────────────────────────────────────────────────────────────────┐
@@ -28,7 +28,7 @@ expression: "render_to_text_grid(&state, 140, 40)"
 │provi stat detail   │  Toggle profile risk - Show or hide profile validation and risk policy                         │▓                   │
 │auto  capa Default r│  Revalidate trading profile - Reload and validate the selected trading profile from disk       │▓                   │
 │yahoo capa Broadest │  Stage profile live toggle - Review a risk.allow_live change for the selected trading profile  │▓                   │
-│sec-e capa Official │  Previous symbol - Move watchlist selection to the previous symbol                             │▓                   │
+│sec-e capa Official │  Chart glyph HYBRID - Switch the history chart terminal glyph rendering mode                   │▓                   │
 │stooq capa Delayed q└────────────────────────────────────────────────────────────────────────────────────────────────┘▓                   │
 │cnbc- capa pre/post e▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                   │
 │cnbc  capa CNBC quote payload -               ││                                                                                          │

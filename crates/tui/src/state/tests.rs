@@ -1733,6 +1733,41 @@ fn chart_interval_override_is_session_state() {
 }
 
 #[test]
+fn chart_glyph_mode_is_session_state() {
+    let mut state = AppState::from_config(TuiConfig::default());
+    let previous_log_count = state.task_log.iter().count();
+
+    state.reduce(Action::SetChartGlyphMode(
+        crate::chart::ChartGlyphMode::Readable,
+    ));
+
+    assert_eq!(
+        state.chart.glyph_mode(),
+        crate::chart::ChartGlyphMode::Readable
+    );
+    assert_eq!(
+        state.export_config(&TuiConfig::default()).chart,
+        Default::default()
+    );
+    assert!(
+        state
+            .task_log
+            .iter()
+            .skip(previous_log_count)
+            .any(|entry| entry.status == TaskStatus::Info
+                && entry.message == "chart glyph changed from hybrid to readable")
+    );
+    assert!(
+        !state
+            .task_log
+            .iter()
+            .skip(previous_log_count)
+            .any(|entry| entry.message.contains("history refresh requested")),
+        "changing only the renderer mode should not fetch new market data"
+    );
+}
+
+#[test]
 fn chart_interval_override_rejects_provider_unsupported_interval() {
     let mut state = AppState::from_config(TuiConfig {
         providers: crate::config::ProviderConfig {

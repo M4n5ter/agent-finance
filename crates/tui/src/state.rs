@@ -8,7 +8,7 @@ use agent_finance_market::service;
 use agent_finance_market::snapshot::MarketSnapshot;
 
 use crate::account::AccountSnapshot;
-use crate::chart::{ChartInterval, ChartPreset, ChartState};
+use crate::chart::{ChartGlyphMode, ChartInterval, ChartPreset, ChartState};
 use crate::command::{ActionId, CommandPaletteState};
 use crate::config::{
     FloatingConfig, LayoutConfig, PanelConfig, ProviderConfig, TuiConfig, WorkspaceConfig,
@@ -918,6 +918,15 @@ impl AppState {
         self.request_symbol_data_refresh(SymbolTaskKind::History);
     }
 
+    fn set_chart_glyph_mode(&mut self, glyph_mode: ChartGlyphMode) {
+        let before = self.chart.glyph_mode();
+        if !self.chart.set_glyph_mode(glyph_mode) {
+            return;
+        }
+        self.task_log
+            .info(format!("chart glyph changed from {before} to {glyph_mode}"));
+    }
+
     fn stage_selected_open_order_cancel(&mut self) {
         let Some(profile) = self.trading_profile.clone() else {
             self.task_log
@@ -1095,6 +1104,7 @@ impl AppState {
             Action::RequestSymbolDataRefresh(kind) => self.request_symbol_data_refresh(kind),
             Action::SetChartPreset(preset) => self.set_chart_preset(preset),
             Action::SetChartInterval(interval) => self.set_chart_interval(interval),
+            Action::SetChartGlyphMode(glyph_mode) => self.set_chart_glyph_mode(glyph_mode),
             Action::ShiftChartPreset(direction) => self.shift_chart_preset(direction),
             Action::MoveChartCursor(direction) => self.chart.move_cursor(direction),
             Action::ZoomChartWindow(direction) => self.chart.zoom_window(direction),
@@ -1646,6 +1656,7 @@ pub enum Action {
     },
     SetChartPreset(ChartPreset),
     SetChartInterval(ChartInterval),
+    SetChartGlyphMode(ChartGlyphMode),
     ShiftChartPreset(isize),
     MoveChartCursor(isize),
     ZoomChartWindow(isize),
