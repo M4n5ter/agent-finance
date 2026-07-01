@@ -2272,7 +2272,18 @@ fn mouse_movement_tracks_read_only_panel_row_hover() {
 #[test]
 fn mouse_movement_over_history_chart_reports_chart_hover() {
     let area = Rect::new(0, 0, 120, 32);
-    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
     state.reduce(Action::Focus(Panel::History));
     let panel = layout::build(
         area,
@@ -2282,8 +2293,8 @@ fn mouse_movement_over_history_chart_reports_chart_hover() {
     )
     .panel_rect(Panel::History)
     .expect("history panel is visible");
-    let chart = crate::read_only_panel_view::history_chart_area(panel, false);
-    let position = MousePosition::new(chart.x + 2, chart.y + 1);
+    let chart = active_history_chart_area(&state, panel, false);
+    let position = MousePosition::new(chart.x + chart.width / 2, chart.y + 1);
     let mut drag = MouseDrag::default();
 
     handle_mouse_event(
@@ -2326,8 +2337,8 @@ fn mouse_click_on_history_chart_price_fills_order_ticket_without_staging() {
     )
     .panel_rect(Panel::History)
     .expect("history panel is visible");
-    let chart = crate::read_only_panel_view::history_chart_area(panel, false);
-    let click_position = MousePosition::new(chart.x + 2, chart.y + chart.height / 2);
+    let chart = active_history_chart_area(&state, panel, false);
+    let click_position = MousePosition::new(chart.x + chart.width / 2, chart.y + chart.height / 2);
     let mut drag = MouseDrag::default();
 
     handle_mouse_event(
@@ -2395,9 +2406,9 @@ fn mouse_drag_on_history_chart_selects_window_without_filling_order_ticket() {
     )
     .panel_rect(Panel::History)
     .expect("history panel is visible");
-    let chart = crate::read_only_panel_view::history_chart_area(panel, false);
-    let start = MousePosition::new(chart.x + chart.width / 5, chart.y + chart.height / 2);
-    let end = MousePosition::new(chart.x + chart.width * 4 / 5, start.row);
+    let chart = active_history_chart_area(&state, panel, false);
+    let start = MousePosition::new(chart.x, chart.y + chart.height / 2);
+    let end = MousePosition::new(chart.x + chart.width / 2, start.row);
     let mut drag = MouseDrag::default();
 
     handle_mouse_event(
@@ -2436,6 +2447,54 @@ fn mouse_drag_on_history_chart_selects_window_without_filling_order_ticket() {
 }
 
 #[test]
+fn mouse_down_on_sparse_history_chart_padding_does_not_start_chart_drag() {
+    let area = Rect::new(0, 0, 120, 32);
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
+    let panel = layout::build(
+        area,
+        &state.layout,
+        &state.floating,
+        &state.visible_panels(),
+    )
+    .panel_rect(Panel::History)
+    .expect("history panel is visible");
+    let full_chart = crate::read_only_panel_view::history_chart_area(panel, false);
+    let active_chart = active_history_chart_area(&state, panel, false);
+    assert!(full_chart.x < active_chart.x);
+    let padding_position = MousePosition::new(
+        full_chart.x.saturating_add(1),
+        active_chart.y + active_chart.height / 2,
+    );
+    let mut drag = MouseDrag::default();
+
+    handle_mouse_event(
+        area,
+        &mut state,
+        &mut drag,
+        mouse_event(
+            MouseEventKind::Down(MouseButton::Left),
+            padding_position.column,
+            padding_position.row,
+        ),
+    );
+
+    assert_eq!(drag, MouseDrag::default());
+    assert_eq!(state.order_ticket.price_text(), None);
+    assert_eq!(state.staged_change_count(), 0);
+}
+
+#[test]
 fn mouse_tiny_drag_on_zoomed_history_chart_keeps_click_semantics() {
     let area = Rect::new(0, 0, 120, 32);
     let mut state = AppState::from_config(crate::config::TuiConfig {
@@ -2463,9 +2522,9 @@ fn mouse_tiny_drag_on_zoomed_history_chart_keeps_click_semantics() {
     )
     .panel_rect(Panel::History)
     .expect("history panel is visible");
-    let chart = crate::read_only_panel_view::history_chart_area(panel, false);
+    let chart = active_history_chart_area(&state, panel, false);
     let start = MousePosition::new(chart.x + chart.width / 2, chart.y + chart.height / 2);
-    let end = MousePosition::new(start.column + 1, start.row);
+    let end = start;
     let mut drag = MouseDrag::default();
 
     handle_mouse_event(
@@ -2554,7 +2613,18 @@ fn mouse_click_on_history_volume_row_does_not_fill_order_ticket() {
 #[test]
 fn mouse_movement_over_zoomed_history_chart_uses_workbench_area() {
     let area = Rect::new(0, 0, 120, 32);
-    let mut state = AppState::from_config(crate::config::TuiConfig::default());
+    let mut state = AppState::from_config(crate::config::TuiConfig {
+        watchlist: vec!["CRDO".to_string()],
+        ..crate::config::TuiConfig::default()
+    });
+    state.reduce(Action::HistoryStarted {
+        generation: 1,
+        symbol: "CRDO".to_string(),
+    });
+    state.reduce(Action::HistoryLoaded {
+        generation: 1,
+        snapshot: history_snapshot("CRDO"),
+    });
     state.reduce(Action::Focus(Panel::History));
     state.reduce(Action::ToggleFocusedZoom);
     let panel = layout::build(
@@ -2565,23 +2635,22 @@ fn mouse_movement_over_zoomed_history_chart_uses_workbench_area() {
     )
     .panel_rect(Panel::History)
     .expect("zoomed history panel is visible");
-    let chart = crate::read_only_panel_view::history_chart_area(panel, true);
+    let chart = active_history_chart_area(&state, panel, true);
+    let position = MousePosition::new(chart.x + chart.width / 2, chart.y + 4);
     let mut drag = MouseDrag::default();
 
     handle_mouse_event(
         area,
         &mut state,
         &mut drag,
-        mouse_event(MouseEventKind::Moved, chart.x + 4, chart.y + 4),
+        mouse_event(MouseEventKind::Moved, position.column, position.row),
     );
 
     assert_eq!(
         current_mouse_target(area, &state),
         Some(MouseTarget::PanelAction {
             panel: Panel::History,
-            action: PanelMouseAction::InspectChart {
-                position: MousePosition::new(chart.x + 4, chart.y + 4),
-            },
+            action: PanelMouseAction::InspectChart { position },
         })
     );
 }
@@ -2939,6 +3008,22 @@ fn history_snapshot(symbol: &str) -> HistorySnapshot {
         ],
         errors: Vec::new(),
     }
+}
+
+fn active_history_chart_area(state: &AppState, panel: Rect, workbench: bool) -> Rect {
+    let chart = crate::read_only_panel_view::history_chart_area(panel, workbench);
+    let symbol = state.selected_symbol().expect("selected symbol");
+    let snapshot = state
+        .history
+        .selected_snapshot(symbol)
+        .expect("history snapshot");
+    crate::history_chart::active_bucket_area_for_bars(
+        &snapshot.bars,
+        state.chart.window(),
+        state.chart.glyph_mode(),
+        chart,
+    )
+    .expect("history chart has active bars")
 }
 
 fn history_bar(

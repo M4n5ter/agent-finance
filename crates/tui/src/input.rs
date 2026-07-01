@@ -332,7 +332,13 @@ fn history_chart_bps_at(
     {
         return None;
     }
-    crate::history_chart::chart_bps_at_column(chart_area, window, mouse.column)
+    let active_area = crate::history_chart::active_bucket_area_for_bars(
+        &snapshot.bars,
+        window,
+        state.chart.glyph_mode(),
+        chart_area,
+    )?;
+    crate::history_chart::chart_bps_at_column(active_area, window, mouse.column)
 }
 
 #[cfg(test)]

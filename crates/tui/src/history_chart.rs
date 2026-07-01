@@ -170,6 +170,34 @@ pub(crate) fn chart_bps_at_column(area: Rect, window: ChartWindow, column: u16) 
     )
 }
 
+pub(crate) fn bucket_active_area(
+    area: Rect,
+    bucket_count: usize,
+    glyph_mode: ChartGlyphMode,
+) -> Rect {
+    let render_profile = CandleRenderProfile::for_area(area, glyph_mode);
+    let used_width = u16::try_from(bucket_count.max(1))
+        .unwrap_or(u16::MAX)
+        .saturating_mul(render_profile.layout.candle_width())
+        .min(area.width);
+    Rect {
+        x: area.x.saturating_add(area.width.saturating_sub(used_width)),
+        width: used_width,
+        ..area
+    }
+}
+
+pub(crate) fn active_bucket_area_for_bars(
+    bars: &[HistoryBarSnapshot],
+    window: ChartWindow,
+    glyph_mode: ChartGlyphMode,
+    area: Rect,
+) -> Option<Rect> {
+    let visible = visible_bars(bars, window);
+    let buckets = compressed_bars(visible, bucket_capacity(area, glyph_mode));
+    (!buckets.is_empty()).then(|| bucket_active_area(area, buckets.len(), glyph_mode))
+}
+
 pub(crate) fn visible_bars(
     bars: &[HistoryBarSnapshot],
     window: ChartWindow,

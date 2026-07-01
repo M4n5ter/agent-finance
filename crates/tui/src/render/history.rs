@@ -8,8 +8,8 @@ use crate::chart::series::{CandleBucket, compressed_bars, moving_average, vwap};
 use crate::chart::{ChartGlyphMode, ChartWindow};
 use crate::chart_overlay::{ChartOverlayKind, ChartOverlayLine};
 use crate::history_chart::{
-    CandleLayout, CandleRenderProfile, ChartAreas, ChartWarning, PriceBounds, bucket_capacity,
-    visible_bars,
+    CandleLayout, CandleRenderProfile, ChartAreas, ChartWarning, PriceBounds, bucket_active_area,
+    bucket_capacity, visible_bars,
 };
 use crate::mouse_target::MousePosition;
 use crate::theme::ThemeConfig;
@@ -119,7 +119,7 @@ impl Widget for CandlestickChart<'_> {
             props.theme,
         );
         render_price_labels(buffer, areas.price, bounds, props.theme);
-        render_time_labels(buffer, areas.time, &buckets, props.theme);
+        render_time_labels(buffer, areas.time, &buckets, geometry, props.theme);
         render_workbench_legend(buffer, area, &buckets, props.mode, props.theme);
         render_cursor(
             buffer,
@@ -148,14 +148,21 @@ struct ChartGeometry {
     area: Rect,
     bucket_count: usize,
     render_profile: CandleRenderProfile,
+    start_x: u16,
+    active_width: u16,
 }
 
 impl ChartGeometry {
     fn for_buckets(area: Rect, bucket_count: usize, glyph_mode: ChartGlyphMode) -> Self {
+        let render_profile = CandleRenderProfile::for_area(area, glyph_mode);
+        let bucket_count = bucket_count.max(1);
+        let active_area = bucket_active_area(area, bucket_count, glyph_mode);
         Self {
             area,
-            bucket_count: bucket_count.max(1),
-            render_profile: CandleRenderProfile::for_area(area, glyph_mode),
+            bucket_count,
+            render_profile,
+            start_x: active_area.x,
+            active_width: active_area.width,
         }
     }
 
@@ -163,13 +170,10 @@ impl ChartGeometry {
         if index >= self.bucket_count {
             return None;
         }
-        let offset = if self.bucket_count <= 1 || self.area.width <= 1 {
-            self.area.width / 2
-        } else {
-            ((index as u32 * u32::from(self.area.width - 1)) / (self.bucket_count - 1) as u32)
-                as u16
-        };
-        let x = self.area.x.checked_add(offset)?;
+        let offset = u16::try_from(index)
+            .ok()?
+            .checked_mul(self.render_profile.layout.candle_width())?;
+        let x = self.start_x.checked_add(offset)?;
         (x < self.area.right()).then_some(x)
     }
 
@@ -191,13 +195,25 @@ impl ChartGeometry {
         if column < self.area.x || column >= self.area.right() {
             return None;
         }
-        if self.bucket_count <= 1 || self.area.width <= 1 {
-            return Some(0);
+        if column < self.start_x {
+            return None;
         }
-        let offset = u32::from(column - self.area.x);
-        let width = u32::from(self.area.width - 1);
-        let index = (offset * (self.bucket_count - 1) as u32 + width / 2) / width;
-        Some(index as usize)
+        let offset = column - self.start_x;
+        let index = usize::from(offset / self.render_profile.layout.candle_width());
+        (index < self.bucket_count).then_some(index)
+    }
+
+    fn active_area(self, area: Rect) -> Rect {
+        let start = self.start_x.max(area.x);
+        let end = self
+            .start_x
+            .saturating_add(self.active_width)
+            .min(area.right());
+        Rect {
+            x: start,
+            width: end.saturating_sub(start),
+            ..area
+        }
     }
 }
 
@@ -589,8 +605,13 @@ fn render_time_labels(
     buffer: &mut Buffer,
     area: Rect,
     buckets: &[CandleBucket],
+    geometry: ChartGeometry,
     theme: &ThemeConfig,
 ) {
+    let area = geometry.active_area(area);
+    if area.width == 0 {
+        return;
+    }
     if let Some(first) = buckets.first() {
         write_left_clipped(buffer, area, &first.open_time, theme.muted_style());
     }
@@ -821,6 +842,8 @@ mod tests {
                 layout: CandleLayout::Dense,
                 wick_style: crate::history_chart::CandleWickStyle::Subcell,
             },
+            start_x: 0,
+            active_width: 4,
         };
 
         render_volume(
@@ -853,10 +876,10 @@ mod tests {
         );
 
         assert_eq!(buffer[(0, 3)].symbol(), "▄");
-        assert_eq!(buffer[(3, 0)].symbol(), "█");
-        assert_eq!(buffer[(3, 1)].symbol(), "█");
-        assert_eq!(buffer[(3, 2)].symbol(), "█");
-        assert_eq!(buffer[(3, 3)].symbol(), "█");
+        assert_eq!(buffer[(1, 0)].symbol(), "█");
+        assert_eq!(buffer[(1, 1)].symbol(), "█");
+        assert_eq!(buffer[(1, 2)].symbol(), "█");
+        assert_eq!(buffer[(1, 3)].symbol(), "█");
     }
 
     #[test]
@@ -870,6 +893,8 @@ mod tests {
                 layout: CandleLayout::Split,
                 wick_style: crate::history_chart::CandleWickStyle::Subcell,
             },
+            start_x: 2,
+            active_width: 4,
         };
 
         render_volume(
@@ -895,6 +920,100 @@ mod tests {
         assert_eq!(buffer[(3, 1)].symbol(), "█");
         assert_eq!(buffer[(2, 2)].symbol(), "█");
         assert_eq!(buffer[(3, 2)].symbol(), "█");
+    }
+
+    #[test]
+    fn sparse_split_candles_keep_fixed_footprint_and_latest_at_right_edge() {
+        let area = Rect::new(0, 0, 32, 4);
+        let geometry = ChartGeometry::for_buckets(area, 3, ChartGlyphMode::Readable);
+
+        assert_eq!(geometry.active_area(area), Rect::new(26, 0, 6, 4));
+        assert_eq!(geometry.wick_x(0), Some(26));
+        assert_eq!(geometry.body_x(0), Some(27));
+        assert_eq!(geometry.wick_x(1), Some(28));
+        assert_eq!(geometry.body_x(1), Some(29));
+        assert_eq!(geometry.wick_x(2), Some(30));
+        assert_eq!(geometry.body_x(2), Some(31));
+        assert_eq!(geometry.bucket_index_at(25), None);
+        assert_eq!(geometry.bucket_index_at(26), Some(0));
+        assert_eq!(geometry.bucket_index_at(27), Some(0));
+        assert_eq!(geometry.bucket_index_at(31), Some(2));
+    }
+
+    #[test]
+    fn full_capacity_geometry_uses_the_whole_chart_without_padding() {
+        let dense = ChartGeometry::for_buckets(Rect::new(4, 0, 8, 3), 8, ChartGlyphMode::Precision);
+        assert_eq!(
+            dense.active_area(Rect::new(4, 0, 8, 3)),
+            Rect::new(4, 0, 8, 3)
+        );
+        assert_eq!(dense.wick_x(0), Some(4));
+        assert_eq!(dense.body_x(7), Some(11));
+        assert_eq!(dense.bucket_index_at(4), Some(0));
+        assert_eq!(dense.bucket_index_at(11), Some(7));
+
+        let split =
+            ChartGeometry::for_buckets(Rect::new(2, 0, 33, 3), 16, ChartGlyphMode::Readable);
+        assert_eq!(
+            split.active_area(Rect::new(2, 0, 33, 3)),
+            Rect::new(3, 0, 32, 3)
+        );
+        assert_eq!(split.bucket_index_at(2), None);
+        assert_eq!(split.wick_x(0), Some(3));
+        assert_eq!(split.body_x(0), Some(4));
+        assert_eq!(split.wick_x(15), Some(33));
+        assert_eq!(split.body_x(15), Some(34));
+        assert_eq!(split.bucket_index_at(34), Some(15));
+    }
+
+    #[test]
+    fn sparse_time_labels_align_to_active_candle_range() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 32, 1));
+        let area = Rect::new(0, 0, 32, 1);
+        let geometry = ChartGeometry::for_buckets(area, 3, ChartGlyphMode::Readable);
+        let buckets = [
+            CandleBucket {
+                open_time: "A".to_string(),
+                close_time: Some("B".to_string()),
+                open: 100.0,
+                high: 101.0,
+                low: 99.0,
+                close: 100.5,
+                volume: Some(10.0),
+                close_only: false,
+            },
+            CandleBucket {
+                open_time: "B".to_string(),
+                close_time: Some("C".to_string()),
+                open: 100.5,
+                high: 102.0,
+                low: 100.0,
+                close: 101.5,
+                volume: Some(20.0),
+                close_only: false,
+            },
+            CandleBucket {
+                open_time: "C".to_string(),
+                close_time: Some("Z".to_string()),
+                open: 101.5,
+                high: 103.0,
+                low: 101.0,
+                close: 102.5,
+                volume: Some(30.0),
+                close_only: false,
+            },
+        ];
+
+        render_time_labels(
+            &mut buffer,
+            area,
+            &buckets,
+            geometry,
+            &ThemeConfig::default(),
+        );
+
+        assert_eq!(&row_text(&buffer, 0)[..26], "                          ");
+        assert_eq!(&row_text(&buffer, 0)[26..], "A    Z");
     }
 
     #[test]

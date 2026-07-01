@@ -312,17 +312,28 @@ fn history_hit_at(state: &AppState, area: Rect, column: u16, row: u16) -> Option
         return Some(PanelHit::from_panel_action(action));
     }
     let workbench = crate::read_only_panel_view::history_workbench_active(state);
-    if rect_contains(
-        crate::read_only_panel_view::history_chart_area(area, workbench),
-        column,
-        row,
-    ) {
+    if let Some(hit_area) = history_chart_hit_area(state, area, workbench)
+        && rect_contains(hit_area, column, row)
+    {
         return Some(PanelHit::ChartPoint {
             position: MousePosition::new(column, row),
         });
     }
     crate::read_only_panel_view::info_row_at_content_row(state, Panel::History, area, content_row)
         .map(PanelHit::InfoRow)
+}
+
+fn history_chart_hit_area(state: &AppState, panel_area: Rect, workbench: bool) -> Option<Rect> {
+    let chart_area = crate::read_only_panel_view::history_chart_area(panel_area, workbench);
+    let snapshot = state
+        .selected_symbol()
+        .and_then(|symbol| state.history.selected_snapshot(symbol))?;
+    crate::history_chart::active_bucket_area_for_bars(
+        &snapshot.bars,
+        state.chart.window(),
+        state.chart.glyph_mode(),
+        chart_area,
+    )
 }
 
 fn history_chart_price_at(state: &AppState, panel_area: Rect, row: u16) -> Option<f64> {
