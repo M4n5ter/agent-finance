@@ -530,22 +530,37 @@ fn render_volume(
         let Some(volume) = bucket.volume else {
             continue;
         };
-        let Some(x) = geometry.body_x(index) else {
-            break;
-        };
         let total_slots = u32::from(area.height) * 8;
         let height = ((volume / max_volume) * f64::from(total_slots)).ceil() as u32;
         let height = height.max(1).min(total_slots);
         let style = candle_style(bucket, theme);
-        let full_rows = height / 8;
-        let partial = (height % 8) as u8;
-        for offset in 0..full_rows.min(u32::from(area.height)) {
-            buffer.set_string(x, area.y + area.height - 1 - offset as u16, "█", style);
+        for x in volume_columns(geometry, index, area) {
+            render_volume_bar(buffer, area, x, height, style);
         }
-        if partial > 0 && full_rows < u32::from(area.height) {
-            let row = area.y + area.height - 1 - full_rows as u16;
-            buffer.set_string(x, row, volume_symbol(partial), style);
+    }
+}
+
+fn volume_columns(geometry: ChartGeometry, index: usize, area: Rect) -> impl Iterator<Item = u16> {
+    let columns = match (geometry.wick_x(index), geometry.body_x(index)) {
+        (Some(wick_x), Some(body_x)) => {
+            let start = wick_x.min(body_x);
+            let end = wick_x.max(body_x).min(area.right().saturating_sub(1));
+            [Some(start), (end != start).then_some(end)]
         }
+        _ => [None, None],
+    };
+    columns.into_iter().flatten()
+}
+
+fn render_volume_bar(buffer: &mut Buffer, area: Rect, x: u16, height: u32, style: Style) {
+    let full_rows = height / 8;
+    let partial = (height % 8) as u8;
+    for offset in 0..full_rows.min(u32::from(area.height)) {
+        buffer.set_string(x, area.y + area.height - 1 - offset as u16, "█", style);
+    }
+    if partial > 0 && full_rows < u32::from(area.height) {
+        let row = area.y + area.height - 1 - full_rows as u16;
+        buffer.set_string(x, row, volume_symbol(partial), style);
     }
 }
 
@@ -842,6 +857,44 @@ mod tests {
         assert_eq!(buffer[(3, 1)].symbol(), "█");
         assert_eq!(buffer[(3, 2)].symbol(), "█");
         assert_eq!(buffer[(3, 3)].symbol(), "█");
+    }
+
+    #[test]
+    fn split_volume_uses_the_same_horizontal_footprint_as_the_candle() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 5, 3));
+        let area = Rect::new(0, 0, 5, 3);
+        let geometry = ChartGeometry {
+            area,
+            bucket_count: 1,
+            render_profile: CandleRenderProfile {
+                layout: CandleLayout::Split,
+                wick_style: crate::history_chart::CandleWickStyle::Subcell,
+            },
+        };
+
+        render_volume(
+            &mut buffer,
+            area,
+            &[CandleBucket {
+                open_time: "09:30".to_string(),
+                close_time: Some("09:35".to_string()),
+                open: 100.0,
+                high: 100.0,
+                low: 100.0,
+                close: 101.0,
+                volume: Some(100.0),
+                close_only: false,
+            }],
+            geometry,
+            &ThemeConfig::default(),
+        );
+
+        assert_eq!(buffer[(2, 0)].symbol(), "█");
+        assert_eq!(buffer[(3, 0)].symbol(), "█");
+        assert_eq!(buffer[(2, 1)].symbol(), "█");
+        assert_eq!(buffer[(3, 1)].symbol(), "█");
+        assert_eq!(buffer[(2, 2)].symbol(), "█");
+        assert_eq!(buffer[(3, 2)].symbol(), "█");
     }
 
     #[test]

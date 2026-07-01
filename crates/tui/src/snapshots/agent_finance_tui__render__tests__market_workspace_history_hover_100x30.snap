@@ -1,6 +1,5 @@
 ---
 source: crates/tui/src/render/tests.rs
-assertion_line: 1345
 expression: "render_to_text_grid(state, width, height)"
 ---
 ┌Watchlist [fresh]───────────────┐┌Quote / Sessions [partial]──────────────────────────────────────┐
@@ -28,8 +27,8 @@ expression: "render_to_text_grid(state, width, height)"
 └────────────────────────────────┘│11:30-11:40 O103.12 H106.85                      ⡇              │
 ┌Task Log [fresh]────────────────┐│L94.7200 C103.70 V36.57K chg +0.56%                             │
 │status     event                ││test regular 5d 5m @09:30:00                               93.80│
-│succeeded  CRDO history loaded  ││   ▁  ▁  ▂ ▂  ▃  ▄  ▄ ▅  ▅  ▆  ▇ ▇  █  █    ▁  ▁  ▂  ▃ ▃  ▄  ▅ ▅│
-│                                ││ █ █  █  █ █  █  █  █ █  █  █  █ █  █  █  █ █  █  █  █ █  █  █ █│
+│succeeded  CRDO history loaded  ││  ▁▁ ▁▁ ▂▂▂▂ ▃▃ ▄▄ ▄▄▅▅ ▅▅ ▆▆ ▇▇▇▇ ██ ██   ▁▁ ▁▁ ▂▂ ▃▃▃▃ ▄▄ ▅▅ ▅│
+│                                ││████ ██ ████ ██ ██ ████ ██ ██ ████ ██ ██ ████ ██ ██ ████ ██ ██ █│
 │                                ││9:30                             ┊                         13:30│
 └────────────────────────────────┘└────────────────────────────────────────────────────────────────┘
  Market | Trade | Account | Research | Settings  CRDO | mode: normal | live:off | dry-run | ready
